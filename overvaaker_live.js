@@ -34,10 +34,10 @@ function kjorOvrvaker() {
         REPETER_INTERVALL_MIN: 60,        // Send ny SMS hver X min etter f\u00f8rste
 
         // --- Etterlysning mot transport\u00f8r (fiktive verdier - juster etter behov) ---
-        ETTERLYSE_TUR_MIN: 10,            // Etterlyse etter X min forsinkelse p\u00e5 TUR
-        ETTERLYSE_TUR_SPOT_MIN: 15,       // Etterlyse etter X min forsinkelse p\u00e5 SPOT-TUR
-        ETTERLYSE_RETUR_MIN: 20,          // Etterlyse etter X min forsinkelse p\u00e5 RETUR
-        ETTERLYSE_REPETER_MIN: 15,        // Ny etterlysning (snooze) hvert X min etter EPT
+        ETTERLYSE_TUR_MIN: 5,            // Etterlyse etter X min forsinkelse p\u00e5 TUR
+        ETTERLYSE_TUR_SPOT_MIN: 25,       // Etterlyse etter X min forsinkelse p\u00e5 SPOT-TUR
+        ETTERLYSE_RETUR_MIN: 45,          // Etterlyse etter X min forsinkelse p\u00e5 RETUR
+        ETTERLYSE_REPETER_MIN: 5,        // Ny etterlysning (snooze) hvert X min etter EPT
 
         // --- Visning ---
         VIS_TUR_FRA_MIN: 0,               // Vis TUR i listen fra passert hentetidspunkt
@@ -2988,12 +2988,13 @@ function kjorOvrvaker() {
                 const turIdVis = ressurs.turId || ressurs.resId;
                 const turIdLink = `<a href="https://pastrans-sorost.mq.nhn.no/administrasjon/admin/searchStatus?id=${turIdVis}" target="_blank" onclick="event.stopPropagation()" style="color:#9ca3af; text-decoration:none; font-size:${headerSize}; font-weight:400;" onmouseover="this.style.color='#3b82f6';this.style.textDecoration='underline'" onmouseout="this.style.color='#9ca3af';this.style.textDecoration='none'">${turIdVis}</a>` +
                     `<span onclick="event.stopPropagation();navigator.clipboard.writeText('${turIdVis}');this.textContent='\u2705';setTimeout(function(){this.textContent='\ud83d\udccb'}.bind(this),1000);" style="cursor:pointer;margin-left:3px;font-size:${headerSize};opacity:0.5;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'" title="Kopier ${turIdVis}">\ud83d\udccb</span>`;
+                const oppslaaLink = transportorKort ? `<a href="https://www.1881.no/bedrift/?query=${encodeURIComponent(ressurs.transportor || transportorKort)}" target="_blank" onclick="event.stopPropagation()" style="color:#9ca3af; text-decoration:none; font-size:${headerSize}; margin-left:4px;" onmouseover="this.style.color='#3b82f6'" onmouseout="this.style.color='#9ca3af'" title="Søk på 1881.no">\ud83d\udd0d</a>` : '';
                 if (ressurs.loyveTur && transportorKort) {
-                    headerTittel = `<span style="font-weight:600; font-size:${headerSize}; color:#374151;">\ud83d\ude97 ${transportorKort} - ${ressurs.loyveTur}</span> ${turIdLink}`;
+                    headerTittel = `<span style="font-weight:600; font-size:${headerSize}; color:#374151;">\ud83d\ude97 ${transportorKort} - ${ressurs.loyveTur}</span>${oppslaaLink} ${turIdLink}`;
                 } else if (ressurs.loyveTur) {
                     headerTittel = `<span style="font-weight:600; font-size:${headerSize}; color:#374151;">\ud83d\ude97 ${ressurs.loyveTur}</span> ${turIdLink}`;
                 } else if (transportorKort) {
-                    headerTittel = `<span style="font-weight:600; font-size:${headerSize}; color:#374151;">\ud83d\ude97 ${transportorKort}</span> ${turIdLink}`;
+                    headerTittel = `<span style="font-weight:600; font-size:${headerSize}; color:#374151;">\ud83d\ude97 ${transportorKort}</span>${oppslaaLink} ${turIdLink}`;
                 } else {
                     headerTittel = `<span style="font-size:${headerSize}; color:#64748b;">TUR: ${turIdVis}</span>` +
                         `<span onclick="event.stopPropagation();navigator.clipboard.writeText('${turIdVis}');this.textContent='\u2705';setTimeout(function(){this.textContent='\ud83d\udccb'}.bind(this),1000);" style="cursor:pointer;margin-left:3px;font-size:${headerSize};opacity:0.5;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'" title="Kopier ${turIdVis}">\ud83d\udccb</span>`;
