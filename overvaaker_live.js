@@ -1,4 +1,4 @@
-// === OVERV\u00c5KER LIVE v6.0.10 (snippet) ===
+// === OVERV\u00c5KER LIVE v6.0.11 (snippet) ===
 
 // <option class="form" value="18105">Overvåker 1, OT, CT, OTB, TR, FT</option>
 // <option class="form" value="18106">Overvåker 2, NT, OTB, Taxus</option>
@@ -8,7 +8,7 @@
 function kjorOvrvaker() {
     if (window._ovrvakerAktiv) { console.log("Overv\u00e5ker Live kj\u00f8rer allerede"); return; }
     window._ovrvakerAktiv = true;
-    console.log("Overv\u00e5ker Live v6.0.10 startet");
+    console.log("Overv\u00e5ker Live v6.0.11 startet");
 
     // \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
     // \u2551  OVERV\u00c5KER LIVE                                                    \u2551
@@ -17,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.0.10';
+    const VERSJON_FULL = '6.0.11';
     const TITTEL = `Overv\u00e5ker Live v${VERSJON_FULL}`;
     const VERSJON = VERSJON_FULL;
     
@@ -2523,7 +2523,9 @@ function kjorOvrvaker() {
             
             let knappHtml = '';
             if (k.manglerTelefon) {
-                knappHtml = `<span style="font-size:${infoSize}; color:#dc3545; font-weight:600;">\ud83d\udcf5 Mangler tlf</span>`;
+                const sokNavn1881 = encodeURIComponent(k.navn || '');
+                knappHtml = `<span style="font-size:${infoSize}; color:#dc3545; font-weight:600;">\ud83d\udcf5 Mangler tlf</span>` +
+                    (k.navn ? ` <a href="https://www.1881.no/?query=${sokNavn1881}" target="_blank" onclick="event.stopPropagation()" style="color:#9ca3af; text-decoration:none; font-size:${infoSize}; margin-left:4px;" onmouseover="this.style.color='#3b82f6'" onmouseout="this.style.color='#9ca3af'" title="Søk på 1881.no">🔍</a>` : '');
             } else if (k.kanSendeSms) {
                 const knappTekst = k.alleredeSendt ? 'NY SMS' : 'SMS';
                 knappHtml = `<button class="btn btn-simuler" style="font-size:${knappSize}; padding:6px 12px;" onclick="event.stopPropagation(); window._popupChannel.postMessage({type:'SMS_PREVIEW', smsId:'${k.smsId}', reqId:'${k.reqId}', resId:'${k.resId}', telefon:'${k.telefon}', alleTelefoner:'${(k.alleTelefoner || []).join(',')}', navn:'${k.navn.replace(/'/g, "\\'")}', forsinkelse:${k.forsinkelse}, erTur:${k.erTur}, smsRunde:${k.smsRunde}})">${knappTekst}</button>`;
