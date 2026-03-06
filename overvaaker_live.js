@@ -1,4 +1,4 @@
-// === OVERV\u00c5KER LIVE v6.0.9 (snippet) ===
+// === OVERV\u00c5KER LIVE v6.0.10 (snippet) ===
 
 // <option class="form" value="18105">Overvåker 1, OT, CT, OTB, TR, FT</option>
 // <option class="form" value="18106">Overvåker 2, NT, OTB, Taxus</option>
@@ -8,7 +8,7 @@
 function kjorOvrvaker() {
     if (window._ovrvakerAktiv) { console.log("Overv\u00e5ker Live kj\u00f8rer allerede"); return; }
     window._ovrvakerAktiv = true;
-    console.log("Overv\u00e5ker Live v6.0.9 startet");
+    console.log("Overv\u00e5ker Live v6.0.10 startet");
 
     // \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
     // \u2551  OVERV\u00c5KER LIVE                                                    \u2551
@@ -17,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.0.9';
+    const VERSJON_FULL = '6.0.10';
     const TITTEL = `Overv\u00e5ker Live v${VERSJON_FULL}`;
     const VERSJON = VERSJON_FULL;
     
