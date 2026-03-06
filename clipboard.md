@@ -11,7 +11,7 @@ javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts
 
 ### Overvaker Live
 ```
-javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts@main/overvaaker_live.js').then(r=>r.text()).then(t=>eval(t));})();
+javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts@v6.0.10/overvaaker_live.js').then(r=>r.text()).then(t=>eval(t));})();
 ```
 
 ---
