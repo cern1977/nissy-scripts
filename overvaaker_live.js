@@ -2867,9 +2867,6 @@ function kjorOvrvaker() {
                                     <button onclick="event.stopPropagation(); window._popupChannel.postMessage({type:'ENDRE_STATUS', reqId:'${k.reqId}', nyStatus:'Finner ikke tlf'}); this.closest('.pas-meny-dropdown').style.display='none';" style="display:block; width:100%; text-align:left; background:none; border:none; padding:7px 12px; cursor:pointer; font-size:${infoSize}; color:#334155;">Finner ikke telefonnummer</button>
                                     ${k.manglerTelefon ? `
                                     <div style="border-top:1px solid #e5e7eb; margin:4px 0;"></div>
-                                    <a href="https://www.1881.no/?query=${encodeURIComponent(k.navn + ' ' + (k.folkregPoststed || ''))}" target="_blank" onclick="event.stopPropagation(); this.closest('.pas-meny-dropdown').style.display='none';" style="display:block; padding:7px 12px; font-size:${infoSize}; color:#dc3545; text-decoration:none; cursor:pointer;">1881 \u2014 navn + adresse</a>
-                                    <a href="https://www.1881.no/?query=${encodeURIComponent(k.navn)}" target="_blank" onclick="event.stopPropagation(); this.closest('.pas-meny-dropdown').style.display='none';" style="display:block; padding:7px 12px; font-size:${infoSize}; color:#dc3545; text-decoration:none; cursor:pointer;">1881 \u2014 bare navn</a>
-                                    <a href="https://www.google.com/search?q=${encodeURIComponent(k.navn)}" target="_blank" onclick="event.stopPropagation(); this.closest('.pas-meny-dropdown').style.display='none';" style="display:block; padding:7px 12px; font-size:${infoSize}; color:#4285f4; text-decoration:none; cursor:pointer;">Google \u2014 s\u00f8k navn</a>
                                     ` : ''}
                                 </div>
                             </div>
@@ -2888,9 +2885,6 @@ function kjorOvrvaker() {
                             if (!k.telefon && (!k.alleNumreMedKilde || k.alleNumreMedKilde.length === 0)) {
                                 return `<span style="display:flex; gap:6px; align-items:center;">` +
                                     `<span style="color:#dc3545;">\ud83d\udcf5 Mangler mob \u2014</span>` +
-                                    `<a href="https://www.1881.no/?query=${encodeURIComponent(k.navn + ' ' + (k.folkregPoststed || ''))}" target="_blank" onclick="event.stopPropagation()" style="color:#dc3545; text-decoration:none;" title="1881 med navn og adresse"><u>1881</u></a>` +
-                                    `<a href="https://www.1881.no/?query=${encodeURIComponent(k.navn)}" target="_blank" onclick="event.stopPropagation()" style="color:#dc3545; text-decoration:none;" title="1881 med bare navn"><u>1881\u270b</u></a>` +
-                                    `<a href="https://www.google.com/search?q=${encodeURIComponent(k.navn)}" target="_blank" onclick="event.stopPropagation()" style="color:#4285f4; text-decoration:none;" title="Google med navn"><u>Google</u></a>` +
                                     `</span>`;
                             }
                             let html = '';
@@ -2904,9 +2898,6 @@ function kjorOvrvaker() {
                             return html;
                         })()}
                         ${smsLoggBadges}
-                        <a href="https://www.1881.no/?query=${encodeURIComponent(k.navn + ' ' + (k.folkregPoststed || ''))}" target="_blank" onclick="event.stopPropagation()" style="color:#6b7280; text-decoration:none; font-size:${badgeSize};" title="1881 med navn og adresse"><u>1881</u></a>
-                        <a href="https://www.1881.no/?query=${encodeURIComponent(k.navn)}" target="_blank" onclick="event.stopPropagation()" style="color:#6b7280; text-decoration:none; font-size:${badgeSize};" title="1881 med bare navn"><u>1881\u270b</u></a>
-                        <a href="https://www.google.com/search?q=${encodeURIComponent(k.navn)}" target="_blank" onclick="event.stopPropagation()" style="color:#4285f4; text-decoration:none; font-size:${badgeSize};" title="Google med navn"><u>Google</u></a>
                         <button onclick="event.stopPropagation(); window._popupChannel.postMessage({type:'VIS_REQ', reqId:'${k.reqId}', nissyReqId:'${k.nissyReqId || ''}', nissyTripId:'${k.nissyTripId || ''}', erSok:${!!k.erSok}})"
                                 style="background:#3b82f6; color:white; border:none; padding:2px 6px; border-radius:3px; font-size:${badgeSize}; cursor:pointer;">\ud83d\udccb</button>
                     </div>
