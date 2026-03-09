@@ -1,24 +1,24 @@
 # NISSY Clipboard
 
-## Bookmarklets (jsDelivr - omgår brannmur)
+## Bookmarklets (GitHub API - alltid siste versjon)
 
 Kopier hele linjen og legg til som bokmerke i Edge (URL-feltet).
 
 ### Overvaker Avvik
 ```
-javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts@avvik-v38.0.69/overvaaker_avvik.js').then(r=>r.text()).then(t=>eval(t));})();
+javascript:(function(){fetch('https://api.github.com/repos/cern1977/nissy-scripts/contents/overvaaker_avvik.js',{headers:{'Accept':'application/vnd.github.raw'}}).then(r=>r.text()).then(t=>eval(t));})();
 ```
 
 ### Overvaker Live
 ```
-javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts@v6.0.11/overvaaker_live.js').then(r=>r.text()).then(t=>eval(t));})();
+javascript:(function(){fetch('https://api.github.com/repos/cern1977/nissy-scripts/contents/overvaaker_live.js',{headers:{'Accept':'application/vnd.github.raw'}}).then(r=>r.text()).then(t=>eval(t));})();
 ```
 
 ---
 
-## Rollback - Overvaker Avvik (v38.0.68 - fast versjon, gist)
+## Rollback - Overvaker Avvik (v38.0.68 - fast versjon, jsDelivr)
 ```
-javascript:(function(){fetch('https://gist.githubusercontent.com/cern1977/e5755e6c28c611e1311445cffac00823/raw/0056f4ee3f29986a67fd67070f0d77a9d61eb08d/overvaaker_avvik.js').then(r=>r.text()).then(t=>eval(t));})();
+javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts@avvik-v38.0.68/overvaaker_avvik.js').then(r=>r.text()).then(t=>eval(t));})();
 ```
 
 ---
