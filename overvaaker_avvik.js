@@ -2064,7 +2064,7 @@
                 <div class="card-actions">
                     ${!f.kmInfo ? `<button class="btn-nissy" id="btnKm-${f.reqId}" onclick="window._avvikCh.postMessage({type:'BEREGN_KM', reqId:'${f.reqId}', resId:'${f.resId || ''}'})">&#128207; Beregn km</button>` : ''}
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'adresse', adresse:'${esc(f.tilAdrTekst || f.fraAdrTekst || '')}' })">GODKJENN</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'adresse', henteAdr:'${esc(henteAdr)}', leverAdr:'${esc(leverAdr)}', henteNavn:'${esc(henteNavn)}', leverNavn:'${esc(leverNavn)}', folkAdr:'${esc(folkVis.replace(/<br>/g, ", "))}' })">GODKJENN</button>
                     <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(rekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (harAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(harAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(harAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(harAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
                 </div>
             </div>`;
@@ -2113,7 +2113,7 @@
                 </div>
                 <div class="card-actions">
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'kommune', adresse:'${esc(f.destNavn || '')}' })">GODKJENN</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'kommune', destNavn:'${esc(f.destNavn || '')}', pasientKommune:'${esc(f.pasientKommune || '')}', destKommune:'${esc(f.behandlingsstedKommune || '')}', henteAdr:'${esc(kFraAdr || fraVis)}', leverAdr:'${esc(kTilAdr || tilVis)}' })">GODKJENN</button>
                     <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(kRekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (kHarAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(kHarAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(kHarAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(kHarAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
                 </div>
             </div>`;
@@ -2258,16 +2258,18 @@
             <div id="gkModal" class="gk-modal">
                 <div class="gk-modal-inner">
                     <h3>&#9989; Hva vil du godkjenne?</h3>
-                    <div class="gk-adr" id="gkAdrTekst"></div>
+                    <div id="gkInfoBoks" style="font-size:12px; color:#334155; margin-bottom:16px; padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px;"></div>
                     <div class="gk-valg">
                         <button class="gk-btn-session" id="gkBtnSession">&#128336; Kun denne runden (ikke lagret)</button>
                         <button class="gk-btn-adresse" id="gkBtnAdresse">&#128205; Lagre adresse permanent</button>
+                        <div style="font-size:11px; color:#64748b; margin:-6px 0 0 8px;" id="gkAdrForklaring"></div>
                         <div>
                             <button class="gk-btn-ord" id="gkBtnOrd">&#128269; Lagre søkeord permanent</button>
                             <div class="gk-ord-rad" id="gkOrdRad" style="display:none; margin-top:8px;">
                                 <input type="text" id="gkOrdInput" placeholder="f.eks. slattum" />
                                 <button class="btn-nissy" id="gkOrdLagreBtn">Lagre</button>
                             </div>
+                            <div style="font-size:11px; color:#64748b; margin:4px 0 0 8px;" id="gkOrdForklaring"></div>
                         </div>
                     </div>
                     <div class="gk-status" id="gkStatus"></div>
@@ -2392,14 +2394,16 @@
                 });
                 document.getElementById('gkBtnAdresse').addEventListener('click', function() {
                     if (!gkPendingData) return;
-                    document.getElementById('gkStatus').textContent = 'Lagrer...';
-                    window._avvikCh.postMessage({type:'GODKJENN_LAGRE_ADR', reqId:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, adresse:gkPendingData.adresse});
+                    var adr = (gkPendingData.adresse || '').toLowerCase().split(',')[0].trim();
+                    if (!adr) { document.getElementById('gkStatus').textContent = 'Ingen adresse å lagre'; return; }
+                    document.getElementById('gkStatus').textContent = 'Lagrer "' + adr + '"...';
+                    window._avvikCh.postMessage({type:'GODKJENN_LAGRE_ADR', reqId:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, adresse:adr});
                 });
                 document.getElementById('gkBtnOrd').addEventListener('click', function() {
                     var rad = document.getElementById('gkOrdRad');
                     rad.style.display = rad.style.display === 'none' ? 'flex' : 'none';
                     if (rad.style.display === 'flex') {
-                        var forslag = (gkPendingData && gkPendingData.adresse || '').split(/[\s,]+/).filter(w => w.length > 4).pop() || '';
+                        var forslag = (gkPendingData && gkPendingData.adresse || '').toLowerCase().split(/[\s,]+/).filter(function(w) { return w.length > 3 && !/^\d+$/.test(w); }).pop() || '';
                         document.getElementById('gkOrdInput').value = forslag;
                         document.getElementById('gkOrdInput').focus();
                     }
@@ -2412,7 +2416,28 @@
                 });
                 window._gkSetPending = function(data) {
                     gkPendingData = data;
-                    document.getElementById('gkAdrTekst').textContent = data.adresse || '(ingen adresse)';
+                    var info = document.getElementById('gkInfoBoks');
+                    var adrForkl = document.getElementById('gkAdrForklaring');
+                    var ordForkl = document.getElementById('gkOrdForklaring');
+                    if (data.kortType === 'adresse') {
+                        info.innerHTML = '<div style="margin-bottom:4px;"><strong>Adresseavvik</strong></div>' +
+                            '<div>Hentested: <strong>' + (data.henteAdr || '?') + '</strong></div>' +
+                            '<div>Leveringssted: <strong>' + (data.leverAdr || '?') + '</strong></div>' +
+                            (data.folkAdr ? '<div style="margin-top:4px;">Folkereg: ' + data.folkAdr + '</div>' : '');
+                        var bestAdr = data.leverAdr || data.henteAdr || '';
+                        data.adresse = bestAdr;
+                        adrForkl.textContent = 'Lagrer: "' + bestAdr.toLowerCase().split(',')[0].trim() + '"';
+                    } else if (data.kortType === 'kommune') {
+                        info.innerHTML = '<div style="margin-bottom:4px;"><strong>Kommunegrense</strong></div>' +
+                            '<div>' + (data.pasientKommune || '?') + ' &rarr; ' + (data.destKommune || '?') + '</div>' +
+                            '<div style="margin-top:4px;">Destinasjon: <strong>' + (data.destNavn || '?') + '</strong></div>' +
+                            '<div>Hentested: ' + (data.henteAdr || '?') + '</div>' +
+                            '<div>Leveringssted: ' + (data.leverAdr || '?') + '</div>';
+                        data.adresse = data.destNavn || data.leverAdr || '';
+                        adrForkl.textContent = 'Lagrer: "' + (data.adresse || '').toLowerCase().split(',')[0].trim() + '"';
+                    }
+                    var forslag = (data.adresse || '').toLowerCase().split(/[\s,]+/).filter(function(w) { return w.length > 3 && !/^\d+$/.test(w); }).pop() || '';
+                    ordForkl.textContent = forslag ? 'Forslag: "' + forslag + '"' : '';
                     document.getElementById('gkStatus').textContent = '';
                     document.getElementById('gkOrdRad').style.display = 'none';
                     gkModal.classList.add('show');
