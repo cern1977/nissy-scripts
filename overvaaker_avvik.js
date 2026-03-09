@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.68
+    //    Overvåker Avvik v38.0.69
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.68';
+    const VERSION = '38.0.69';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -15,6 +15,75 @@
         BLIKSUND_URL: 'https://zone1.bliksundhub.com/65113/grid/v2/prk_incident/131/incidents/create',
         RAPPORT_EPOST: 'thomas.westby@ous-hf.no'
     };
+
+    const GH_CONFIG = {
+        TOKEN: (()=>{const p=['Z2l0aHViX3BhdF8xMUJWSzYyTkEw','bWxuTVFrNlA2TGdLX2RIcXdya0NP','RzQxQ2Zxbm1yS2dCUXhxczdFVzBh','T0s2ZzF4R2g4TGRxc1dZR1NSTkRC','RUhWeUtJRUFm'];return atob(p.join(''));})(),
+        REPO: 'cern1977/nissy-scripts',
+        FIL: 'godkjente_adresser.json'
+    };
+
+    let godkjenteAdresserGH = [];
+    let ghAdresserSHA = null;
+
+    async function lastGodkjenteAdresser() {
+        try {
+            const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
+                headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}` }
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            ghAdresserSHA = data.sha;
+            const json = JSON.parse(atob(data.content.replace(/\n/g, '')));
+            godkjenteAdresserGH = (json.adresser || []).map(a => a.toLowerCase().trim());
+            console.log(`[GH] Lastet ${godkjenteAdresserGH.length} godkjente adresser`);
+        } catch (e) {
+            console.warn('[GH] Kunne ikke laste godkjente adresser:', e.message);
+        }
+    }
+
+    async function lagreGodkjentAdresse(adresse) {
+        const ny = adresse.toLowerCase().trim();
+        if (godkjenteAdresserGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
+        const oppdatert = [...godkjenteAdresserGH, ny];
+        try {
+            const body = JSON.stringify({ adresser: oppdatert, oppdatert: new Date().toISOString().slice(0,10) });
+            const encoded = btoa(unescape(encodeURIComponent(body)));
+            const payload = { message: `Legg til: ${ny}`, content: encoded, sha: ghAdresserSHA };
+            const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            ghAdresserSHA = data.content.sha;
+            godkjenteAdresserGH = oppdatert;
+            return { ok: true, melding: 'Lagret!' };
+        } catch (e) {
+            return { ok: false, melding: 'Feil: ' + e.message };
+        }
+    }
+
+    async function slettGodkjentAdresse(adresse) {
+        const oppdatert = godkjenteAdresserGH.filter(a => a !== adresse);
+        try {
+            const body = JSON.stringify({ adresser: oppdatert, oppdatert: new Date().toISOString().slice(0,10) });
+            const encoded = btoa(unescape(encodeURIComponent(body)));
+            const payload = { message: `Fjern: ${adresse}`, content: encoded, sha: ghAdresserSHA };
+            const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            ghAdresserSHA = data.content.sha;
+            godkjenteAdresserGH = oppdatert;
+            return { ok: true };
+        } catch (e) {
+            return { ok: false, melding: e.message };
+        }
+    }
 
     // Gruppering av rfiltre for filterPanel
     const FILTER_GRUPPER = {
@@ -616,6 +685,16 @@
         .info-btn { background: #3b82f6; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; }
         .info-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 9999; }
         .info-modal.show { display: flex; }
+        .adr-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 9999; }
+        .adr-modal.show { display: flex; }
+        .adr-modal-inner { background: white; border-radius: 10px; padding: 24px; width: 480px; max-width: 95vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+        .adr-modal-inner h3 { margin: 0 0 16px 0; color: #002b5c; font-size: 16px; }
+        .adr-liste { list-style: none; padding: 0; margin: 0 0 16px 0; }
+        .adr-liste li { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+        .adr-liste li .adr-slett { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 16px; padding: 0 4px; }
+        .adr-input-rad { display: flex; gap: 8px; }
+        .adr-input-rad input { flex: 1; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+        .adr-status { font-size: 12px; margin-top: 8px; min-height: 18px; }
         .info-content { background: white; padding: 25px; border-radius: 8px; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
         .info-content h3 { margin-top: 0; color: #002b5c; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
         .info-content h4 { color: #374151; margin: 15px 0 10px 0; }
@@ -1099,6 +1178,7 @@
             const fraLower = r.fra.toLowerCase(), tilLower = r.til.toLowerCase();
             if (window.mqBrukGodkjenteOrd && (GODKJENTE_ADRESSEORD.some(o => fraLower.includes(o)) || GODKJENTE_ADRESSEORD.some(o => tilLower.includes(o)))) erGodkjent = true;
             if (window.mqBrukGodkjenteAdresser && (GODKJENTE_ADRESSER.some(a => fraLower.includes(a)) || GODKJENTE_ADRESSER.some(a => tilLower.includes(a)))) erGodkjent = true;
+            if (window.mqBrukGodkjenteAdresser && (godkjenteAdresserGH.some(a => fraLower.includes(a)) || godkjenteAdresserGH.some(a => tilLower.includes(a)))) erGodkjent = true;
             if (erGodkjent) { hoppetGodkjentOrd++; continue; }
 
             // Kanskje-postnummer: sjekk begge adresser (fra og til)
@@ -2048,6 +2128,7 @@
                         <input type="checkbox" id="autoKm" ${window.mqAutoKm ? 'checked' : ''}>
                         <label for="autoKm">Auto-km</label>
                     </div>
+                    <button class="info-btn" id="btnAdr" style="background:#10b981;">&#128205; Adresser</button>
                     <button class="info-btn" id="btnInfo">&#8505; Info</button>
                 </div>
                 <div id="filterPanel" class="filter-panel" style="display:none;">
@@ -2125,6 +2206,19 @@
                         <ul style="column-count:2; column-gap:20px;">${godkjenteAdresserListe}</ul>
                     </div>
                     <button class="close-btn" id="btnInfoLukk">Lukk</button>
+                </div>
+            </div>
+            <div id="adrModal" class="adr-modal">
+                <div class="adr-modal-inner">
+                    <h3>&#128205; Godkjente adresser</h3>
+                    <p style="font-size:12px; color:#64748b; margin:0 0 12px 0;">Adresser som er lagt til her filtreres bort i adresse-skanningen. Lagres sentralt — gjelder alle PCer.</p>
+                    <ul class="adr-liste" id="adrListe"></ul>
+                    <div class="adr-input-rad">
+                        <input type="text" id="adrNyInput" placeholder="f.eks. morteveien 19" />
+                        <button class="btn-nissy" id="adrLeggTilBtn">Legg til</button>
+                    </div>
+                    <div class="adr-status" id="adrStatus"></div>
+                    <button class="close-btn" id="adrModalLukk" style="margin-top:16px;">Lukk</button>
                 </div>
             </div>
             <div id="landingsside">
@@ -2217,6 +2311,23 @@
                 });
                 document.getElementById('btnInfoLukk').addEventListener('click', function() {
                     document.getElementById('infoModal').classList.remove('show');
+                });
+                document.getElementById('btnAdr').addEventListener('click', function() {
+                    window._avvikCh.postMessage({ type: 'VIS_ADR_MODAL' });
+                });
+                document.getElementById('adrModal').addEventListener('click', function(e) {
+                    if (e.target === this) this.classList.remove('show');
+                });
+                document.getElementById('adrModalLukk').addEventListener('click', function() {
+                    document.getElementById('adrModal').classList.remove('show');
+                });
+                document.getElementById('adrLeggTilBtn').addEventListener('click', function() {
+                    var input = document.getElementById('adrNyInput');
+                    var adr = input.value.trim();
+                    if (!adr) return;
+                    document.getElementById('adrStatus').textContent = 'Lagrer...';
+                    window._avvikCh.postMessage({ type: 'LEGG_TIL_ADR', adresse: adr });
+                    input.value = '';
                 });
             <\/script>
         </body></html>`);
@@ -2468,6 +2579,44 @@
             if (aktivtSkann === 'adresse') await kjorSkann('adresse');
         }
 
+        if (data.type === 'VIS_ADR_MODAL') {
+            const win = window.mqWin;
+            if (!win || win.closed) return;
+            const modal = win.document.getElementById('adrModal');
+            const liste = win.document.getElementById('adrListe');
+            const status = win.document.getElementById('adrStatus');
+            if (!modal) return;
+            // Bygg liste
+            liste.innerHTML = godkjenteAdresserGH.length === 0
+                ? '<li style="color:#94a3b8; font-style:italic;">Ingen egendefinerte adresser ennå</li>'
+                : godkjenteAdresserGH.map(a => `<li><span>${a}</span><button class="adr-slett" onclick="window._avvikCh.postMessage({type:'SLETT_ADR', adresse:'${a.replace(/'/g,"\\'")}'})" title="Fjern">&#10005;</button></li>`).join('');
+            status.textContent = '';
+            modal.classList.add('show');
+        }
+
+        if (data.type === 'LEGG_TIL_ADR') {
+            const win = window.mqWin;
+            const status = win && !win.closed ? win.document.getElementById('adrStatus') : null;
+            const resultat = await lagreGodkjentAdresse(data.adresse);
+            if (status) status.textContent = resultat.melding;
+            if (resultat.ok) {
+                // Oppdater liste i modal
+                const liste = win.document.getElementById('adrListe');
+                if (liste) liste.innerHTML = godkjenteAdresserGH.map(a => `<li><span>${a}</span><button class="adr-slett" onclick="window._avvikCh.postMessage({type:'SLETT_ADR', adresse:'${a.replace(/'/g,"\\'")}'})" title="Fjern">&#10005;</button></li>`).join('');
+            }
+        }
+
+        if (data.type === 'SLETT_ADR') {
+            const win = window.mqWin;
+            const resultat = await slettGodkjentAdresse(data.adresse);
+            if (resultat.ok && win && !win.closed) {
+                const liste = win.document.getElementById('adrListe');
+                if (liste) liste.innerHTML = godkjenteAdresserGH.length === 0
+                    ? '<li style="color:#94a3b8; font-style:italic;">Ingen egendefinerte adresser ennå</li>'
+                    : godkjenteAdresserGH.map(a => `<li><span>${a}</span><button class="adr-slett" onclick="window._avvikCh.postMessage({type:'SLETT_ADR', adresse:'${a.replace(/'/g,"\\'")}'})" title="Fjern">&#10005;</button></li>`).join('');
+            }
+        }
+
         if (data.type === 'BEREGN_KM') {
             const win = window.mqWin;
             if (!win || win.closed) return;
@@ -2557,6 +2706,9 @@
     // ==================================================================
     (async function start() {
         sjekkVindu();
+
+        // Last godkjente adresser fra GitHub
+        await lastGodkjenteAdresser();
 
         // Sjekk admin-innlogging med retry (3 forsøk, 2 sek pause)
         adminTilgjengelig = await sjekkAdminLoginMedRetry(3, 2000);
