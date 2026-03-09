@@ -6,7 +6,7 @@ Kopier hele linjen og legg til som bokmerke i Edge (URL-feltet).
 
 ### Overvaker Avvik
 ```
-javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts@avvik-v38.0.68/overvaaker_avvik.js').then(r=>r.text()).then(t=>eval(t));})();
+javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts@avvik-v38.0.69/overvaaker_avvik.js').then(r=>r.text()).then(t=>eval(t));})();
 ```
 
 ### Overvaker Live
