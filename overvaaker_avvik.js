@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.73
+    //    Overvåker Avvik v38.0.74
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.73';
+    const VERSION = '38.0.74';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -2401,10 +2401,8 @@
                     var rad = document.getElementById('gkAdrRad');
                     rad.style.display = rad.style.display === 'none' ? 'flex' : 'none';
                     if (rad.style.display === 'flex') {
-                        var forslag = (gkPendingData.adresse || '').toLowerCase().split(',')[0].trim();
-                        document.getElementById('gkAdrInput').value = forslag;
+                        document.getElementById('gkAdrInput').value = '';
                         document.getElementById('gkAdrInput').focus();
-                        document.getElementById('gkAdrInput').select();
                     }
                 });
                 document.getElementById('gkAdrLagreBtn').addEventListener('click', function() {
@@ -2417,8 +2415,7 @@
                     var rad = document.getElementById('gkOrdRad');
                     rad.style.display = rad.style.display === 'none' ? 'flex' : 'none';
                     if (rad.style.display === 'flex') {
-                        var forslag = (gkPendingData && gkPendingData.adresse || '').toLowerCase().split(/[\s,]+/).filter(function(w) { return w.length > 3 && !/^\d+$/.test(w); }).pop() || '';
-                        document.getElementById('gkOrdInput').value = forslag;
+                        document.getElementById('gkOrdInput').value = '';
                         document.getElementById('gkOrdInput').focus();
                     }
                 });
