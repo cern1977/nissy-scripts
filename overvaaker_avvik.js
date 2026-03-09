@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.65
+    //    Overvåker Avvik v38.0.68
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.65';
+    const VERSION = '38.0.68';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -298,7 +298,8 @@
             const henteIdx = html.indexOf('Hentested');
             const leverIdx = html.indexOf('Leveringssted');
 
-            // Hentested (navn + fra-adresse) — mellom Hentested og Leveringssted
+            // Hentested (navn + fra-adresse + kommentar) — mellom Hentested og Leveringssted
+            let fraKommentar = '';
             if (henteIdx > -1) {
                 const henteEnd = leverIdx > henteIdx ? leverIdx : html.indexOf('</fieldset>', henteIdx);
                 const hb = html.substring(henteIdx, henteEnd > henteIdx ? henteEnd : undefined);
@@ -308,9 +309,12 @@
                 const postM = hb.match(/Postnr\s*\/?\s*Sted:<\/td>\s*<td[^>]*>\s*([^<]+)/i);
                 if (adrM) fraAdr = adrM[1].trim();
                 if (postM) fraAdr += ', ' + postM[1].trim();
+                const komM = hb.match(/Kommentar:<\/td>\s*<td[^>]*>\s*([^<]+)/i);
+                if (komM && komM[1].trim()) fraKommentar = komM[1].trim();
             }
 
-            // Leveringssted (navn + til-adresse) — fra Leveringssted og utover
+            // Leveringssted (navn + til-adresse + kommentar) — fra Leveringssted og utover
+            let tilKommentar = '';
             if (leverIdx > -1) {
                 const leverEnd = html.indexOf('</fieldset>', leverIdx);
                 const lb = html.substring(leverIdx, leverEnd > leverIdx ? leverEnd : undefined);
@@ -320,6 +324,8 @@
                 const postM = lb.match(/Postnr\s*\/?\s*Sted:<\/td>\s*<td[^>]*>\s*([^<]+)/i);
                 if (adrM) tilAdr = adrM[1].trim();
                 if (postM) tilAdr += ', ' + postM[1].trim();
+                const komM = lb.match(/Kommentar:<\/td>\s*<td[^>]*>\s*([^<]+)/i);
+                if (komM && komM[1].trim()) tilKommentar = komM[1].trim();
             }
 
             // Retning (Til / Fra behandling)
@@ -342,7 +348,7 @@
             const sistEndretBruker = sistEndretM ? sistEndretM[1].trim() : '';
 
             console.log(`[ADMIN] RID=${reqId}: rek=${rekNr} rekv="${rekvirent}" folk="${folkAdr.substring(0,50)}" fraNavn="${fraNavn}" fra="${fraAdr.substring(0,50)}" tilNavn="${tilNavn}" til="${tilAdr.substring(0,50)}" erTur=${erTur}`);
-            return { fra: fraAdr, til: tilAdr, folk: folkAdr, fraNavn, tilNavn, erTur, rekNr, rekvirent, bestiller, ansvarligRekvirent, sistEndretBruker, pasientNavn, pnr, meldTransport, meldPasReise };
+            return { fra: fraAdr, til: tilAdr, folk: folkAdr, fraNavn, tilNavn, fraKommentar, tilKommentar, erTur, rekNr, rekvirent, bestiller, ansvarligRekvirent, sistEndretBruker, pasientNavn, pnr, meldTransport, meldPasReise };
         } catch (e) {
             console.warn(`[ADMIN] Feil ved henting av RID=${reqId}:`, e.message);
             return null;
@@ -494,17 +500,33 @@
     console.log(`[*] Godkjent fra localStorage: ${godkjentIMinne.size} stk`, [...godkjentIMinne]);
 
     // Skriv merknad på reise i NISSY (synlig for alle brukere)
-    function settMerknad(reqId, tekst) {
+    // Leser eksisterende kommentar først, appender ny tekst med ' | ' separator
+    async function settMerknad(resId, tekst) {
+        if (!resId) return;
         try {
-            const url = `ajax-dispatch?update=false&action=setResourceComment&rid=${reqId}&comment=${encodeURIComponent(tekst)}`;
-            console.log(`[MERKNAD] Setter "${tekst}" på RID=${reqId}`);
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', url, true);
-            xhr.onload = () => console.log(`[MERKNAD] OK: RID=${reqId}, status=${xhr.status}`);
-            xhr.onerror = () => console.warn(`[MERKNAD] Feil: RID=${reqId}`);
-            xhr.send();
+            // 1. Les eksisterende kommentar
+            const showUrl = `ajax-dispatch?action=showreq&rid=${resId}`;
+            const showXhr = await xhrRequest(showUrl, { timeout: 10000 });
+            let eksisterende = '';
+            const m = showXhr.responseText.match(/<textarea[^>]*name="comment"[^>]*>([\s\S]*?)<\/textarea>/i);
+            if (m) eksisterende = m[1].trim();
+
+            // 2. Sjekk duplikat
+            if (eksisterende.includes(tekst)) {
+                console.log(`[MERKNAD] "${tekst}" finnes allerede på resId=${resId}`);
+                return;
+            }
+
+            // 3. Bygg ny kommentar (append)
+            const nyKommentar = eksisterende ? eksisterende + ' | ' + tekst : tekst;
+
+            // 4. Skriv
+            const url = `ajax-dispatch?action=setResourceComment&rid=${resId}&comment=${encodeURIComponent(nyKommentar)}`;
+            console.log(`[MERKNAD] Skriver "${nyKommentar}" på resId=${resId}`);
+            const xhr = await xhrRequest(url, { timeout: 10000 });
+            console.log(`[MERKNAD] OK: resId=${resId}, status=${xhr.status}`);
         } catch (e) {
-            console.warn('[MERKNAD] Feil:', e.message);
+            console.warn(`[MERKNAD] Feil på resId=${resId}:`, e.message);
         }
     }
 
@@ -774,25 +796,55 @@
             if (idx.rmate < 0) manglendeKolonner.add('RMÅTE');
 
             d.querySelectorAll('tbody tr[name]').forEach(tr => {
-                const reqIdMatch = tr.innerHTML.match(/showReq\(this,\s*(\d+)/);
-                if (!reqIdMatch) return;
-                const reqId = reqIdMatch[1];
+                const alleReqIdMatches = [...tr.innerHTML.matchAll(/showReq\(this,\s*(\d+)/g)];
+                if (alleReqIdMatches.length === 0) return;
+                const alleReqIds = alleReqIdMatches.map(m => m[1]);
                 const trName = tr.getAttribute('name');
-                const resId = (trName && trName !== reqId) ? trName : null;
+                const resId = (trName && trName !== alleReqIds[0]) ? trName : null;
+                const turid = resId ? (turidMap[resId] || null) : null;
+                const erSamkjoring = alleReqIds.length > 1;
 
+                // Hjelpefunksjoner for å lese celledata
+                const divs = (i) => i >= 0 && tr.cells[i] ? tr.cells[i].querySelectorAll('div') : [];
                 const txt = (i) => i >= 0 && tr.cells[i] ? tr.cells[i].textContent.trim() : '';
                 const htm = (i) => i >= 0 && tr.cells[i] ? tr.cells[i].innerHTML : '';
-                const erSamkjoring = idx.start >= 0 && tr.cells[idx.start]?.querySelectorAll('div').length > 0;
 
-                // Rek.nr. fra Pågående-raden
+                // For samkjøring på pågående: splitt til individuelle reiser
+                if (erSamkjoring && fane === 'paagaaendeOppdrag') {
+                    const divTxt = (i, n) => { const d = divs(i); return n < d.length ? d[n].textContent.trim() : txt(i); };
+                    const divHtm = (i, n) => { const d = divs(i); return n < d.length ? d[n].innerHTML : htm(i); };
+
+                    alleReqIds.forEach((reqId, n) => {
+                        const rekNrMatch = tr.outerHTML.match(new RegExp(`showReq\\(this,\\s*${reqId}[^>]*searchStatus\\?nr=(\\d+)`))
+                            || tr.outerHTML.match(/searchStatus\?nr=(\d+)/);
+                        const rekNr = rekNrMatch ? rekNrMatch[1] : null;
+
+                        rader.push({
+                            reqId, resId, turid, rekNr, fane, erSamkjoring, samkjoringNr: n + 1, samkjoringAntall: alleReqIds.length, harFullInfo,
+                            start: divTxt(idx.start, n),
+                            fra: divTxt(idx.fra, n), fraHtml: divHtm(idx.fra, n),
+                            til: divTxt(idx.til, n), tilHtml: divHtm(idx.til, n),
+                            status: divTxt(idx.status, n),
+                            rekvirent: divTxt(idx.rekv, n),
+                            pnr: divTxt(idx.pnr, n).replace(/[^\d]/g, ''),
+                            pnavn: divTxt(idx.pnavn, n),
+                            ledsager: divTxt(idx.ledsager, n),
+                            padr: divTxt(idx.padr, n), padrHtml: divHtm(idx.padr, n),
+                            oppmtid: divTxt(idx.oppmtid, n),
+                            rmate: divTxt(idx.rmate, n),
+                            behadr: divTxt(idx.behadr, n),
+                        });
+                    });
+                    return; // Ikke push hoved-raden
+                }
+
+                // Enkeltreise (inkl. ventende)
+                const reqId = alleReqIds[0];
                 const rekNrMatch = tr.outerHTML.match(/searchStatus\?nr=(\d+)/);
                 const rekNr = rekNrMatch ? rekNrMatch[1] : null;
 
-                // TurID: resId = ressursID (tr name), slå opp i turidMap
-                const turid = resId ? (turidMap[resId] || null) : null;
-
                 rader.push({
-                    reqId, resId, turid, rekNr, fane, erSamkjoring, harFullInfo,
+                    reqId, resId, turid, rekNr, fane, erSamkjoring: false, harFullInfo,
                     start: txt(idx.start),
                     fra: txt(idx.fra), fraHtml: htm(idx.fra),
                     til: txt(idx.til), tilHtml: htm(idx.til),
@@ -894,7 +946,7 @@
     function sjekkBarn(rader) {
         const funn = [];
         for (const r of rader) {
-            if (r.erSamkjoring || godkjentIMinne.has(r.reqId)) continue;
+            if (godkjentIMinne.has(r.turid)) continue;
             if (!r.pnr || r.pnr.length !== 11) continue;
             const alder = beregnAlder(r.pnr);
             if (alder === null || alder >= CONFIG.BARN_ALDER_GRENSE) continue;
@@ -911,7 +963,7 @@
     function sjekkPnr(rader) {
         const funn = [];
         for (const r of rader) {
-            if (r.erSamkjoring || godkjentIMinne.has(r.reqId)) continue;
+            if (godkjentIMinne.has(r.turid)) continue;
             if (/^\d{11}$/.test(r.pnr)) continue;
             // Hvis alder kan beregnes fra PNR, er det gyldig nok
             if (beregnAlder(r.pnr) !== null) continue;
@@ -928,10 +980,10 @@
         const grupper = {};
         for (const r of rader) {
             if (!r.harFullInfo) continue;
-            if (r.erSamkjoring || godkjentIMinne.has(r.reqId)) continue;
+            if (godkjentIMinne.has(r.turid)) continue;
             if (!r.pnr || r.pnr.length !== 11) continue;
             if (KANSELLERT.some(s => r.status.toLowerCase().includes(s))) continue;
-            if (r.rmate && r.rmate.toUpperCase() === 'RFLY') continue;
+            if (r.rmate && ['RFLY', 'HLSX'].includes(r.rmate.toUpperCase())) continue;
             if (!grupper[r.pnr]) grupper[r.pnr] = [];
 
             // Bestem retning
@@ -1016,16 +1068,15 @@
     //    SJEKK: ADRESSEAVVIK                                           
     // ==================================================================
     async function sjekkAdresse(rader, statusFn) {
-        let hoppetSamkjoring = 0, hoppetGodkjent = 0, hoppetKortPadr = 0, hoppetGateMatch = 0, hoppetGodkjentOrd = 0;
+        let hoppetGodkjent = 0, hoppetKortPadr = 0, hoppetGateMatch = 0, hoppetGodkjentOrd = 0;
         const kandidater = [];
         console.log(`[ADR] Start adressesjekk: ${rader.length} rader, brukOrd=${window.mqBrukGodkjenteOrd}, brukAdr=${window.mqBrukGodkjenteAdresser}, godkjent=${godkjentIMinne.size} stk:`, [...godkjentIMinne]);
 
         let hoppetVentende = 0;
         for (const r of rader) {
             if (!r.harFullInfo) { hoppetVentende++; continue; }
-            if (r.erSamkjoring) { hoppetSamkjoring++; continue; }
-            if (r.rmate && r.rmate.toUpperCase() === 'RFLY') continue;
-            if (godkjentIMinne.has(r.reqId)) { hoppetGodkjent++; console.log(`[ADR] HOPPET godkjent RID=${r.reqId}`); continue; }
+            if (r.rmate && ['RFLY', 'HLSX'].includes(r.rmate.toUpperCase())) continue;
+            if (godkjentIMinne.has(r.turid)) { hoppetGodkjent++; console.log(`[ADR] HOPPET godkjent turid=${r.turid}`); continue; }
 
             const folkGate = hentGateForSjekk(r.padrHtml);
             const fraGate = hentGateForSjekk(r.fraHtml);
@@ -1057,7 +1108,7 @@
             kandidater.push({ ...r, type: 'adresse', erTur, folkGate, kanskjePostnr });
         }
 
-        console.log(`[ADR] Filtrering: ${rader.length} rader -> ${kandidater.length} kandidater (hoppet: ventende=${hoppetVentende}, samkj=${hoppetSamkjoring}, godkj=${hoppetGodkjent}, kortPadr=${hoppetKortPadr}, gateMatch=${hoppetGateMatch}, godkjOrd=${hoppetGodkjentOrd})`);
+        console.log(`[ADR] Filtrering: ${rader.length} rader -> ${kandidater.length} kandidater (hoppet: ventende=${hoppetVentende}, godkj=${hoppetGodkjent}, kortPadr=${hoppetKortPadr}, gateMatch=${hoppetGateMatch}, godkjOrd=${hoppetGodkjentOrd})`);
 
         // ── Stage 2: Admin-verifisering ──────────────────────────────────
         // Kanskje-kandidater hopper over admin (sparer belastning)
@@ -1165,7 +1216,7 @@
     // ==================================================================
     async function sjekkKommune(rader, statusFn) {
         const funn = [];
-        const kandidater = rader.filter(r => r.harFullInfo && !r.erSamkjoring && !godkjentIMinne.has(r.reqId));
+        const kandidater = rader.filter(r => r.harFullInfo && !godkjentIMinne.has(r.turid));
 
         for (let i = 0; i < kandidater.length; i++) {
             const r = kandidater[i];
@@ -1381,13 +1432,6 @@
         console.log(`[SKANN] Ferdig: ${sjekkType} -- ${funn.length} funn av ${totalt} rader`);
         visLasteStatus('');
         visResultater(funn, sjekkType, totalt, null, advarsler, dispatchData.avkortedeFiltre, dispatchData.filterTelling);
-
-        // Auto-hent admin-info for barn-funn (få nok til å hente automatisk)
-        if (sjekkType === 'barn' && funn.length > 0 && adminTilgjengelig) {
-            for (const f of funn) {
-                avvikChannel.postMessage({ type: 'HENT_ADMIN_INFO', reqId: f.reqId, resId: f.resId || '' });
-            }
-        }
     }
 
     // ==================================================================
@@ -1707,10 +1751,14 @@
         const tilVis = formaterForVisning(f.tilHtml || '').replace(/\n/g, '<br>');
 
         if (f.type === 'barn') {
+            const bRekNr = f.rekvirent || f.rekNr || '';
+            const bCopyBtn = (val, label) => val ? `<span style="cursor:pointer; user-select:none;" title="Kopier ${label}" onclick="navigator.clipboard.writeText('${val}'); this.textContent='\\u2705'; setTimeout(() => this.textContent='\\ud83d\\udccb', 1500)">&#128203;</span>` : '';
             return `<div class="card barn-alene" data-rid="${f.reqId}">
                 <div class="card-header">
                     <span>&#128118; BARN REISER ALENE -- ${f.pnavn || 'Ukjent'}, ${f.alder} år, 0 ledsagere</span>
-                    <span style="color:#94a3b8; font-weight:normal;">Turid: ${f.resId || f.reqId}</span>
+                    <span style="color:#94a3b8; font-weight:normal;">
+                        ${bRekNr ? 'Rek: ' + bRekNr + ' ' + bCopyBtn(bRekNr, 'rek.nr.') : ''}
+                    </span>
                 </div>
                 <div class="card-body"><div class="row">
                     <div class="col">
@@ -1718,17 +1766,14 @@
                         <span class="label">Til</span><span class="value">${tilVis}</span>
                     </div>
                     <div class="col">
-                        <span class="label">Rekvirent</span><span class="value">${f.rekvirent || '---'}</span>
                         <span class="label">Status</span><span class="value">${f.status || '---'}</span>
                     </div>
                 </div>
-                <div id="adminInfo-${f.reqId}" style="font-size:12px; color:#64748b; padding:4px 12px;">Henter rek.nr...</div>
                 </div>
                 <div class="card-actions">
-                    <button class="btn-nissy" id="btnAdmin-${f.reqId}" onclick="this.textContent = 'Henter...'; this.disabled = true; window._avvikCh.postMessage({type:'HENT_ADMIN_INFO', reqId:'${f.reqId}', resId:'${f.resId || ''}'})">&#128269; Hent info fra admin</button>
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}'})">GODKJENN</button>
-                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', rekNr:'${esc(f.rekNr || '')}', rekvirent:'${esc(f.rekvirent)}'})">AVVIK</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}'})">GODKJENN</button>
+                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(bRekNr)}', rekvirent:''})">AVVIK</button>
                 </div>
             </div>`;
         }
@@ -1751,8 +1796,8 @@
                 </div></div>
                 <div class="card-actions">
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}'})">GODKJENN</button>
-                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', rekNr:'${esc(f.rekNr || '')}', rekvirent:'${esc(f.rekvirent)}'})">AVVIK</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}'})">GODKJENN</button>
+                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(f.rekNr || '')}', rekvirent:'${esc(f.rekvirent)}'})">AVVIK</button>
                 </div>
             </div>`;
         }
@@ -1796,8 +1841,8 @@
                     </div>
                 </div></div>
                 <div class="card-actions">
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN_DUBLETT', id1:'${a.reqId}', id2:'${b.reqId}'})">Ikke dobbeltbestilling</button>
-                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${a.reqId}', rekNr:'${esc(a.rekNr || '')}', rekvirent:'${esc(a.rekvirent)}'})">AVVIK</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN_DUBLETT', id1:'${a.reqId}', id2:'${b.reqId}', resId1:'${a.resId||''}', resId2:'${b.resId||''}', turid1:'${a.turid||''}', turid2:'${b.turid||''}'})">Ikke dobbeltbestilling</button>
+                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${a.reqId}', resId:'${a.resId || ''}', turid:'${a.turid || ''}', rekNr:'${esc(a.rekNr || '')}', rekvirent:'${esc(a.rekvirent)}'})">AVVIK</button>
                 </div>
             </div>`;
         }
@@ -1841,7 +1886,7 @@
 
             const rekNr = harAdmin && f.adminData.rekNr ? f.adminData.rekNr : '';
             const reisemate = f.rmate || '';
-            const turid = f.resId || f.reqId;
+            const turid = f.turid || '';
             const copyBtn = (val, label) => val ? `<span style="cursor:pointer; user-select:none;" title="Kopier ${label}" onclick="navigator.clipboard.writeText('${val}'); this.textContent='\\u2705'; setTimeout(() => this.textContent='\\ud83d\\udccb', 1500)">&#128203;</span>` : '';
 
             const adrKanskje = f.kanskjePostnr;
@@ -1852,8 +1897,8 @@
                 <div class="card-header">
                     <span>${adrPrikk} ${adrKanskje ? 'ADRESSEAVVIK (' + retning + ') — Postnr' : 'ADRESSEAVVIK (' + retning + ')'}${reisemate ? ' — ' + reisemate : ''}${adminTag}</span>
                     <span style="color:#94a3b8; font-weight:normal;">
-                        Turid: ${turid} ${copyBtn(turid, 'turid')}
-                        ${rekNr ? '&nbsp;| Rek: ' + rekNr + ' ' + copyBtn(rekNr, 'rek.nr.') : '<span id="rekNr-' + f.reqId + '"></span>'}
+                        ${turid ? 'Turid: ' + turid + ' ' + copyBtn(turid, 'turid') : ''}
+                        ${rekNr ? (turid ? '&nbsp;| ' : '') + 'Rek: ' + rekNr + ' ' + copyBtn(rekNr, 'rek.nr.') : '<span id="rekNr-' + f.reqId + '"></span>'}
                     </span>
                 </div>
                 <div class="card-body">
@@ -1874,6 +1919,7 @@
                             <span class="label">Hentested</span>
                             ${henteNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + henteNavn + '</div>' : ''}
                             <div class="value">${henteAdr}</div>
+                            ${harAdmin && f.adminData.fraKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.fraKommentar + '</div>' : ''}
                         </div>
                         <div style="display:flex; align-items:center; justify-content:center; min-width:40px; max-width:40px; padding:0 4px;">
                             <span style="font-size:20px;">&#10145;&#65039;</span>
@@ -1882,17 +1928,17 @@
                             <span class="label">Leveringssted</span>
                             ${leverNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + leverNavn + '</div>' : ''}
                             <div class="value">${leverAdr}</div>
+                            ${harAdmin && f.adminData.tilKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.tilKommentar + '</div>' : ''}
                         </div>
                     </div>
                     ${harAdmin && f.adminData.meldTransport ? '<div style="margin-top:8px; padding:4px 8px; background:#eff6ff; border-radius:4px; font-size:11px; color:#1e40af;"><strong>Melding transport:</strong> ' + f.adminData.meldTransport + '</div>' : ''}
                     ${harAdmin && f.adminData.meldPasReise ? '<div style="margin-top:4px; padding:4px 8px; background:#f0fdf4; border-radius:4px; font-size:11px; color:#166534;"><strong>Melding pasientreise:</strong> ' + f.adminData.meldPasReise + '</div>' : ''}
-                    ${harAdmin && (f.adminData.bestiller || f.adminData.ansvarligRekvirent || f.adminData.rekvirent || f.adminData.sistEndretBruker) ? '<div style="margin-top:8px; padding:6px 8px; background:#f5f3ff; border:1px solid #ddd6fe; border-radius:4px; font-size:11px; color:#4c1d95;">' + (f.adminData.bestiller ? '<div><strong>Bestiller:</strong> ' + f.adminData.bestiller + '</div>' : '') + (f.adminData.ansvarligRekvirent ? '<div><strong>Ansvarlig rekvirent:</strong> ' + f.adminData.ansvarligRekvirent + '</div>' : '') + (f.adminData.rekvirent ? '<div><strong>Rekvirent:</strong> ' + f.adminData.rekvirent + '</div>' : '') + (f.adminData.sistEndretBruker ? '<div><strong>Sist endret:</strong> ' + f.adminData.sistEndretBruker + '</div>' : '') + '</div>' : ''}
                 </div>
                 <div class="card-actions">
                     ${!f.kmInfo ? `<button class="btn-nissy" id="btnKm-${f.reqId}" onclick="window._avvikCh.postMessage({type:'BEREGN_KM', reqId:'${f.reqId}', resId:'${f.resId || ''}'})">&#128207; Beregn km</button>` : ''}
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}'})">GODKJENN</button>
-                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', rekNr:'${esc(rekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (harAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}'})">AVVIK</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}'})">GODKJENN</button>
+                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(rekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (harAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(harAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(harAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(harAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
                 </div>
             </div>`;
         }
@@ -1923,8 +1969,8 @@
                 <div class="card-header">
                     <span>${kLabel}${kAdminTag}</span>
                     <span style="color:#94a3b8; font-weight:normal;">
-                        Turid: ${kTurid} ${kCopyBtn(kTurid, 'turid')}
-                        ${kRekNr ? '&nbsp;| Rek: ' + kRekNr + ' ' + kCopyBtn(kRekNr, 'rek.nr.') : '<span id="rekNr-' + f.reqId + '"></span>'}
+                        ${kTurid ? 'Turid: ' + kTurid + ' ' + kCopyBtn(kTurid, 'turid') : ''}
+                        ${kRekNr ? (kTurid ? '&nbsp;| ' : '') + 'Rek: ' + kRekNr + ' ' + kCopyBtn(kRekNr, 'rek.nr.') : '<span id="rekNr-' + f.reqId + '"></span>'}
                     </span>
                 </div>
                 <div class="card-body">
@@ -1934,15 +1980,14 @@
                     ${f.kanskjeGrunn ? '<div style="margin:2px 0 4px; padding:3px 8px; background:#fef9e7; border-radius:4px; font-size:11px; color:#92400e;">Treff: <strong>' + f.kanskjeGrunn + '</strong></div>' : ''}
                     ${kPasNavn || kPnr ? '<div style="margin-bottom:6px; font-size:12px; color:#475569;"><strong>' + (kPasNavn || '') + '</strong>' + (kPnr ? ' &mdash; PNR: ' + kPnr : '') + '</div>' : ''}
                     ${kFolkAdr ? '<div style="margin-bottom:8px;"><span class="label">Folkeregistrert adresse</span><div class="value">' + kFolkAdr + '</div></div>' : ''}
-                    ${kHarAdmin ? '<div class="row" style="border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f8fafc;"><div class="col"><span class="label">Hentested</span>' + (kFraNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kFraNavn + '</div>' : '') + '<div class="value">' + (kFraAdr || fraVis) + '</div></div><div style="display:flex; align-items:center; justify-content:center; min-width:40px; max-width:40px; padding:0 4px;"><span style="font-size:20px;">&#10145;&#65039;</span></div><div class="col"><span class="label">Leveringssted</span>' + (kTilNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kTilNavn + '</div>' : '') + '<div class="value">' + (kTilAdr || tilVis) + '</div></div></div>' : '<div class="row"><div class="col"><span class="label">Fra</span><span class="value">' + (f.start || '') + '<br>' + fraVis + '</span><span class="label">Til</span><span class="value">' + tilVis + '</span></div><div class="col"><span class="label">Rekvirent</span><span class="value">' + (f.rekvirent || '---') + '</span><span class="label">Status</span><span class="value">' + (f.status || '---') + '</span></div></div>'}
+                    ${kHarAdmin ? '<div class="row" style="border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f8fafc;"><div class="col"><span class="label">Hentested</span>' + (kFraNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kFraNavn + '</div>' : '') + '<div class="value">' + (kFraAdr || fraVis) + '</div>' + (f.adminData.fraKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.fraKommentar + '</div>' : '') + '</div><div style="display:flex; align-items:center; justify-content:center; min-width:40px; max-width:40px; padding:0 4px;"><span style="font-size:20px;">&#10145;&#65039;</span></div><div class="col"><span class="label">Leveringssted</span>' + (kTilNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kTilNavn + '</div>' : '') + '<div class="value">' + (kTilAdr || tilVis) + '</div>' + (f.adminData.tilKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.tilKommentar + '</div>' : '') + '</div></div>' : '<div class="row"><div class="col"><span class="label">Fra</span><span class="value">' + (f.start || '') + '<br>' + fraVis + '</span><span class="label">Til</span><span class="value">' + tilVis + '</span></div><div class="col"><span class="label">Rekvirent</span><span class="value">' + (f.rekvirent || '---') + '</span><span class="label">Status</span><span class="value">' + (f.status || '---') + '</span></div></div>'}
                     ${kMeldTrans ? '<div style="margin-top:6px; padding:4px 8px; background:#eff6ff; border-radius:4px; font-size:11px; color:#1e40af;"><strong>Melding transport:</strong> ' + kMeldTrans + '</div>' : ''}
                     ${kMeldPasReise ? '<div style="margin-top:4px; padding:4px 8px; background:#f0fdf4; border-radius:4px; font-size:11px; color:#166534;"><strong>Melding pasientreise:</strong> ' + kMeldPasReise + '</div>' : ''}
-                    ${kHarAdmin && (f.adminData.bestiller || f.adminData.ansvarligRekvirent || f.adminData.rekvirent || f.adminData.sistEndretBruker) ? '<div style="margin-top:6px; padding:6px 8px; background:#f5f3ff; border:1px solid #ddd6fe; border-radius:4px; font-size:11px; color:#4c1d95;">' + (f.adminData.bestiller ? '<div><strong>Bestiller:</strong> ' + f.adminData.bestiller + '</div>' : '') + (f.adminData.ansvarligRekvirent ? '<div><strong>Ansvarlig rekvirent:</strong> ' + f.adminData.ansvarligRekvirent + '</div>' : '') + (f.adminData.rekvirent ? '<div><strong>Rekvirent:</strong> ' + f.adminData.rekvirent + '</div>' : '') + (f.adminData.sistEndretBruker ? '<div><strong>Sist endret:</strong> ' + f.adminData.sistEndretBruker + '</div>' : '') + '</div>' : ''}
                 </div>
                 <div class="card-actions">
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}'})">GODKJENN</button>
-                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', rekNr:'${esc(kRekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (kHarAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}'})">AVVIK</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}'})">GODKJENN</button>
+                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(kRekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (kHarAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(kHarAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(kHarAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(kHarAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
                 </div>
             </div>`;
         }
@@ -2281,20 +2326,17 @@
         }
 
         if (data.type === 'GODKJENN') {
-            godkjentIMinne.add(data.id); lagreGodkjent();
-            // Skriv merknad til NISSY
-            settMerknad(data.id, 'Godkjent avvik');
-            // Fade-out kort
+            if (data.turid) { godkjentIMinne.add(data.turid); lagreGodkjent(); }
+            if (data.resId) settMerknad(data.resId, 'Godkjent avvik');
             fadeOgFjern(data.id);
         }
 
         if (data.type === 'GODKJENN_DUBLETT') {
-            godkjentIMinne.add(data.id1);
-            godkjentIMinne.add(data.id2); lagreGodkjent();
-            // Skriv merknad til NISSY på begge reiser
-            settMerknad(data.id1, 'Godkjent dublett');
-            settMerknad(data.id2, 'Godkjent dublett');
-            // Fade-out kort (dublett-kort har data-rid på reise 1)
+            if (data.turid1) godkjentIMinne.add(data.turid1);
+            if (data.turid2) godkjentIMinne.add(data.turid2);
+            lagreGodkjent();
+            if (data.resId1) settMerknad(data.resId1, 'Godkjent dublett');
+            if (data.resId2) settMerknad(data.resId2, 'Godkjent dublett');
             fadeOgFjern(data.id1);
         }
 
@@ -2320,13 +2362,16 @@
                         <span style="font-size:15px; font-weight:bold;">${rekNr || 'Ikke funnet'}</span>
                         ${rekNr ? `<span style="cursor:pointer; user-select:none;" title="Kopier rek.nr." onclick="navigator.clipboard.writeText('${rekNr}'); this.textContent='\\u2705'; setTimeout(() => this.textContent='\\ud83d\\udccb', 1500)">&#128203;</span>` : ''}
                     </div>
-                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
                         <span style="font-weight:bold; color:#991b1b;">Rekvirent:</span>
                         <span>${data.rekvirent || 'Ikke funnet'}</span>
                     </div>
+                    ${data.bestiller ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;"><span style="font-weight:bold; color:#991b1b;">Bestiller:</span><span>' + data.bestiller + '</span></div>' : ''}
+                    ${data.ansvarligRekvirent ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;"><span style="font-weight:bold; color:#991b1b;">Ansvarlig rekvirent:</span><span>' + data.ansvarligRekvirent + '</span></div>' : ''}
+                    ${data.sistEndretBruker ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;"><span style="font-weight:bold; color:#991b1b;">Sist endret:</span><span>' + data.sistEndretBruker + '</span></div>' : '<div style="margin-bottom:6px;"></div>'}
                     <div style="display:flex; gap:8px;">
-                        <button onclick="window._avvikCh.postMessage({type:'AVVIK_AVBRYT', id:'${data.id}'})" class="btn-nissy" style="background:#ef4444; color:white;">&#10060; Avbryt</button>
-                        <button onclick="window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${data.id}'})" class="btn-nissy" style="background:#10b981; color:white;">&#10004; Ferdig</button>
+                        <button onclick="window._avvikCh.postMessage({type:'AVVIK_AVBRYT', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid || ''}'})" class="btn-nissy" style="background:#ef4444; color:white;">&#10060; Avbryt</button>
+                        <button onclick="window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid || ''}'})" class="btn-nissy" style="background:#10b981; color:white;">&#10004; Ferdig</button>
                     </div>
                 </div>`;
         }
@@ -2350,6 +2395,15 @@
                     </div>`;
                 }
                 if (adminBtn) adminBtn.style.display = 'none';
+                // Fyll inn rek.nr i header og data-attributt
+                if (rekNr) {
+                    const card = win.document.querySelector(`[data-rid="${data.reqId}"]`);
+                    if (card) card.setAttribute('data-reknr', rekNr);
+                    const rekSpan = win.document.getElementById(`rekNr-${data.reqId}`);
+                    if (rekSpan && !rekSpan.textContent.trim()) {
+                        rekSpan.innerHTML = `&nbsp;| Rek: ${rekNr} <span style="cursor:pointer; user-select:none;" title="Kopier rek.nr." onclick="navigator.clipboard.writeText('${rekNr}'); this.textContent='\\u2705'; setTimeout(() => this.textContent='\\ud83d\\udccb', 1500)">&#128203;</span>`;
+                    }
+                }
                 console.log(`[ADMIN-INFO] Turid=${turid}, Rek=${rekNr}`);
             } catch (e) {
                 if (infoDiv) infoDiv.innerHTML = `<div style="color:#ef4444; font-size:12px; margin-top:4px;">Feil: ${e.message}</div>`;
@@ -2365,8 +2419,8 @@
         }
 
         if (data.type === 'AVVIK_FERDIG') {
-            godkjentIMinne.add(data.id); lagreGodkjent();
-            settMerknad(data.id, 'Avvik meldt');
+            if (data.turid) { godkjentIMinne.add(data.turid); lagreGodkjent(); }
+            if (data.resId) settMerknad(data.resId, 'Avvik meldt');
             fadeOgFjern(data.id);
         }
 
