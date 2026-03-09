@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.69
+    //    Overvåker Avvik v38.0.70
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.69';
+    const VERSION = '38.0.70';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -23,66 +23,96 @@
     };
 
     let godkjenteAdresserGH = [];
+    let godkjenteOrdGH = [];
     let ghAdresserSHA = null;
+    const GH_LS_KEY = 'overvaker_avvik_godkjente';
+
+    function lastGodkjenteFraLS() {
+        try {
+            const lagret = localStorage.getItem(GH_LS_KEY);
+            if (!lagret) return;
+            const json = JSON.parse(lagret);
+            godkjenteAdresserGH = (json.adresser || []).map(a => a.toLowerCase().trim());
+            godkjenteOrdGH = (json.ord || []).map(o => o.toLowerCase().trim());
+            console.log(`[GH] Fallback localStorage: ${godkjenteAdresserGH.length} adresser, ${godkjenteOrdGH.length} ord`);
+        } catch (e) {}
+    }
+
+    function lagreGodkjenteILS() {
+        try {
+            localStorage.setItem(GH_LS_KEY, JSON.stringify({
+                adresser: godkjenteAdresserGH,
+                ord: godkjenteOrdGH,
+                oppdatert: new Date().toISOString().slice(0,10)
+            }));
+        } catch (e) {}
+    }
 
     async function lastGodkjenteAdresser() {
         try {
             const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
                 headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}` }
             });
-            if (!res.ok) return;
+            if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             ghAdresserSHA = data.sha;
             const json = JSON.parse(atob(data.content.replace(/\n/g, '')));
             godkjenteAdresserGH = (json.adresser || []).map(a => a.toLowerCase().trim());
-            console.log(`[GH] Lastet ${godkjenteAdresserGH.length} godkjente adresser`);
+            godkjenteOrdGH = (json.ord || []).map(o => o.toLowerCase().trim());
+            lagreGodkjenteILS();
+            console.log(`[GH] Lastet ${godkjenteAdresserGH.length} adresser, ${godkjenteOrdGH.length} ord`);
         } catch (e) {
-            console.warn('[GH] Kunne ikke laste godkjente adresser:', e.message);
+            console.warn('[GH] Brannmur/feil — bruker localStorage-fallback:', e.message);
+            lastGodkjenteFraLS();
         }
+    }
+
+    async function lagreGH(nyeAdresser, nyeOrd, melding) {
+        const body = JSON.stringify({ adresser: nyeAdresser, ord: nyeOrd, oppdatert: new Date().toISOString().slice(0,10) });
+        const encoded = btoa(unescape(encodeURIComponent(body)));
+        const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: melding, content: encoded, sha: ghAdresserSHA })
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        ghAdresserSHA = data.content.sha;
+        godkjenteAdresserGH = nyeAdresser;
+        godkjenteOrdGH = nyeOrd;
+        lagreGodkjenteILS();
     }
 
     async function lagreGodkjentAdresse(adresse) {
         const ny = adresse.toLowerCase().trim();
         if (godkjenteAdresserGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
-        const oppdatert = [...godkjenteAdresserGH, ny];
         try {
-            const body = JSON.stringify({ adresser: oppdatert, oppdatert: new Date().toISOString().slice(0,10) });
-            const encoded = btoa(unescape(encodeURIComponent(body)));
-            const payload = { message: `Legg til: ${ny}`, content: encoded, sha: ghAdresserSHA };
-            const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
-                method: 'PUT',
-                headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            ghAdresserSHA = data.content.sha;
-            godkjenteAdresserGH = oppdatert;
+            await lagreGH([...godkjenteAdresserGH, ny], godkjenteOrdGH, `Adresse: ${ny}`);
             return { ok: true, melding: 'Lagret!' };
-        } catch (e) {
-            return { ok: false, melding: 'Feil: ' + e.message };
-        }
+        } catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
+    }
+
+    async function lagreGodkjentOrd(ord) {
+        const ny = ord.toLowerCase().trim();
+        if (godkjenteOrdGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
+        try {
+            await lagreGH(godkjenteAdresserGH, [...godkjenteOrdGH, ny], `Ord: ${ny}`);
+            return { ok: true, melding: 'Lagret!' };
+        } catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
     }
 
     async function slettGodkjentAdresse(adresse) {
-        const oppdatert = godkjenteAdresserGH.filter(a => a !== adresse);
         try {
-            const body = JSON.stringify({ adresser: oppdatert, oppdatert: new Date().toISOString().slice(0,10) });
-            const encoded = btoa(unescape(encodeURIComponent(body)));
-            const payload = { message: `Fjern: ${adresse}`, content: encoded, sha: ghAdresserSHA };
-            const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
-                method: 'PUT',
-                headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            ghAdresserSHA = data.content.sha;
-            godkjenteAdresserGH = oppdatert;
+            await lagreGH(godkjenteAdresserGH.filter(a => a !== adresse), godkjenteOrdGH, `Fjern adresse: ${adresse}`);
             return { ok: true };
-        } catch (e) {
-            return { ok: false, melding: e.message };
-        }
+        } catch (e) { return { ok: false, melding: e.message }; }
+    }
+
+    async function slettGodkjentOrd(ord) {
+        try {
+            await lagreGH(godkjenteAdresserGH, godkjenteOrdGH.filter(o => o !== ord), `Fjern ord: ${ord}`);
+            return { ok: true };
+        } catch (e) { return { ok: false, melding: e.message }; }
     }
 
     // Gruppering av rfiltre for filterPanel
@@ -685,6 +715,22 @@
         .info-btn { background: #3b82f6; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; }
         .info-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 9999; }
         .info-modal.show { display: flex; }
+        .gk-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 10000; }
+        .gk-modal.show { display: flex; }
+        .gk-modal-inner { background: white; border-radius: 10px; padding: 24px; width: 420px; max-width: 95vw; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+        .gk-modal-inner h3 { margin: 0 0 8px 0; color: #002b5c; font-size: 16px; }
+        .gk-modal-inner .gk-adr { font-size: 12px; color: #64748b; margin-bottom: 16px; padding: 6px 10px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; word-break: break-all; }
+        .gk-valg { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+        .gk-valg button { padding: 10px 14px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; text-align: left; }
+        .gk-btn-session { background: #f1f5f9; color: #334155; }
+        .gk-btn-session:hover { background: #e2e8f0; }
+        .gk-btn-adresse { background: #dcfce7; color: #166534; }
+        .gk-btn-adresse:hover { background: #bbf7d0; }
+        .gk-btn-ord { background: #eff6ff; color: #1e40af; }
+        .gk-btn-ord:hover { background: #dbeafe; }
+        .gk-ord-rad { display: flex; gap: 8px; }
+        .gk-ord-rad input { flex: 1; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+        .gk-status { font-size: 12px; margin-top: 8px; min-height: 18px; color: #16a34a; }
         .adr-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 9999; }
         .adr-modal.show { display: flex; }
         .adr-modal-inner { background: white; border-radius: 10px; padding: 24px; width: 480px; max-width: 95vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
@@ -1179,6 +1225,7 @@
             if (window.mqBrukGodkjenteOrd && (GODKJENTE_ADRESSEORD.some(o => fraLower.includes(o)) || GODKJENTE_ADRESSEORD.some(o => tilLower.includes(o)))) erGodkjent = true;
             if (window.mqBrukGodkjenteAdresser && (GODKJENTE_ADRESSER.some(a => fraLower.includes(a)) || GODKJENTE_ADRESSER.some(a => tilLower.includes(a)))) erGodkjent = true;
             if (window.mqBrukGodkjenteAdresser && (godkjenteAdresserGH.some(a => fraLower.includes(a)) || godkjenteAdresserGH.some(a => tilLower.includes(a)))) erGodkjent = true;
+            if (window.mqBrukGodkjenteOrd && (godkjenteOrdGH.some(o => fraLower.includes(o)) || godkjenteOrdGH.some(o => tilLower.includes(o)))) erGodkjent = true;
             if (erGodkjent) { hoppetGodkjentOrd++; continue; }
 
             // Kanskje-postnummer: sjekk begge adresser (fra og til)
@@ -2017,7 +2064,7 @@
                 <div class="card-actions">
                     ${!f.kmInfo ? `<button class="btn-nissy" id="btnKm-${f.reqId}" onclick="window._avvikCh.postMessage({type:'BEREGN_KM', reqId:'${f.reqId}', resId:'${f.resId || ''}'})">&#128207; Beregn km</button>` : ''}
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}'})">GODKJENN</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'adresse', adresse:'${esc(f.tilAdrTekst || f.fraAdrTekst || '')}' })">GODKJENN</button>
                     <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(rekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (harAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(harAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(harAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(harAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
                 </div>
             </div>`;
@@ -2066,7 +2113,7 @@
                 </div>
                 <div class="card-actions">
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}'})">GODKJENN</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'kommune', adresse:'${esc(f.destNavn || '')}' })">GODKJENN</button>
                     <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(kRekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (kHarAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(kHarAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(kHarAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(kHarAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
                 </div>
             </div>`;
@@ -2208,6 +2255,25 @@
                     <button class="close-btn" id="btnInfoLukk">Lukk</button>
                 </div>
             </div>
+            <div id="gkModal" class="gk-modal">
+                <div class="gk-modal-inner">
+                    <h3>&#9989; Hva vil du godkjenne?</h3>
+                    <div class="gk-adr" id="gkAdrTekst"></div>
+                    <div class="gk-valg">
+                        <button class="gk-btn-session" id="gkBtnSession">&#128336; Kun denne runden (ikke lagret)</button>
+                        <button class="gk-btn-adresse" id="gkBtnAdresse">&#128205; Lagre adresse permanent</button>
+                        <div>
+                            <button class="gk-btn-ord" id="gkBtnOrd">&#128269; Lagre søkeord permanent</button>
+                            <div class="gk-ord-rad" id="gkOrdRad" style="display:none; margin-top:8px;">
+                                <input type="text" id="gkOrdInput" placeholder="f.eks. slattum" />
+                                <button class="btn-nissy" id="gkOrdLagreBtn">Lagre</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="gk-status" id="gkStatus"></div>
+                    <button class="close-btn" id="gkModalLukk" style="margin-top:8px;">Avbryt</button>
+                </div>
+            </div>
             <div id="adrModal" class="adr-modal">
                 <div class="adr-modal-inner">
                     <h3>&#128205; Godkjente adresser</h3>
@@ -2315,6 +2381,42 @@
                 document.getElementById('btnAdr').addEventListener('click', function() {
                     window._avvikCh.postMessage({ type: 'VIS_ADR_MODAL' });
                 });
+                // GODKJENN-modal
+                var gkModal = document.getElementById('gkModal');
+                var gkPendingData = null;
+                document.getElementById('gkModalLukk').addEventListener('click', function() { gkModal.classList.remove('show'); });
+                gkModal.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('show'); });
+                document.getElementById('gkBtnSession').addEventListener('click', function() {
+                    if (gkPendingData) window._avvikCh.postMessage({type:'GODKJENN', id:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid});
+                    gkModal.classList.remove('show');
+                });
+                document.getElementById('gkBtnAdresse').addEventListener('click', function() {
+                    if (!gkPendingData) return;
+                    document.getElementById('gkStatus').textContent = 'Lagrer...';
+                    window._avvikCh.postMessage({type:'GODKJENN_LAGRE_ADR', reqId:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, adresse:gkPendingData.adresse});
+                });
+                document.getElementById('gkBtnOrd').addEventListener('click', function() {
+                    var rad = document.getElementById('gkOrdRad');
+                    rad.style.display = rad.style.display === 'none' ? 'flex' : 'none';
+                    if (rad.style.display === 'flex') {
+                        var forslag = (gkPendingData && gkPendingData.adresse || '').split(/[\s,]+/).filter(w => w.length > 4).pop() || '';
+                        document.getElementById('gkOrdInput').value = forslag;
+                        document.getElementById('gkOrdInput').focus();
+                    }
+                });
+                document.getElementById('gkOrdLagreBtn').addEventListener('click', function() {
+                    var ord = document.getElementById('gkOrdInput').value.trim();
+                    if (!ord || !gkPendingData) return;
+                    document.getElementById('gkStatus').textContent = 'Lagrer...';
+                    window._avvikCh.postMessage({type:'GODKJENN_LAGRE_ORD', reqId:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, ord:ord});
+                });
+                window._gkSetPending = function(data) {
+                    gkPendingData = data;
+                    document.getElementById('gkAdrTekst').textContent = data.adresse || '(ingen adresse)';
+                    document.getElementById('gkStatus').textContent = '';
+                    document.getElementById('gkOrdRad').style.display = 'none';
+                    gkModal.classList.add('show');
+                };
                 document.getElementById('adrModal').addEventListener('click', function(e) {
                     if (e.target === this) this.classList.remove('show');
                 });
@@ -2577,6 +2679,42 @@
             window.mqAutoKm = data.checked;
             console.log(`[*] Auto-km: ${data.checked}`);
             if (aktivtSkann === 'adresse') await kjorSkann('adresse');
+        }
+
+        if (data.type === 'VIS_GODKJENN_MODAL') {
+            const win = window.mqWin;
+            if (!win || win.closed) return;
+            if (win._gkSetPending) win._gkSetPending(data);
+        }
+
+        if (data.type === 'GODKJENN_LAGRE_ADR') {
+            const win = window.mqWin;
+            const resultat = await lagreGodkjentAdresse(data.adresse);
+            if (win && !win.closed) {
+                const status = win.document.getElementById('gkStatus');
+                if (status) status.textContent = resultat.melding;
+            }
+            if (resultat.ok) {
+                if (data.turid) { godkjentIMinne.add(data.turid); lagreGodkjent(); }
+                if (data.resId) settMerknad(data.resId, 'Godkjent adresse');
+                fadeOgFjern(data.reqId);
+                setTimeout(() => { if (win && !win.closed) win.document.getElementById('gkModal').classList.remove('show'); }, 800);
+            }
+        }
+
+        if (data.type === 'GODKJENN_LAGRE_ORD') {
+            const win = window.mqWin;
+            const resultat = await lagreGodkjentOrd(data.ord);
+            if (win && !win.closed) {
+                const status = win.document.getElementById('gkStatus');
+                if (status) status.textContent = resultat.melding;
+            }
+            if (resultat.ok) {
+                if (data.turid) { godkjentIMinne.add(data.turid); lagreGodkjent(); }
+                if (data.resId) settMerknad(data.resId, 'Godkjent søkeord');
+                fadeOgFjern(data.reqId);
+                setTimeout(() => { if (win && !win.closed) win.document.getElementById('gkModal').classList.remove('show'); }, 800);
+            }
         }
 
         if (data.type === 'VIS_ADR_MODAL') {
