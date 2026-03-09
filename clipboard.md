@@ -25,4 +25,6 @@ javascript:(function(){fetch('https://cdn.jsdelivr.net/gh/cern1977/nissy-scripts
 
 ## Scratchpad
 
-(Lim inn innhold fra jobb-PC her)
+Uncaught (in promise) TypeError: Cannot set properties of null (setting 'textContent')
+    at window._gkSetPending (<anonymous>:125:46)
+    at avvikChannel.onmessage (eval at <anonymous> (planlegging/:1:179), <anonymous>:2728:40)
