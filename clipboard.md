@@ -25,4 +25,4 @@ javascript:(function(){fetch('https://gist.githubusercontent.com/cern1977/e5755e
 
 ## Scratchpad
 
-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
+(Lim inn innhold fra jobb-PC her)
