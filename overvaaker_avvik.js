@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.71
+    //    Overvåker Avvik v38.0.72
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.71';
+    const VERSION = '38.0.72';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -2261,12 +2261,17 @@
                     <div id="gkInfoBoks" style="font-size:12px; color:#334155; margin-bottom:16px; padding:10px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px;"></div>
                     <div class="gk-valg">
                         <button class="gk-btn-session" id="gkBtnSession">&#128336; Kun denne runden (ikke lagret)</button>
-                        <button class="gk-btn-adresse" id="gkBtnAdresse">&#128205; Lagre adresse permanent</button>
-                        <div style="font-size:11px; color:#64748b; margin:-6px 0 0 8px;" id="gkAdrForklaring"></div>
+                        <div>
+                            <button class="gk-btn-adresse" id="gkBtnAdresse">&#128205; Lagre adresse permanent</button>
+                            <div class="gk-ord-rad" id="gkAdrRad" style="display:none; margin-top:8px;">
+                                <input type="text" id="gkAdrInput" placeholder="f.eks. morteveien 19" />
+                                <button class="btn-nissy" id="gkAdrLagreBtn" style="background:#10b981;">Lagre</button>
+                            </div>
+                        </div>
                         <div>
                             <button class="gk-btn-ord" id="gkBtnOrd">&#128269; Lagre søkeord permanent</button>
                             <div class="gk-ord-rad" id="gkOrdRad" style="display:none; margin-top:8px;">
-                                <input type="text" id="gkOrdInput" placeholder="f.eks. slattum" />
+                                <input type="text" id="gkOrdInput" placeholder="f.eks. øyelege" />
                                 <button class="btn-nissy" id="gkOrdLagreBtn">Lagre</button>
                             </div>
                             <div style="font-size:11px; color:#64748b; margin:4px 0 0 8px;" id="gkOrdForklaring"></div>
@@ -2394,8 +2399,18 @@
                 });
                 document.getElementById('gkBtnAdresse').addEventListener('click', function() {
                     if (!gkPendingData) return;
-                    var adr = (gkPendingData.adresse || '').toLowerCase().split(',')[0].trim();
-                    if (!adr) { document.getElementById('gkStatus').textContent = 'Ingen adresse å lagre'; return; }
+                    var rad = document.getElementById('gkAdrRad');
+                    rad.style.display = rad.style.display === 'none' ? 'flex' : 'none';
+                    if (rad.style.display === 'flex') {
+                        var forslag = (gkPendingData.adresse || '').toLowerCase().split(',')[0].trim();
+                        document.getElementById('gkAdrInput').value = forslag;
+                        document.getElementById('gkAdrInput').focus();
+                        document.getElementById('gkAdrInput').select();
+                    }
+                });
+                document.getElementById('gkAdrLagreBtn').addEventListener('click', function() {
+                    var adr = document.getElementById('gkAdrInput').value.trim();
+                    if (!adr) { document.getElementById('gkStatus').textContent = 'Skriv inn en adresse'; return; }
                     document.getElementById('gkStatus').textContent = 'Lagrer "' + adr + '"...';
                     window._avvikCh.postMessage({type:'GODKJENN_LAGRE_ADR', reqId:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, adresse:adr});
                 });
@@ -2439,6 +2454,7 @@
                     var forslag = (data.adresse || '').toLowerCase().split(/[\s,]+/).filter(function(w) { return w.length > 3 && !/^\d+$/.test(w); }).pop() || '';
                     ordForkl.textContent = forslag ? 'Forslag: "' + forslag + '"' : '';
                     document.getElementById('gkStatus').textContent = '';
+                    document.getElementById('gkAdrRad').style.display = 'none';
                     document.getElementById('gkOrdRad').style.display = 'none';
                     gkModal.classList.add('show');
                 };
