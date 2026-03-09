@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.72
+    //    Overvåker Avvik v38.0.73
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.72';
+    const VERSION = '38.0.73';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -2274,7 +2274,6 @@
                                 <input type="text" id="gkOrdInput" placeholder="f.eks. øyelege" />
                                 <button class="btn-nissy" id="gkOrdLagreBtn">Lagre</button>
                             </div>
-                            <div style="font-size:11px; color:#64748b; margin:4px 0 0 8px;" id="gkOrdForklaring"></div>
                         </div>
                     </div>
                     <div class="gk-status" id="gkStatus"></div>
@@ -2432,16 +2431,12 @@
                 window._gkSetPending = function(data) {
                     gkPendingData = data;
                     var info = document.getElementById('gkInfoBoks');
-                    var adrForkl = document.getElementById('gkAdrForklaring');
-                    var ordForkl = document.getElementById('gkOrdForklaring');
                     if (data.kortType === 'adresse') {
                         info.innerHTML = '<div style="margin-bottom:4px;"><strong>Adresseavvik</strong></div>' +
                             '<div>Hentested: <strong>' + (data.henteAdr || '?') + '</strong></div>' +
                             '<div>Leveringssted: <strong>' + (data.leverAdr || '?') + '</strong></div>' +
                             (data.folkAdr ? '<div style="margin-top:4px;">Folkereg: ' + data.folkAdr + '</div>' : '');
-                        var bestAdr = data.leverAdr || data.henteAdr || '';
-                        data.adresse = bestAdr;
-                        adrForkl.textContent = 'Lagrer: "' + bestAdr.toLowerCase().split(',')[0].trim() + '"';
+                        data.adresse = data.leverAdr || data.henteAdr || '';
                     } else if (data.kortType === 'kommune') {
                         info.innerHTML = '<div style="margin-bottom:4px;"><strong>Kommunegrense</strong></div>' +
                             '<div>' + (data.pasientKommune || '?') + ' &rarr; ' + (data.destKommune || '?') + '</div>' +
@@ -2449,10 +2444,7 @@
                             '<div>Hentested: ' + (data.henteAdr || '?') + '</div>' +
                             '<div>Leveringssted: ' + (data.leverAdr || '?') + '</div>';
                         data.adresse = data.destNavn || data.leverAdr || '';
-                        adrForkl.textContent = 'Lagrer: "' + (data.adresse || '').toLowerCase().split(',')[0].trim() + '"';
                     }
-                    var forslag = (data.adresse || '').toLowerCase().split(/[\s,]+/).filter(function(w) { return w.length > 3 && !/^\d+$/.test(w); }).pop() || '';
-                    ordForkl.textContent = forslag ? 'Forslag: "' + forslag + '"' : '';
                     document.getElementById('gkStatus').textContent = '';
                     document.getElementById('gkAdrRad').style.display = 'none';
                     document.getElementById('gkOrdRad').style.display = 'none';
