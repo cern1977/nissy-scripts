@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.84
+    //    Overvåker Avvik v38.0.85
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.84';
+    const VERSION = '38.0.85';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -1712,7 +1712,7 @@
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Reiser der bestilt adresse avviker fra folkeregistrert adresse.</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${godkjenteOrdGH.join(', ')}</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${godkjenteAdresserGH.join(', ')}</div>
-                    <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.join(', ')}</div>
+                    <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
                 </div>
             </div>`;
             for (const f of vanlige) {
@@ -1724,7 +1724,7 @@
                 <span style="cursor:help;" onmouseenter="this.parentElement.querySelector('.filter-info').style.display=''" onmouseleave="this.parentElement.querySelector('.filter-info').style.display='none'">&#127973;</span> Postnummer: ${kanskje.length}
                 <div class="filter-info" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:10; margin-top:4px; padding:12px; background:white; border:1px solid #f59e0b; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); font-weight:normal; font-size:13px; color:#334155;">
                     <div style="margin-bottom:8px; font-style:italic; color:#64748b;">Disse reisene har behandlingssted i et postnr-omr\u00e5de som kan v\u00e6re OK. Sortert hit for manuell vurdering.</div>
-                    <div><strong style="color:#92400e;">Postnummer:</strong><br>${ADRESSE_KANSKJE_POSTNR.join(', ')}</div>
+                    <div><strong style="color:#92400e;">Postnummer:</strong><br>${ADRESSE_KANSKJE_POSTNR.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
                 </div>
             </div>`;
             for (const f of kanskje) {
@@ -1784,7 +1784,7 @@
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Reiser der bestilt adresse avviker fra folkeregistrert adresse.</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${godkjenteOrdGH.join(', ')}</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${godkjenteAdresserGH.join(', ')}</div>
-                    <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.join(', ')}</div>
+                    <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
                 </div>
             </div>`;
             for (const f of funn) {
