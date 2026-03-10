@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.79
+    //    Overvåker Avvik v38.0.80
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.79';
+    const VERSION = '38.0.80';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -2032,15 +2032,13 @@
                     </div>
                     <div style="margin-bottom:8px;">
                         <span class="label">Folkeregistrert adresse</span>
-                        <div class="value">${folkVis}${mapsHtml}</div>
-                        ${folkKommune ? '<div style="font-size:11px; color:#6b7280; margin-top:2px;">Kommune: ' + folkKommune + '</div>' : ''}
+                        <div class="value">${folkVis}${mapsHtml}${folkKommune ? '<br><span style="font-size:11px; color:#6b7280;">Kommune: ' + folkKommune + '</span>' : ''}</div>
                     </div>
                     <div class="row" style="border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f8fafc;">
                         <div class="col">
                             <span class="label">Hentested</span>
                             ${henteNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + henteNavn + '</div>' : ''}
-                            <div class="value">${henteAdr}</div>
-                            ${henteKommune ? '<div style="font-size:11px; color:#6b7280; margin-top:2px;">Kommune: ' + henteKommune + '</div>' : ''}
+                            <div class="value">${henteAdr}${henteKommune ? '<br><span style="font-size:11px; color:#6b7280;">Kommune: ' + henteKommune + '</span>' : ''}</div>
                             ${harAdmin && f.adminData.fraKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.fraKommentar + '</div>' : ''}
                         </div>
                         <div style="display:flex; align-items:center; justify-content:center; min-width:40px; max-width:40px; padding:0 4px;">
@@ -2049,8 +2047,7 @@
                         <div class="col">
                             <span class="label">Leveringssted</span>
                             ${leverNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + leverNavn + '</div>' : ''}
-                            <div class="value">${leverAdr}</div>
-                            ${leverKommune ? '<div style="font-size:11px; color:#6b7280; margin-top:2px;">Kommune: ' + leverKommune + '</div>' : ''}
+                            <div class="value">${leverAdr}${leverKommune ? '<br><span style="font-size:11px; color:#6b7280;">Kommune: ' + leverKommune + '</span>' : ''}</div>
                             ${harAdmin && f.adminData.tilKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.tilKommentar + '</div>' : ''}
                         </div>
                     </div>
