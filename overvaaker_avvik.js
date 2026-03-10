@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.77
+    //    Overvåker Avvik v38.0.78
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.77';
+    const VERSION = '38.0.78';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -1356,6 +1356,11 @@
             const destLower = destTekst.toLowerCase();
             const fraLower = r.fra.toLowerCase();
             if (MØTEPLASS_ORD.some(ord => destLower.includes(ord) || fraLower.includes(ord))) continue;
+
+            // Godkjente ord/adresser fra JSON — skip helt
+            const tilLowerK = r.til.toLowerCase();
+            if (window.mqBrukGodkjenteOrd && godkjenteOrdGH.some(o => fraLower.includes(o) || tilLowerK.includes(o))) continue;
+            if (window.mqBrukGodkjenteAdresser && godkjenteAdresserGH.some(a => fraLower.includes(a) || tilLowerK.includes(a))) continue;
 
             // Rute-kombo: fra inneholder A og til inneholder B (eller omvendt) → kanskje
             const tilLower = r.til.toLowerCase();
