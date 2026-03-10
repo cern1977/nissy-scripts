@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.83
+    //    Overvåker Avvik v38.0.84
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.83';
+    const VERSION = '38.0.84';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -19,115 +19,123 @@
     const GH_CONFIG = {
         TOKEN: (()=>{const p=['Z2l0aHViX3BhdF8xMUJWSzYyTkEw','bWxuTVFrNlA2TGdLX2RIcXdya0NP','RzQxQ2Zxbm1yS2dCUXhxczdFVzBh','T0s2ZzF4R2g4TGRxc1dZR1NSTkRC','RUhWeUtJRUFm'];return atob(p.join(''));})(),
         REPO: 'cern1977/nissy-scripts',
-        FIL: 'godkjente_adresser.json'
+        FIL_ADR: 'godkjente_adresser.json',
+        FIL_KOM: 'godkjente_kommune.json'
     };
 
     let godkjenteAdresserGH = [];
     let godkjenteOrdGH = [];
     let godkjenteKommuneOrdGH = [];
     let godkjenteKommuneAdresserGH = [];
-    let ghAdresserSHA = null;
-    const GH_LS_KEY = 'overvaker_avvik_godkjente';
-
-    function parseGHJson(json) {
-        godkjenteAdresserGH = (json.adresser || []).map(a => a.toLowerCase().trim());
-        godkjenteOrdGH = (json.ord || []).map(o => o.toLowerCase().trim());
-        godkjenteKommuneOrdGH = (json.kommune_ord || []).map(o => o.toLowerCase().trim());
-        godkjenteKommuneAdresserGH = json.kommune_adresser || [];
-    }
-
-    function byggGHJson() {
-        return { adresser: godkjenteAdresserGH, ord: godkjenteOrdGH, kommune_ord: godkjenteKommuneOrdGH, kommune_adresser: godkjenteKommuneAdresserGH, oppdatert: new Date().toISOString().slice(0,10) };
-    }
+    let ghAdrSHA = null;
+    let ghKomSHA = null;
+    const GH_LS_ADR = 'overvaker_avvik_godkjente_adr';
+    const GH_LS_KOM = 'overvaker_avvik_godkjente_kom';
 
     function lastGodkjenteFraLS() {
         try {
-            const lagret = localStorage.getItem(GH_LS_KEY);
-            if (!lagret) return;
-            parseGHJson(JSON.parse(lagret));
-            console.log(`[GH] Fallback localStorage: ${godkjenteAdresserGH.length} adr, ${godkjenteOrdGH.length} ord, ${godkjenteKommuneOrdGH.length} k-ord`);
+            const a = localStorage.getItem(GH_LS_ADR);
+            if (a) { const j = JSON.parse(a); godkjenteAdresserGH = (j.adresser||[]).map(x=>x.toLowerCase().trim()); godkjenteOrdGH = (j.ord||[]).map(x=>x.toLowerCase().trim()); }
+            const k = localStorage.getItem(GH_LS_KOM);
+            if (k) { const j = JSON.parse(k); godkjenteKommuneOrdGH = (j.ord||[]).map(x=>x.toLowerCase().trim()); godkjenteKommuneAdresserGH = j.adresser||[]; }
+            console.log(`[GH] LS-fallback: ${godkjenteAdresserGH.length} adr, ${godkjenteOrdGH.length} ord, ${godkjenteKommuneOrdGH.length} k-ord, ${godkjenteKommuneAdresserGH.length} k-adr`);
         } catch (e) {}
     }
 
-    function lagreGodkjenteILS() {
-        try { localStorage.setItem(GH_LS_KEY, JSON.stringify(byggGHJson())); } catch (e) {}
-    }
+    function lagreAdrILS() { try { localStorage.setItem(GH_LS_ADR, JSON.stringify({adresser:godkjenteAdresserGH, ord:godkjenteOrdGH, oppdatert:new Date().toISOString().slice(0,10)})); } catch(e){} }
+    function lagreKomILS() { try { localStorage.setItem(GH_LS_KOM, JSON.stringify({ord:godkjenteKommuneOrdGH, adresser:godkjenteKommuneAdresserGH, oppdatert:new Date().toISOString().slice(0,10)})); } catch(e){} }
 
     async function lastGodkjenteAdresser() {
         try {
-            const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
-                headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}` }
-            });
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            ghAdresserSHA = data.sha;
-            parseGHJson(JSON.parse(atob(data.content.replace(/\n/g, ''))));
-            lagreGodkjenteILS();
-            console.log(`[GH] Lastet ${godkjenteAdresserGH.length} adr, ${godkjenteOrdGH.length} ord, ${godkjenteKommuneOrdGH.length} k-ord, ${godkjenteKommuneAdresserGH.length} k-adr`);
+            const [resA, resK] = await Promise.all([
+                fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL_ADR}`, { headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}` } }),
+                fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL_KOM}`, { headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}` } })
+            ]);
+            if (resA.ok) {
+                const d = await resA.json(); ghAdrSHA = d.sha;
+                const j = JSON.parse(atob(d.content.replace(/\n/g, '')));
+                godkjenteAdresserGH = (j.adresser||[]).map(a=>a.toLowerCase().trim());
+                godkjenteOrdGH = (j.ord||[]).map(o=>o.toLowerCase().trim());
+                lagreAdrILS();
+            }
+            if (resK.ok) {
+                const d = await resK.json(); ghKomSHA = d.sha;
+                const j = JSON.parse(atob(d.content.replace(/\n/g, '')));
+                godkjenteKommuneOrdGH = (j.ord||[]).map(o=>o.toLowerCase().trim());
+                godkjenteKommuneAdresserGH = j.adresser||[];
+                lagreKomILS();
+            }
+            console.log(`[GH] Lastet: ${godkjenteAdresserGH.length} adr, ${godkjenteOrdGH.length} ord, ${godkjenteKommuneOrdGH.length} k-ord, ${godkjenteKommuneAdresserGH.length} k-adr`);
         } catch (e) {
             console.warn('[GH] Brannmur/feil — bruker localStorage-fallback:', e.message);
             lastGodkjenteFraLS();
         }
     }
 
-    async function lagreGH(melding) {
-        const body = JSON.stringify(byggGHJson());
-        const encoded = btoa(unescape(encodeURIComponent(body)));
-        const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
+    async function lagreGHFil(fil, sha, innhold, melding) {
+        const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(innhold))));
+        const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${fil}`, {
             method: 'PUT',
             headers: { 'Authorization': `Bearer ${GH_CONFIG.TOKEN}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: melding, content: encoded, sha: ghAdresserSHA })
+            body: JSON.stringify({ message: melding, content: encoded, sha: sha })
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
-        ghAdresserSHA = data.content.sha;
-        lagreGodkjenteILS();
+        return data.content.sha;
+    }
+
+    async function lagreGHAdr(melding) {
+        ghAdrSHA = await lagreGHFil(GH_CONFIG.FIL_ADR, ghAdrSHA, { adresser: godkjenteAdresserGH, ord: godkjenteOrdGH, oppdatert: new Date().toISOString().slice(0,10) }, melding);
+        lagreAdrILS();
+    }
+
+    async function lagreGHKom(melding) {
+        ghKomSHA = await lagreGHFil(GH_CONFIG.FIL_KOM, ghKomSHA, { ord: godkjenteKommuneOrdGH, adresser: godkjenteKommuneAdresserGH, oppdatert: new Date().toISOString().slice(0,10) }, melding);
+        lagreKomILS();
     }
 
     async function lagreGodkjentAdresse(adresse, kortType) {
         const ny = adresse.toLowerCase().trim();
         if (kortType === 'kommune') {
-            if (godkjenteKommuneOrdGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
+            if (godkjenteKommuneAdresserGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
+            godkjenteKommuneAdresserGH = [...godkjenteKommuneAdresserGH, ny];
+            try { await lagreGHKom(`K-Adresse: ${ny}`); return { ok: true, melding: 'Lagret!' }; }
+            catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
         } else {
             if (godkjenteAdresserGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
+            godkjenteAdresserGH = [...godkjenteAdresserGH, ny];
+            try { await lagreGHAdr(`Adresse: ${ny}`); return { ok: true, melding: 'Lagret!' }; }
+            catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
         }
-        try {
-            if (kortType === 'kommune') godkjenteKommuneOrdGH = [...godkjenteKommuneOrdGH, ny];
-            else godkjenteAdresserGH = [...godkjenteAdresserGH, ny];
-            await lagreGH(`${kortType === 'kommune' ? 'K-' : ''}Adresse: ${ny}`);
-            return { ok: true, melding: 'Lagret!' };
-        } catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
     }
 
     async function lagreGodkjentOrd(ord, kortType) {
         const ny = ord.toLowerCase().trim();
         if (kortType === 'kommune') {
             if (godkjenteKommuneOrdGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
+            godkjenteKommuneOrdGH = [...godkjenteKommuneOrdGH, ny];
+            try { await lagreGHKom(`K-Ord: ${ny}`); return { ok: true, melding: 'Lagret!' }; }
+            catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
         } else {
             if (godkjenteOrdGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
+            godkjenteOrdGH = [...godkjenteOrdGH, ny];
+            try { await lagreGHAdr(`Ord: ${ny}`); return { ok: true, melding: 'Lagret!' }; }
+            catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
         }
-        try {
-            if (kortType === 'kommune') godkjenteKommuneOrdGH = [...godkjenteKommuneOrdGH, ny];
-            else godkjenteOrdGH = [...godkjenteOrdGH, ny];
-            await lagreGH(`${kortType === 'kommune' ? 'K-' : ''}Ord: ${ny}`);
-            return { ok: true, melding: 'Lagret!' };
-        } catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
     }
 
     async function slettGodkjentAdresse(adresse, kortType) {
         try {
-            if (kortType === 'kommune') godkjenteKommuneOrdGH = godkjenteKommuneOrdGH.filter(a => a !== adresse);
-            else godkjenteAdresserGH = godkjenteAdresserGH.filter(a => a !== adresse);
-            await lagreGH(`Fjern ${kortType === 'kommune' ? 'k-' : ''}adresse: ${adresse}`);
+            if (kortType === 'kommune') { godkjenteKommuneAdresserGH = godkjenteKommuneAdresserGH.filter(a => a !== adresse); await lagreGHKom(`Fjern k-adresse: ${adresse}`); }
+            else { godkjenteAdresserGH = godkjenteAdresserGH.filter(a => a !== adresse); await lagreGHAdr(`Fjern adresse: ${adresse}`); }
             return { ok: true };
         } catch (e) { return { ok: false, melding: e.message }; }
     }
 
     async function slettGodkjentOrd(ord, kortType) {
         try {
-            if (kortType === 'kommune') godkjenteKommuneOrdGH = godkjenteKommuneOrdGH.filter(o => o !== ord);
-            else godkjenteOrdGH = godkjenteOrdGH.filter(o => o !== ord);
-            await lagreGH(`Fjern ${kortType === 'kommune' ? 'k-' : ''}ord: ${ord}`);
+            if (kortType === 'kommune') { godkjenteKommuneOrdGH = godkjenteKommuneOrdGH.filter(o => o !== ord); await lagreGHKom(`Fjern k-ord: ${ord}`); }
+            else { godkjenteOrdGH = godkjenteOrdGH.filter(o => o !== ord); await lagreGHAdr(`Fjern ord: ${ord}`); }
             return { ok: true };
         } catch (e) { return { ok: false, melding: e.message }; }
     }
