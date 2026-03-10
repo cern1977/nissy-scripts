@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.75
+    //    Overvåker Avvik v38.0.76
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.75';
+    const VERSION = '38.0.76';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -24,6 +24,7 @@
 
     let godkjenteAdresserGH = [];
     let godkjenteOrdGH = [];
+    let godkjenteKommuneAdresserGH = [];
     let ghAdresserSHA = null;
     const GH_LS_KEY = 'overvaker_avvik_godkjente';
 
@@ -34,7 +35,8 @@
             const json = JSON.parse(lagret);
             godkjenteAdresserGH = (json.adresser || []).map(a => a.toLowerCase().trim());
             godkjenteOrdGH = (json.ord || []).map(o => o.toLowerCase().trim());
-            console.log(`[GH] Fallback localStorage: ${godkjenteAdresserGH.length} adresser, ${godkjenteOrdGH.length} ord`);
+            godkjenteKommuneAdresserGH = json.kommune_adresser || [];
+            console.log(`[GH] Fallback localStorage: ${godkjenteAdresserGH.length} adresser, ${godkjenteOrdGH.length} ord, ${godkjenteKommuneAdresserGH.length} kommune-adr`);
         } catch (e) {}
     }
 
@@ -43,6 +45,7 @@
             localStorage.setItem(GH_LS_KEY, JSON.stringify({
                 adresser: godkjenteAdresserGH,
                 ord: godkjenteOrdGH,
+                kommune_adresser: godkjenteKommuneAdresserGH,
                 oppdatert: new Date().toISOString().slice(0,10)
             }));
         } catch (e) {}
@@ -59,8 +62,9 @@
             const json = JSON.parse(atob(data.content.replace(/\n/g, '')));
             godkjenteAdresserGH = (json.adresser || []).map(a => a.toLowerCase().trim());
             godkjenteOrdGH = (json.ord || []).map(o => o.toLowerCase().trim());
+            godkjenteKommuneAdresserGH = json.kommune_adresser || [];
             lagreGodkjenteILS();
-            console.log(`[GH] Lastet ${godkjenteAdresserGH.length} adresser, ${godkjenteOrdGH.length} ord`);
+            console.log(`[GH] Lastet ${godkjenteAdresserGH.length} adresser, ${godkjenteOrdGH.length} ord, ${godkjenteKommuneAdresserGH.length} kommune-adr`);
         } catch (e) {
             console.warn('[GH] Brannmur/feil — bruker localStorage-fallback:', e.message);
             lastGodkjenteFraLS();
@@ -68,7 +72,7 @@
     }
 
     async function lagreGH(nyeAdresser, nyeOrd, melding) {
-        const body = JSON.stringify({ adresser: nyeAdresser, ord: nyeOrd, oppdatert: new Date().toISOString().slice(0,10) });
+        const body = JSON.stringify({ adresser: nyeAdresser, ord: nyeOrd, kommune_adresser: godkjenteKommuneAdresserGH, oppdatert: new Date().toISOString().slice(0,10) });
         const encoded = btoa(unescape(encodeURIComponent(body)));
         const res = await fetch(`https://api.github.com/repos/${GH_CONFIG.REPO}/contents/${GH_CONFIG.FIL}`, {
             method: 'PUT',
@@ -219,15 +223,7 @@
     // ==================================================================
     //    GODKJENTE ADRESSER                                            
     // ==================================================================
-    const GODKJENTE_ADRESSER = [
-        'kirkeveien 166',
-        'sognsvannsveien 20',
-        'lørenskog stasjon',
-        'sykehusveien 25',
-        'forskningsveien 2',
-        'ullernchausseen 70',
-        'bjørnemyrveien 11',
-    ];
+    // GODKJENTE_ADRESSER — nå i godkjente_adresser.json (godkjenteAdresserGH)
 
     // ==================================================================
     //    POSTNUMMER -> KOMMUNE (fra Bring postnummerregister)
@@ -544,9 +540,7 @@
     ];
 
     // Godkjente adresser for kommunekryssing (runde 2: sjekkes mot admin-data)
-    const GODKJENTE_KOMMUNE_ADRESSER = [
-        { adresse: 'verkensveien 19', postnr: '1385' }
-    ];
+    // godkjenteKommuneAdresserGH — nå i godkjente_adresser.json (godkjenteKommuneAdresserGH)
 
     function erBehandlingssted(tekst) {
         if (!tekst) return false;
@@ -667,7 +661,7 @@
     //    CSS                                                           
     // ==================================================================
     const godkjenteOrdListe = GODKJENTE_ADRESSEORD.map(o => `<li>${o}</li>`).join('');
-    const godkjenteAdresserListe = GODKJENTE_ADRESSER.map(a => `<li>${a}</li>`).join('');
+    const godkjenteAdresserListe = godkjenteAdresserGH.map(a => `<li>${a}</li>`).join('');
 
     const STIL = `
         html, body { height: 100%; margin: 0; }
@@ -1223,7 +1217,6 @@
             let erGodkjent = false;
             const fraLower = r.fra.toLowerCase(), tilLower = r.til.toLowerCase();
             if (window.mqBrukGodkjenteOrd && (GODKJENTE_ADRESSEORD.some(o => fraLower.includes(o)) || GODKJENTE_ADRESSEORD.some(o => tilLower.includes(o)))) erGodkjent = true;
-            if (window.mqBrukGodkjenteAdresser && (GODKJENTE_ADRESSER.some(a => fraLower.includes(a)) || GODKJENTE_ADRESSER.some(a => tilLower.includes(a)))) erGodkjent = true;
             if (window.mqBrukGodkjenteAdresser && (godkjenteAdresserGH.some(a => fraLower.includes(a)) || godkjenteAdresserGH.some(a => tilLower.includes(a)))) erGodkjent = true;
             if (window.mqBrukGodkjenteOrd && (godkjenteOrdGH.some(o => fraLower.includes(o)) || godkjenteOrdGH.some(o => tilLower.includes(o)))) erGodkjent = true;
             if (erGodkjent) { hoppetGodkjentOrd++; continue; }
@@ -1428,7 +1421,7 @@
                 if (!f.adminData) continue;
                 const fraLow = (f.adminData.fra || '').toLowerCase();
                 const tilLow = (f.adminData.til || '').toLowerCase();
-                const treff = GODKJENTE_KOMMUNE_ADRESSER.find(g =>
+                const treff = godkjenteKommuneAdresserGH.find(g =>
                     (fraLow.includes(g.adresse) && fraLow.includes(g.postnr)) ||
                     (tilLow.includes(g.adresse) && tilLow.includes(g.postnr))
                 );
@@ -1638,7 +1631,7 @@
                     </div>
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Pasient reiser til annen kommune, uten kjent behandlingssted.</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">M\u00f8teplasser (filtrert helt bort i runde 1):</strong><br>${MØTEPLASS_ORD.join(', ')}</div>
-                    <div><strong style="color:#991b1b;">Godkjente adresser (runde 2, admin):</strong><br>${GODKJENTE_KOMMUNE_ADRESSER.map(g => g.adresse + ', ' + g.postnr).join(', ')}</div>
+                    <div><strong style="color:#991b1b;">Godkjente adresser (runde 2, admin):</strong><br>${godkjenteKommuneAdresserGH.map(g => g.adresse + ', ' + g.postnr).join(', ')}</div>
                 </div>
             </div>`;
             for (const f of vanlige) {
@@ -1703,7 +1696,7 @@
                     </div>
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Reiser der bestilt adresse avviker fra folkeregistrert adresse.</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${GODKJENTE_ADRESSEORD.join(', ')}</div>
-                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${GODKJENTE_ADRESSER.join(', ')}</div>
+                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${godkjenteAdresserGH.join(', ')}</div>
                     <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.join(', ')}</div>
                 </div>
             </div>`;
@@ -1775,7 +1768,7 @@
                     </div>
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Reiser der bestilt adresse avviker fra folkeregistrert adresse.</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${GODKJENTE_ADRESSEORD.join(', ')}</div>
-                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${GODKJENTE_ADRESSER.join(', ')}</div>
+                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${godkjenteAdresserGH.join(', ')}</div>
                     <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.join(', ')}</div>
                 </div>
             </div>`;
@@ -2282,14 +2275,23 @@
             </div>
             <div id="adrModal" class="adr-modal">
                 <div class="adr-modal-inner">
-                    <h3>&#128205; Godkjente adresser</h3>
-                    <p style="font-size:12px; color:#64748b; margin:0 0 12px 0;">Adresser som er lagt til her filtreres bort i adresse-skanningen. Lagres sentralt — gjelder alle PCer.</p>
+                    <h3>&#128205; Godkjente adresser og s\u00f8keord</h3>
+                    <p style="font-size:12px; color:#64748b; margin:0 0 12px 0;">Lagres sentralt \u2014 gjelder alle PCer. Adresser filtreres i adresse-skanningen, s\u00f8keord filtreres i b\u00e5de adresse- og kommune-skanningen.</p>
+                    <h4 style="margin:0 0 6px; font-size:13px; color:#334155;">Adresser</h4>
                     <ul class="adr-liste" id="adrListe"></ul>
                     <div class="adr-input-rad">
                         <input type="text" id="adrNyInput" placeholder="f.eks. morteveien 19" />
                         <button class="btn-nissy" id="adrLeggTilBtn">Legg til</button>
                     </div>
                     <div class="adr-status" id="adrStatus"></div>
+                    <hr style="margin:12px 0; border:none; border-top:1px solid #e2e8f0;">
+                    <h4 style="margin:0 0 6px; font-size:13px; color:#334155;">S\u00f8keord</h4>
+                    <ul class="adr-liste" id="ordListe"></ul>
+                    <div class="adr-input-rad">
+                        <input type="text" id="ordNyInput" placeholder="f.eks. \u00f8yelege" />
+                        <button class="btn-nissy" id="ordLeggTilBtn">Legg til</button>
+                    </div>
+                    <div class="adr-status" id="ordStatus"></div>
                     <button class="close-btn" id="adrModalLukk" style="margin-top:16px;">Lukk</button>
                 </div>
             </div>
@@ -2459,6 +2461,14 @@
                     if (!adr) return;
                     document.getElementById('adrStatus').textContent = 'Lagrer...';
                     window._avvikCh.postMessage({ type: 'LEGG_TIL_ADR', adresse: adr });
+                    input.value = '';
+                });
+                document.getElementById('ordLeggTilBtn').addEventListener('click', function() {
+                    var input = document.getElementById('ordNyInput');
+                    var ord = input.value.trim();
+                    if (!ord) return;
+                    document.getElementById('ordStatus').textContent = 'Lagrer...';
+                    window._avvikCh.postMessage({ type: 'LEGG_TIL_ORD', ord: ord });
                     input.value = '';
                 });
             <\/script>
@@ -2752,13 +2762,20 @@
             if (!win || win.closed) return;
             const modal = win.document.getElementById('adrModal');
             const liste = win.document.getElementById('adrListe');
+            const ordListeEl = win.document.getElementById('ordListe');
             const status = win.document.getElementById('adrStatus');
+            const ordSt = win.document.getElementById('ordStatus');
             if (!modal) return;
-            // Bygg liste
+            // Bygg adresse-liste
             liste.innerHTML = godkjenteAdresserGH.length === 0
-                ? '<li style="color:#94a3b8; font-style:italic;">Ingen egendefinerte adresser ennå</li>'
+                ? '<li style="color:#94a3b8; font-style:italic;">Ingen adresser ennå</li>'
                 : godkjenteAdresserGH.map(a => `<li><span>${a}</span><button class="adr-slett" onclick="window._avvikCh.postMessage({type:'SLETT_ADR', adresse:'${a.replace(/'/g,"\\'")}'})" title="Fjern">&#10005;</button></li>`).join('');
+            // Bygg ord-liste
+            if (ordListeEl) ordListeEl.innerHTML = godkjenteOrdGH.length === 0
+                ? '<li style="color:#94a3b8; font-style:italic;">Ingen s\u00f8keord enn\u00e5</li>'
+                : godkjenteOrdGH.map(o => `<li><span>${o}</span><button class="adr-slett" onclick="window._avvikCh.postMessage({type:'SLETT_ORD', ord:'${o.replace(/'/g,"\\'")}'})" title="Fjern">&#10005;</button></li>`).join('');
             status.textContent = '';
+            if (ordSt) ordSt.textContent = '';
             modal.classList.add('show');
         }
 
@@ -2780,8 +2797,30 @@
             if (resultat.ok && win && !win.closed) {
                 const liste = win.document.getElementById('adrListe');
                 if (liste) liste.innerHTML = godkjenteAdresserGH.length === 0
-                    ? '<li style="color:#94a3b8; font-style:italic;">Ingen egendefinerte adresser ennå</li>'
+                    ? '<li style="color:#94a3b8; font-style:italic;">Ingen adresser enn\u00e5</li>'
                     : godkjenteAdresserGH.map(a => `<li><span>${a}</span><button class="adr-slett" onclick="window._avvikCh.postMessage({type:'SLETT_ADR', adresse:'${a.replace(/'/g,"\\'")}'})" title="Fjern">&#10005;</button></li>`).join('');
+            }
+        }
+
+        if (data.type === 'LEGG_TIL_ORD') {
+            const win = window.mqWin;
+            const status = win && !win.closed ? win.document.getElementById('ordStatus') : null;
+            const resultat = await lagreGodkjentOrd(data.ord);
+            if (status) status.textContent = resultat.melding;
+            if (resultat.ok && win && !win.closed) {
+                const ordListeEl = win.document.getElementById('ordListe');
+                if (ordListeEl) ordListeEl.innerHTML = godkjenteOrdGH.map(o => `<li><span>${o}</span><button class="adr-slett" onclick="window._avvikCh.postMessage({type:'SLETT_ORD', ord:'${o.replace(/'/g,"\\'")}'})" title="Fjern">&#10005;</button></li>`).join('');
+            }
+        }
+
+        if (data.type === 'SLETT_ORD') {
+            const win = window.mqWin;
+            const resultat = await slettGodkjentOrd(data.ord);
+            if (resultat.ok && win && !win.closed) {
+                const ordListeEl = win.document.getElementById('ordListe');
+                if (ordListeEl) ordListeEl.innerHTML = godkjenteOrdGH.length === 0
+                    ? '<li style="color:#94a3b8; font-style:italic;">Ingen s\u00f8keord enn\u00e5</li>'
+                    : godkjenteOrdGH.map(o => `<li><span>${o}</span><button class="adr-slett" onclick="window._avvikCh.postMessage({type:'SLETT_ORD', ord:'${o.replace(/'/g,"\\'")}'})" title="Fjern">&#10005;</button></li>`).join('');
             }
         }
 
