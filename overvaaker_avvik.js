@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.86
+    //    Overvåker Avvik v38.0.87
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.86';
+    const VERSION = '38.0.87';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -138,6 +138,23 @@
         try {
             if (kortType === 'kommune') { godkjenteKommuneOrdGH = godkjenteKommuneOrdGH.filter(o => o !== ord); await lagreGHKom(`Fjern k-ord: ${ord}`); }
             else { godkjenteOrdGH = godkjenteOrdGH.filter(o => o !== ord); await lagreGHAdr(`Fjern ord: ${ord}`); }
+            return { ok: true };
+        } catch (e) { return { ok: false, melding: e.message }; }
+    }
+
+    async function lagreGodkjentPostnr(postnr) {
+        const ny = String(postnr).replace(/\s/g, '').padStart(4, '0');
+        if (!/^\d{4}$/.test(ny)) return { ok: false, melding: 'Ugyldig postnummer (må være 4 siffer)' };
+        if (godkjenteKanskjePostnrGH.includes(ny)) return { ok: false, melding: 'Allerede i listen' };
+        godkjenteKanskjePostnrGH = [...godkjenteKanskjePostnrGH, ny];
+        try { await lagreGHAdr(`Postnr: ${ny}`); return { ok: true, melding: 'Lagret!' }; }
+        catch (e) { return { ok: false, melding: 'Feil: ' + e.message }; }
+    }
+
+    async function slettGodkjentPostnr(postnr) {
+        try {
+            godkjenteKanskjePostnrGH = godkjenteKanskjePostnrGH.filter(p => p !== postnr);
+            await lagreGHAdr(`Fjern postnr: ${postnr}`);
             return { ok: true };
         } catch (e) { return { ok: false, melding: e.message }; }
     }
@@ -2078,7 +2095,7 @@
                 <div class="card-actions">
                     ${!f.kmInfo ? `<button class="btn-nissy" id="btnKm-${f.reqId}" onclick="window._avvikCh.postMessage({type:'BEREGN_KM', reqId:'${f.reqId}', resId:'${f.resId || ''}'})">&#128207; Beregn km</button>` : ''}
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'adresse', henteAdr:'${esc(henteAdr)}', leverAdr:'${esc(leverAdr)}', henteNavn:'${esc(henteNavn)}', leverNavn:'${esc(leverNavn)}', folkAdr:'${esc(folkVis.replace(/<br>/g, ", "))}' })">GODKJENN</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'adresse', kanskje:${!!adrKanskje}, henteAdr:'${esc(henteAdr)}', leverAdr:'${esc(leverAdr)}', henteNavn:'${esc(henteNavn)}', leverNavn:'${esc(leverNavn)}', folkAdr:'${esc(folkVis.replace(/<br>/g, ", "))}' })">GODKJENN</button>
                     <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(rekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (harAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(harAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(harAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(harAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
                 </div>
             </div>`;
@@ -2133,7 +2150,7 @@
                 </div>
                 <div class="card-actions">
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
-                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'kommune', destNavn:'${esc(f.destNavn || '')}', pasientKommune:'${esc(f.pasientKommune || '')}', destKommune:'${esc(f.behandlingsstedKommune || '')}', henteAdr:'${esc(kFraAdr || fraVis)}', leverAdr:'${esc(kTilAdr || tilVis)}' })">GODKJENN</button>
+                    <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', kortType:'kommune', kanskje:${!!kKanskje}, destNavn:'${esc(f.destNavn || '')}', pasientKommune:'${esc(f.pasientKommune || '')}', destKommune:'${esc(f.behandlingsstedKommune || '')}', henteAdr:'${esc(kFraAdr || fraVis)}', leverAdr:'${esc(kTilAdr || tilVis)}' })">GODKJENN</button>
                     <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(kRekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (kHarAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(kHarAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(kHarAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(kHarAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
                 </div>
             </div>`;
@@ -2295,6 +2312,13 @@
                                 <button class="btn-nissy" id="gkOrdLagreBtn">Lagre</button>
                             </div>
                         </div>
+                        <div id="gkPostnrWrap" style="display:none;">
+                            <button class="gk-btn-ord" id="gkBtnPostnr" style="background:#f59e0b; color:#fff;">&#128204; Lagre postnummer permanent</button>
+                            <div class="gk-ord-rad" id="gkPostnrRad" style="display:none; margin-top:8px;">
+                                <input type="text" id="gkPostnrInput" maxlength="4" placeholder="f.eks. 0372" style="width:80px;" />
+                                <button class="btn-nissy" id="gkPostnrLagreBtn" style="background:#f59e0b;">Lagre</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="gk-status" id="gkStatus"></div>
                     <button class="close-btn" id="gkModalLukk" style="margin-top:8px;">Avbryt</button>
@@ -2454,6 +2478,20 @@
                     document.getElementById('gkStatus').textContent = 'Lagrer...';
                     window._avvikCh.postMessage({type:'GODKJENN_LAGRE_ORD', reqId:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, kortType:gkPendingData.kortType, ord:ord});
                 });
+                document.getElementById('gkBtnPostnr').addEventListener('click', function() {
+                    var rad = document.getElementById('gkPostnrRad');
+                    rad.style.display = rad.style.display === 'none' ? 'flex' : 'none';
+                    if (rad.style.display === 'flex') {
+                        document.getElementById('gkPostnrInput').value = '';
+                        document.getElementById('gkPostnrInput').focus();
+                    }
+                });
+                document.getElementById('gkPostnrLagreBtn').addEventListener('click', function() {
+                    var pnr = document.getElementById('gkPostnrInput').value.trim();
+                    if (!pnr || !gkPendingData) return;
+                    document.getElementById('gkStatus').textContent = 'Lagrer postnr...';
+                    window._avvikCh.postMessage({type:'GODKJENN_LAGRE_POSTNR', reqId:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, postnr:pnr});
+                });
                 window._gkSetPending = function(data) {
                     gkPendingData = data;
                     var info = document.getElementById('gkInfoBoks');
@@ -2474,6 +2512,8 @@
                     document.getElementById('gkStatus').textContent = '';
                     document.getElementById('gkAdrRad').style.display = 'none';
                     document.getElementById('gkOrdRad').style.display = 'none';
+                    document.getElementById('gkPostnrRad').style.display = 'none';
+                    document.getElementById('gkPostnrWrap').style.display = data.kanskje ? 'block' : 'none';
                     gkModal.classList.add('show');
                 };
                 document.getElementById('adrModal').addEventListener('click', function(e) {
@@ -2779,6 +2819,21 @@
             if (resultat.ok) {
                 if (data.turid) { godkjentIMinne.add(data.turid); lagreGodkjent(); }
                 if (data.resId) settMerknad(data.resId, 'Godkjent søkeord');
+                fadeOgFjern(data.reqId);
+                setTimeout(() => { if (win && !win.closed) win.document.getElementById('gkModal').classList.remove('show'); }, 800);
+            }
+        }
+
+        if (data.type === 'GODKJENN_LAGRE_POSTNR') {
+            const win = window.mqWin;
+            const resultat = await lagreGodkjentPostnr(data.postnr);
+            if (win && !win.closed) {
+                const status = win.document.getElementById('gkStatus');
+                if (status) status.textContent = resultat.melding;
+            }
+            if (resultat.ok) {
+                if (data.turid) { godkjentIMinne.add(data.turid); lagreGodkjent(); }
+                if (data.resId) settMerknad(data.resId, 'Godkjent postnr');
                 fadeOgFjern(data.reqId);
                 setTimeout(() => { if (win && !win.closed) win.document.getElementById('gkModal').classList.remove('show'); }, 800);
             }
