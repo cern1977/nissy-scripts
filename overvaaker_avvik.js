@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.76
+    //    Overvåker Avvik v38.0.77
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.76';
+    const VERSION = '38.0.77';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -209,16 +209,7 @@
     // ==================================================================
     //    GODKJENTE ADRESSEORD                                          
     // ==================================================================
-    const GODKJENTE_ADRESSEORD = [
-        'skole', 'helsehus', 'barnehage', 'sykehjem', 'bofellesskap',
-        'omsorgsbolig', 'dagsenter', 'rehabilitering', 'hospice', 'omsorgssenter',
-        'lambertseterhjemmet', 'godt haab', 'lufthavn', 'gardermoen',
-        'sofienberghjemmet', 'avtalespesialist', 'legekontor', 'finstadtunet',
-        'dps', 'ous', 'ahus', 'omsorg+', 'sengepost', 'skedsmotun',
-        'sykehus', 'diakonhjemmet', 'hotel', 'uus', 'helsebygg',
-        'kirkeveien 166', 'munthe-kaas vei 100', 'unicare fram', 'fus', 'gatehospitalet', 'klosteret', 'rustadtunet', 'bokollektiv', 'fagerborghjemmet',
-        'kantarellenhjemmet'
-    ];
+    // godkjenteOrdGH — nå i godkjente_adresser.json (godkjenteOrdGH)
 
     // ==================================================================
     //    GODKJENTE ADRESSER                                            
@@ -660,7 +651,7 @@
     // ==================================================================
     //    CSS                                                           
     // ==================================================================
-    const godkjenteOrdListe = GODKJENTE_ADRESSEORD.map(o => `<li>${o}</li>`).join('');
+    const godkjenteOrdListe = godkjenteOrdGH.map(o => `<li>${o}</li>`).join('');
     const godkjenteAdresserListe = godkjenteAdresserGH.map(a => `<li>${a}</li>`).join('');
 
     const STIL = `
@@ -1216,9 +1207,8 @@
             // Godkjente ord/adresser — sjekk begge adresser (fra og til)
             let erGodkjent = false;
             const fraLower = r.fra.toLowerCase(), tilLower = r.til.toLowerCase();
-            if (window.mqBrukGodkjenteOrd && (GODKJENTE_ADRESSEORD.some(o => fraLower.includes(o)) || GODKJENTE_ADRESSEORD.some(o => tilLower.includes(o)))) erGodkjent = true;
-            if (window.mqBrukGodkjenteAdresser && (godkjenteAdresserGH.some(a => fraLower.includes(a)) || godkjenteAdresserGH.some(a => tilLower.includes(a)))) erGodkjent = true;
             if (window.mqBrukGodkjenteOrd && (godkjenteOrdGH.some(o => fraLower.includes(o)) || godkjenteOrdGH.some(o => tilLower.includes(o)))) erGodkjent = true;
+            if (window.mqBrukGodkjenteAdresser && (godkjenteAdresserGH.some(a => fraLower.includes(a)) || godkjenteAdresserGH.some(a => tilLower.includes(a)))) erGodkjent = true;
             if (erGodkjent) { hoppetGodkjentOrd++; continue; }
 
             // Kanskje-postnummer: sjekk begge adresser (fra og til)
@@ -1695,7 +1685,7 @@
                         Avstand fra folkereg til behandlingssted vs. bestilt reise. Hvis bestilt &lt;= folkereg = OK.
                     </div>
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Reiser der bestilt adresse avviker fra folkeregistrert adresse.</div>
-                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${GODKJENTE_ADRESSEORD.join(', ')}</div>
+                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${godkjenteOrdGH.join(', ')}</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${godkjenteAdresserGH.join(', ')}</div>
                     <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.join(', ')}</div>
                 </div>
@@ -1767,7 +1757,7 @@
                         Avstand fra folkereg til behandlingssted vs. bestilt reise. Hvis bestilt &lt;= folkereg = OK.
                     </div>
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Reiser der bestilt adresse avviker fra folkeregistrert adresse.</div>
-                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${GODKJENTE_ADRESSEORD.join(', ')}</div>
+                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${godkjenteOrdGH.join(', ')}</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${godkjenteAdresserGH.join(', ')}</div>
                     <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.join(', ')}</div>
                 </div>
