@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.85
+    //    Overvåker Avvik v38.0.86
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.85';
+    const VERSION = '38.0.86';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -25,6 +25,7 @@
 
     let godkjenteAdresserGH = [];
     let godkjenteOrdGH = [];
+    let godkjenteKanskjePostnrGH = [];
     let godkjenteKommuneOrdGH = [];
     let godkjenteKommuneAdresserGH = [];
     let ghAdrSHA = null;
@@ -35,14 +36,14 @@
     function lastGodkjenteFraLS() {
         try {
             const a = localStorage.getItem(GH_LS_ADR);
-            if (a) { const j = JSON.parse(a); godkjenteAdresserGH = (j.adresser||[]).map(x=>x.toLowerCase().trim()); godkjenteOrdGH = (j.ord||[]).map(x=>x.toLowerCase().trim()); }
+            if (a) { const j = JSON.parse(a); godkjenteAdresserGH = (j.adresser||[]).map(x=>x.toLowerCase().trim()); godkjenteOrdGH = (j.ord||[]).map(x=>x.toLowerCase().trim()); godkjenteKanskjePostnrGH = j.kanskje_postnr||[]; }
             const k = localStorage.getItem(GH_LS_KOM);
             if (k) { const j = JSON.parse(k); godkjenteKommuneOrdGH = (j.ord||[]).map(x=>x.toLowerCase().trim()); godkjenteKommuneAdresserGH = j.adresser||[]; }
             console.log(`[GH] LS-fallback: ${godkjenteAdresserGH.length} adr, ${godkjenteOrdGH.length} ord, ${godkjenteKommuneOrdGH.length} k-ord, ${godkjenteKommuneAdresserGH.length} k-adr`);
         } catch (e) {}
     }
 
-    function lagreAdrILS() { try { localStorage.setItem(GH_LS_ADR, JSON.stringify({adresser:godkjenteAdresserGH, ord:godkjenteOrdGH, oppdatert:new Date().toISOString().slice(0,10)})); } catch(e){} }
+    function lagreAdrILS() { try { localStorage.setItem(GH_LS_ADR, JSON.stringify({adresser:godkjenteAdresserGH, ord:godkjenteOrdGH, kanskje_postnr:godkjenteKanskjePostnrGH, oppdatert:new Date().toISOString().slice(0,10)})); } catch(e){} }
     function lagreKomILS() { try { localStorage.setItem(GH_LS_KOM, JSON.stringify({ord:godkjenteKommuneOrdGH, adresser:godkjenteKommuneAdresserGH, oppdatert:new Date().toISOString().slice(0,10)})); } catch(e){} }
 
     async function lastGodkjenteAdresser() {
@@ -56,6 +57,7 @@
                 const j = JSON.parse(atob(d.content.replace(/\n/g, '')));
                 godkjenteAdresserGH = (j.adresser||[]).map(a=>a.toLowerCase().trim());
                 godkjenteOrdGH = (j.ord||[]).map(o=>o.toLowerCase().trim());
+                godkjenteKanskjePostnrGH = j.kanskje_postnr||[];
                 lagreAdrILS();
             }
             if (resK.ok) {
@@ -85,7 +87,7 @@
     }
 
     async function lagreGHAdr(melding) {
-        ghAdrSHA = await lagreGHFil(GH_CONFIG.FIL_ADR, ghAdrSHA, { adresser: godkjenteAdresserGH, ord: godkjenteOrdGH, oppdatert: new Date().toISOString().slice(0,10) }, melding);
+        ghAdrSHA = await lagreGHFil(GH_CONFIG.FIL_ADR, ghAdrSHA, { adresser: godkjenteAdresserGH, ord: godkjenteOrdGH, kanskje_postnr: godkjenteKanskjePostnrGH, oppdatert: new Date().toISOString().slice(0,10) }, melding);
         lagreAdrILS();
     }
 
@@ -146,8 +148,7 @@
         morgen: [19259, 19260, 19262, 19263]
     };
 
-    // Postnummer for adressesjekk "kanskje" (behandlingssted) — flyttes til kolonne 2
-    const ADRESSE_KANSKJE_POSTNR = ['0372', '0450', '0379', '1474', '0586', '1346'];
+    // godkjenteKanskjePostnrGH — nå i godkjente_adresser.json (godkjenteKanskjePostnrGH)
 
     const ADMIN_BASE = 'https://pastrans-sorost.mq.nhn.no/administrasjon/admin';
     let adminTilgjengelig = false;
@@ -1233,7 +1234,7 @@
             if (erGodkjent) { hoppetGodkjentOrd++; continue; }
 
             // Kanskje-postnummer: sjekk begge adresser (fra og til)
-            const kanskjePostnr = ADRESSE_KANSKJE_POSTNR.some(pnr => r.fra.includes(pnr) || r.til.includes(pnr));
+            const kanskjePostnr = godkjenteKanskjePostnrGH.some(pnr => r.fra.includes(pnr) || r.til.includes(pnr));
 
             console.log(`[ADR] Kandidat RID=${r.reqId}: folk="${folkGate}" fra="${fraGate}" til="${tilGate}" retning=${erTur === true ? 'TUR' : erTur === false ? 'RETUR' : '?'} kanskje=${kanskjePostnr}`);
             kandidater.push({ ...r, type: 'adresse', erTur, folkGate, kanskjePostnr });
@@ -1712,7 +1713,7 @@
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Reiser der bestilt adresse avviker fra folkeregistrert adresse.</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${godkjenteOrdGH.join(', ')}</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${godkjenteAdresserGH.join(', ')}</div>
-                    <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
+                    <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${godkjenteKanskjePostnrGH.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
                 </div>
             </div>`;
             for (const f of vanlige) {
@@ -1724,7 +1725,7 @@
                 <span style="cursor:help;" onmouseenter="this.parentElement.querySelector('.filter-info').style.display=''" onmouseleave="this.parentElement.querySelector('.filter-info').style.display='none'">&#127973;</span> Postnummer: ${kanskje.length}
                 <div class="filter-info" style="display:none; position:absolute; top:100%; left:0; right:0; z-index:10; margin-top:4px; padding:12px; background:white; border:1px solid #f59e0b; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); font-weight:normal; font-size:13px; color:#334155;">
                     <div style="margin-bottom:8px; font-style:italic; color:#64748b;">Disse reisene har behandlingssted i et postnr-omr\u00e5de som kan v\u00e6re OK. Sortert hit for manuell vurdering.</div>
-                    <div><strong style="color:#92400e;">Postnummer:</strong><br>${ADRESSE_KANSKJE_POSTNR.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
+                    <div><strong style="color:#92400e;">Postnummer:</strong><br>${godkjenteKanskjePostnrGH.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
                 </div>
             </div>`;
             for (const f of kanskje) {
@@ -1784,7 +1785,7 @@
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Reiser der bestilt adresse avviker fra folkeregistrert adresse.</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente ord (eliminert i runde 1):</strong><br>${godkjenteOrdGH.join(', ')}</div>
                     <div style="margin-bottom:8px;"><strong style="color:#991b1b;">Godkjente adresser (eliminert i runde 1):</strong><br>${godkjenteAdresserGH.join(', ')}</div>
-                    <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${ADRESSE_KANSKJE_POSTNR.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
+                    <div><strong style="color:#991b1b;">Kanskje-postnr (kolonne 2):</strong><br>${godkjenteKanskjePostnrGH.map(p => p + (hentKommune(p) ? ' (' + hentKommune(p) + ')' : '')).join(', ')}</div>
                 </div>
             </div>`;
             for (const f of funn) {
