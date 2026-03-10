@@ -1,63 +1,7 @@
 {
-  "adresser": [
-    "bjørnemyrveien 11",
-    "forskningsveien 2",
-    "kirkeveien 166",
-    "lørenskog stasjon",
-    "morteveien 19",
-    "sognsvannsveien 20",
-    "sogneprest munthe-kaas vei 100",
-    "sykehusveien 25",
-    "ullernchausseen 70"
-  ],
-  "ord": [
-    "ahus",
-    "aker helsearena/studio 99",
-    "avtalespesialist",
-    "barnehage",
-    "bofellesskap",
-    "bokollektiv",
-    "dagsenter",
-    "diakonhjemmet",
-    "dps",
-    "fagerborghjemmet",
-    "finstadtunet",
-    "fus",
-    "gardermoen",
-    "gatehospitalet",
-    "godt haab",
-    "helsebygg",
-    "helsehus",
-    "hospice",
-    "hotel",
-    "kantarellenhjemmet",
-    "kirkeveien 166",
-    "klosteret",
-    "lambertseterhjemmet",
-    "legekontor",
-    "lufthavn",
-    "munthe-kaas vei 100",
-    "omsorg+",
-    "omsorgsbolig",
-    "omsorgssenter",
-    "ous",
-    "rehabilitering",
-    "rustadtunet",
-    "sengepost",
-    "skedsmotun",
-    "skole",
-    "sofienberghjemmet",
-    "sykehjem",
-    "sykehus",
-    "unicare fram",
-    "uus"
-  ],
-  "kommune_adresser": [
-    {
-      "adresse": "verkensveien 19",
-      "postnr": "1385"
-    }
-  ],
-  "oppdatert": "2026-03-10",
-  "kommune_ord": []
+  "adresser": [],
+  "ord": [],
+  "kommune_ord": [],
+  "kommune_adresser": [],
+  "oppdatert": "2026-03-10"
 }
