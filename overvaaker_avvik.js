@@ -1,12 +1,12 @@
 (function() {
     // ==================================================================
-    //    Overvåker Avvik v38.0.87
+    //    Overvåker Avvik v38.0.88
     //    Standalone avviksmonitor for NISSY
     //    Arkitektur: Dispatch-first -- leser data fra dispatch-XML
     //    Sjekker: Barn, PNR, Dublett, Adresse, Kommunegrense
     //    Ingen IndexedDB -- hver skanning er uavhengig
     // ==================================================================
-    const VERSION = '38.0.87';
+    const VERSION = '38.0.88';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -193,16 +193,16 @@
         }
     }
 
-    // Retry-wrapper: prøver sjekkAdminLogin opptil maxForsøk ganger med pause
-    async function sjekkAdminLoginMedRetry(maxForsøk = 3, pauseMs = 2000) {
-        for (let i = 1; i <= maxForsøk; i++) {
+    // Retry-wrapper: prøver sjekkAdminLogin opptil maxForsok ganger med pause
+    async function sjekkAdminLoginMedRetry(maxForsok = 3, pauseMs = 2000) {
+        for (let i = 1; i <= maxForsok; i++) {
             const ok = await sjekkAdminLogin();
             if (ok) return true;
-            if (i < maxForsøk) {
-                console.log(`[ADMIN] Forsøk ${i}/${maxForsøk} feilet, prøver igjen om ${pauseMs/1000}s...`);
+            if (i < maxForsok) {
+                console.log(`[ADMIN] Forsøk ${i}/${maxForsok} feilet, prøver igjen om ${pauseMs/1000}s...`);
                 await new Promise(r => setTimeout(r, pauseMs));
             } else {
-                console.warn(`[ADMIN] Alle ${maxForsøk} forsøk feilet`);
+                console.warn(`[ADMIN] Alle ${maxForsok} forsøk feilet`);
             }
         }
         return false;
@@ -564,7 +564,7 @@
     ];
 
     // Møteplasser -- turer til/fra møteplass er godkjent, skipper kommunegrense
-    const MØTEPLASS_ORD = [
+    const MOTEPLASS_ORD = [
         'esso express oppaker',
         'vøyenenga'
     ];
@@ -1394,7 +1394,7 @@
             // Møteplass -- turer til/fra møteplass er manuelt godkjent, skip helt
             const destLower = destTekst.toLowerCase();
             const fraLower = r.fra.toLowerCase();
-            if (MØTEPLASS_ORD.some(ord => destLower.includes(ord) || fraLower.includes(ord))) continue;
+            if (MOTEPLASS_ORD.some(ord => destLower.includes(ord) || fraLower.includes(ord))) continue;
 
             // Godkjente kommune-ord fra JSON — skip helt
             const tilLowerK = r.til.toLowerCase();
@@ -1663,7 +1663,7 @@
                         Treff = flyttet til kanskje-kolonnen.
                     </div>
                     <div style="margin-bottom:10px; font-style:italic; color:#64748b;">Sluttresultat: Pasient reiser til annen kommune, uten kjent behandlingssted.</div>
-                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">M\u00f8teplasser (filtrert helt bort i runde 1):</strong><br>${MØTEPLASS_ORD.join(', ')}</div>
+                    <div style="margin-bottom:8px;"><strong style="color:#991b1b;">M\u00f8teplasser (filtrert helt bort i runde 1):</strong><br>${MOTEPLASS_ORD.join(', ')}</div>
                     <div><strong style="color:#991b1b;">Godkjente adresser (runde 2, admin):</strong><br>${godkjenteKommuneAdresserGH.map(g => g.adresse + ', ' + g.postnr).join(', ')}</div>
                 </div>
             </div>`;
