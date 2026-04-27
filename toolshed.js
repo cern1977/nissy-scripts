@@ -20,7 +20,7 @@
     if (window.__westby_toolshed_init) return;
     window.__westby_toolshed_init = true;
 
-    var VERSJON = '1.2';
+    var VERSJON = '1.3';
 
     try { window.resizeTo(290, 360); } catch (e) {}
 
@@ -80,6 +80,10 @@
     var toolsById = {};
     // UI-referanser for å oppdatere badge
     var btnBadgeById = {};
+    // Hvilke verktøy vi har sett kjøre i NISSY (brukes til F5-deteksjon)
+    var harSettLastet = {};
+    // setInterval-ID for keeper-loopen (må kunne kanselleres ved selvReload)
+    var keeperIntervalId = null;
 
     function setBadge(toolId, tekst, farge) {
         var badge = btnBadgeById[toolId];
@@ -159,9 +163,19 @@
         } else {
             skjulBanner();
         }
+        var f5Oppdaget = false;
         Object.keys(ønsket).forEach(function (toolId) {
             if (!ønsket[toolId]) return;
-            if (!erLastet(toolId)) {
+            var lastet = erLastet(toolId);
+            if (lastet) {
+                harSettLastet[toolId] = true;
+                setBadge(toolId, 'AKTIV', '#10b981');
+            } else {
+                if (harSettLastet[toolId]) {
+                    // Verktøyet var lastet, er borte nå → NISSY ble F5-et
+                    f5Oppdaget = true;
+                    harSettLastet[toolId] = false;
+                }
                 var tool = toolsById[toolId];
                 if (tool) {
                     setBadge(toolId, 'RE-INJ…', '#f59e0b');
@@ -170,10 +184,20 @@
                         if (erLastet(toolId)) setBadge(toolId, 'AKTIV', '#10b981');
                     }, 300);
                 }
-            } else {
-                setBadge(toolId, 'AKTIV', '#10b981');
             }
         });
+        if (f5Oppdaget) selvReload();
+    }
+
+    // Hent toolshed.js på nytt og overta popupen — gir brukeren siste versjon
+    // ved hver F5 i NISSY uten at popupen må lukkes/åpnes manuelt.
+    function selvReload() {
+        if (keeperIntervalId) { clearInterval(keeperIntervalId); keeperIntervalId = null; }
+        try { delete window.__westby_toolshed_init; } catch (e) { window.__westby_toolshed_init = false; }
+        body.innerHTML = '';
+        var s = doc.createElement('script');
+        s.src = 'https://thomaswestby.no/skript/toolshed.js?cb=' + Date.now();
+        head.appendChild(s);
     }
 
     // Bannerfunksjoner
@@ -253,7 +277,7 @@
             });
             doc.getElementById('__version').textContent = 'v' + VERSJON;
             // Start keeper-loop — sjekker hvert sekund at ønskede verktøy kjører
-            setInterval(keeperTick, 1000);
+            keeperIntervalId = setInterval(keeperTick, 1000);
         })
         .catch(function (e) {
             doc.getElementById('__status').style.display = 'none';
