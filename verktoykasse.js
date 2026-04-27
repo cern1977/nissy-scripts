@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.17 ===
+// === WESTBYS VERKTØYKASSE v1.18 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -16,8 +16,9 @@
 // v1.15: debug-logging i høyreklikk-handler for å spore resId="0"-bug
 // v1.16: fiks hardkodet "v1.8"-streng i log + vis array-innhold direkte
 // v1.17: bruk index-løkke i stedet for entries()-destructuring (NISSY/Rico ga resId=0)
+// v1.18: userid = NISSY-brukernavn (thwe), ikke tall — confirm-API godtar brukernavn
 (function() {
-    const VERSJON = '1.17';
+    const VERSJON = '1.18';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -736,12 +737,8 @@
 
     async function hentRekUserid() {
         if (_rekUserid) return _rekUserid;
-        try {
-            const r = await fetch(`${REK_BASE}/requisition/`, { credentials: 'include' });
-            const html = await r.text();
-            const m = html.match(/userid=(\d+)/);
-            if (m) { _rekUserid = m[1]; return _rekUserid; }
-        } catch (_) {}
+        const navn = hentNissyBrukernavn();
+        if (navn) { _rekUserid = navn; return _rekUserid; }
         return null;
     }
 
