@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.15 ===
+// === WESTBYS VERKTØYKASSE v1.16 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -14,8 +14,9 @@
 // v1.13: defensiv DOM-fjerning (Rico kræsjer på .remove() når elementet er borte)
 // v1.14: les markerte fra DOM (blå rader), ikke g_voppLS.selected — sistnevnte ga "0"
 // v1.15: debug-logging i høyreklikk-handler for å spore resId="0"-bug
+// v1.16: fiks hardkodet "v1.8"-streng i log + vis array-innhold direkte
 (function() {
-    const VERSJON = '1.15';
+    const VERSJON = '1.16';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -934,13 +935,7 @@
             if (!/^\d+$/.test(id)) return;
             resIds = [id];
         }
-        console.log('[VERKTØYKASSE] høyreklikk:', {
-            'rad.id': rad.id,
-            erMarkert,
-            'markerte (DOM-blå)': markerte,
-            resIds,
-            'e.target': e.target.tagName + (e.target.id ? '#' + e.target.id : '')
-        });
+        console.log('[VERKTØYKASSE] høyreklikk: rad.id=' + rad.id + ' erMarkert=' + erMarkert + ' markerte=' + JSON.stringify(markerte) + ' resIds=' + JSON.stringify(resIds) + ' target=' + e.target.tagName);
         e.preventDefault();
         visKontekstmeny(resIds, e.clientX, e.clientY);
     }
@@ -951,7 +946,7 @@
     }
 
     const nissy = hentNissyBrukernavn();
-    console.log('[VERKTØYKASSE v1.8] Henter tilgang for nissy_id=' + (nissy || '(tom)'));
+    console.log(`[VERKTØYKASSE v${VERSJON}] Henter tilgang for nissy_id=` + (nissy || '(tom)'));
     hentTilgang(nissy).then(async t => {
         console.log('[VERKTØYKASSE] Tilgang:', t);
         tegnMeny(t);
