@@ -1,5 +1,5 @@
 /**
- * OUS Verktøyhylle — popup-controller for NISSY-verktøy.
+ * OUS Verktøykasse — popup-controller for NISSY-bakgrunnsverktøy.
  *
  * Arkitektur:
  *   - Popupen er *launcher* og "keeper" — den starter verktøy, men verktøyet selv
@@ -11,6 +11,8 @@
  *
  *   - Verktøy kan ha `inject_target: "popup"` i toolshed.json hvis de skal kjøre
  *     i popupen i stedet (for frittstående UI som ikke trenger NISSY-DOM).
+ *   - Bare verktøy med `autostart: true` rendres i popupen — de øvrige (Overvåker
+ *     Live/Avvik, Samkjører osv.) lastes via egne bookmarks.
  */
 (function () {
     'use strict';
@@ -18,7 +20,7 @@
     if (window.__westby_toolshed_init) return;
     window.__westby_toolshed_init = true;
 
-    var VERSJON = '1.1';
+    var VERSJON = '1.2';
 
     try { window.resizeTo(290, 360); } catch (e) {}
 
@@ -28,7 +30,7 @@
     var harOpener = !!parentWindow && !parentWindow.closed;
 
     // === Dokument-oppsett ===
-    doc.title = '🧰 Verktøyhylle';
+    doc.title = '🧰 Verktøykasse';
     var head = doc.head || doc.getElementsByTagName('head')[0];
     if (!head) { head = doc.createElement('head'); doc.documentElement.insertBefore(head, doc.documentElement.firstChild); }
     var body = doc.body || doc.getElementsByTagName('body')[0];
@@ -62,7 +64,7 @@
     head.appendChild(style);
 
     body.innerHTML = [
-        '<div class="hdr"><h1>🧰 Verktøyhylle</h1><span class="hdr-ver" id="__version">v' + VERSJON + '</span></div>',
+        '<div class="hdr"><h1>🧰 Verktøykasse</h1><span class="hdr-ver" id="__version">v' + VERSJON + '</span></div>',
         '<div class="body">',
         '  <div class="advarsel"><b>Aktiv</b> — ikke lukk. Lukkes denne, forsvinner verktøyene ved F5 i NISSY.</div>',
         '  <div id="__banner"></div>',
@@ -246,9 +248,10 @@
             container.innerHTML = '';
             (data.tools || []).forEach(function (t) {
                 toolsById[t.id] = t;
+                if (!t.autostart) return;
                 container.appendChild(renderTool(t));
             });
-            doc.getElementById('__version').textContent = 'v' + (data.versjon || VERSJON);
+            doc.getElementById('__version').textContent = 'v' + VERSJON;
             // Start keeper-loop — sjekker hvert sekund at ønskede verktøy kjører
             setInterval(keeperTick, 1000);
         })
