@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.12 ===
+// === WESTBYS VERKTØYKASSE v1.13 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -11,8 +11,14 @@
 // v1.10: vis versjon i meny-header + tooltip
 // v1.11: vis nåværende hentetid(er) i Endre-tid-modal (lest fra blå Reise tid-kolonne)
 // v1.12: nåværende tid blir placeholder i input — ingen egen "Tid nå"-linje
+// v1.13: defensiv DOM-fjerning (Rico kræsjer på .remove() når elementet er borte)
 (function() {
-    const VERSJON = '1.12';
+    const VERSJON = '1.13';
+    function trygtFjern(el) {
+        if (el && el.parentNode) {
+            try { el.parentNode.removeChild(el); } catch (_) {}
+        }
+    }
     if (window.__westbyVerktoykasse) {
         console.log('[VERKTØYKASSE] allerede lastet, hopper over');
         return;
@@ -383,8 +389,7 @@
         }
 
         // Fjern evt. gammel rekDot
-        const gammelDot = knappRef.querySelector('.vkt-rekdot');
-        if (gammelDot) gammelDot.remove();
+        trygtFjern(knappRef.querySelector('.vkt-rekdot'));
 
         const allOk = adminStatus === 'ok' && rekStatus === 'ok';
         const noeUtlogget = adminStatus === 'utlogget' || rekStatus === 'utlogget';
@@ -413,7 +418,7 @@
         if ((adminStatus === 'utlogget' || rekStatus === 'utlogget') && !eksisterende) {
             visAdminToast();
         } else if (adminStatus === 'ok' && rekStatus !== 'utlogget' && eksisterende) {
-            eksisterende.remove();
+            trygtFjern(eksisterende);
         }
     }
 
@@ -779,7 +784,7 @@
     }
 
     function visKontekstmeny(resIds, x, y) {
-        document.getElementById('vkt-ctx-meny')?.remove();
+        trygtFjern(document.getElementById('vkt-ctx-meny'));
         const meny = document.createElement('div');
         meny.id = 'vkt-ctx-meny';
         meny.style.cssText = [
@@ -804,7 +809,7 @@
             a.style.cssText = 'padding:8px 12px;color:#e2e8f0;cursor:pointer;border-radius:4px;';
             a.onmouseover = () => a.style.background = '#334155';
             a.onmouseout = () => a.style.background = '';
-            a.onclick = () => { meny.remove(); v.handler(); };
+            a.onclick = () => { trygtFjern(meny); v.handler(); };
             meny.appendChild(a);
         });
 
@@ -818,7 +823,7 @@
         setTimeout(() => {
             const lukk = (e) => {
                 if (!meny.contains(e.target)) {
-                    meny.remove();
+                    trygtFjern(meny);
                     document.removeEventListener('click', lukk, true);
                     document.removeEventListener('contextmenu', lukk, true);
                 }
@@ -839,7 +844,7 @@
     }
 
     function visEndreTidModal(resIds) {
-        document.getElementById('vkt-modal')?.remove();
+        trygtFjern(document.getElementById('vkt-modal'));
         const overlay = document.createElement('div');
         overlay.id = 'vkt-modal';
         overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
@@ -869,7 +874,7 @@
         const avbrytBtn = dialog.querySelector('#vkt-avbryt');
         input.focus();
 
-        const lukk = () => overlay.remove();
+        const lukk = () => trygtFjern(overlay);
         avbrytBtn.onclick = lukk;
         overlay.onclick = (e) => { if (e.target === overlay) lukk(); };
 
