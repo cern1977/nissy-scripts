@@ -20,9 +20,9 @@
     if (window.__westby_toolshed_init) return;
     window.__westby_toolshed_init = true;
 
-    var VERSJON = '1.5';
+    var VERSJON = '1.6';
 
-    try { window.resizeTo(310, 250); } catch (e) {}
+    try { window.resizeTo(310, 200); } catch (e) {}
 
     var BASE = 'https://thomaswestby.no/skript/loader.php';
     var doc = document;
@@ -45,19 +45,17 @@
         '* { box-sizing: border-box; }',
         'html, body { height:100%; }',
         'body { margin:0; padding:0; background:#0f172a; color:#f8fafc; font-family:system-ui,-apple-system,sans-serif; font-size:13px; line-height:1.3; display:flex; flex-direction:column; }',
-        '.hdr { background:#1e293b; padding:8px 12px; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }',
-        '.hdr h1 { margin:0; font-size:14px; font-weight:700; }',
-        '.hdr-ver { font-size:11px; color:#64748b; }',
-        '.body { padding:10px 12px; flex:1; display:flex; flex-direction:column; gap:8px; }',
-        '.advarsel { background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.45); border-radius:6px; padding:9px 12px; font-size:12px; color:#a7f3d0; text-align:center; line-height:1.4; flex-shrink:0; }',
+        '.advarsel { background:rgba(16,185,129,0.12); border-bottom:1px solid rgba(16,185,129,0.45); padding:10px 12px; font-size:12px; color:#a7f3d0; text-align:center; line-height:1.4; flex-shrink:0; }',
         '.advarsel b { color:#10b981; font-size:13px; }',
+        '.content { padding:10px 12px; flex:1; display:flex; flex-direction:column; gap:8px; }',
         '.status-line { font-size:11px; color:#94a3b8; text-align:center; flex-shrink:0; }',
         '.tool-btn { display:flex; align-items:center; gap:10px; padding:10px 12px; background:#1e293b; border:1px solid #334155; border-radius:7px; color:#f8fafc; cursor:pointer; font-size:14px; width:100%; text-align:left; font-family:inherit; transition:background 0.12s,border-color 0.12s; }',
         '.tool-btn:hover:not(:disabled) { background:#1e40af; border-color:#3b82f6; }',
         '.tool-btn:disabled { cursor:default; }',
         '.emoji { font-size:20px; flex-shrink:0; }',
-        '.tool-txt { flex:1; min-width:0; }',
+        '.tool-txt { flex:1; min-width:0; display:flex; align-items:baseline; gap:6px; }',
         '.tool-navn { font-weight:600; font-size:14px; }',
+        '.tool-ver { font-size:10px; color:#64748b; font-weight:500; }',
         '.badge { padding:3px 7px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:0.4px; color:white; flex-shrink:0; min-width:48px; text-align:center; }',
         '.feil { background:#7f1d1d; color:white; padding:8px 10px; border-radius:6px; font-size:11px; }',
         '.banner-advarsel { background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); border-radius:6px; padding:8px 10px; font-size:11px; color:#fbbf24; }'
@@ -65,9 +63,8 @@
     head.appendChild(style);
 
     body.innerHTML = [
-        '<div class="hdr"><h1>🧰 Verktøykasse</h1><span class="hdr-ver" id="__version">v' + VERSJON + '</span></div>',
-        '<div class="body">',
-        '  <div class="advarsel"><b>Aktiv</b> — ikke lukk. Lukkes denne, forsvinner verktøyene ved F5 i NISSY.</div>',
+        '<div class="advarsel"><b>Aktiv</b> — ikke lukk. Lukkes denne, forsvinner verktøyene ved F5 i NISSY.</div>',
+        '<div class="content">',
         '  <div id="__banner"></div>',
         '  <div class="status-line" id="__status">Henter verktøyliste…</div>',
         '  <div id="__tools"></div>',
@@ -198,7 +195,7 @@
         try { delete window.__westby_toolshed_init; } catch (e) { window.__westby_toolshed_init = false; }
         body.innerHTML = '';
         var s = doc.createElement('script');
-        s.src = 'https://thomaswestby.no/skript/toolshed.js?cb=' + Date.now();
+        s.src = 'https://thomaswestby.no/skript/skript.php?fil=toolshed.js&_=' + Date.now();
         head.appendChild(s);
     }
 
@@ -223,7 +220,8 @@
         btn.innerHTML =
             '<span class="emoji">' + (t.emoji || '🔧') + '</span>' +
             '<div class="tool-txt">' +
-            '<div class="tool-navn"></div>' +
+            '<span class="tool-navn"></span>' +
+            '<span class="tool-ver">v' + VERSJON + '</span>' +
             '</div>' +
             '<span class="badge"></span>';
 
@@ -277,7 +275,6 @@
                 if (!t.autostart) return;
                 container.appendChild(renderTool(t));
             });
-            doc.getElementById('__version').textContent = 'v' + VERSJON;
             // Start keeper-loop — sjekker hvert sekund at ønskede verktøy kjører
             keeperIntervalId = setInterval(keeperTick, 1000);
         })
