@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.14 ===
+// === WESTBYS VERKTØYKASSE v1.15 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -13,8 +13,9 @@
 // v1.12: nåværende tid blir placeholder i input — ingen egen "Tid nå"-linje
 // v1.13: defensiv DOM-fjerning (Rico kræsjer på .remove() når elementet er borte)
 // v1.14: les markerte fra DOM (blå rader), ikke g_voppLS.selected — sistnevnte ga "0"
+// v1.15: debug-logging i høyreklikk-handler for å spore resId="0"-bug
 (function() {
-    const VERSJON = '1.14';
+    const VERSJON = '1.15';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -933,6 +934,13 @@
             if (!/^\d+$/.test(id)) return;
             resIds = [id];
         }
+        console.log('[VERKTØYKASSE] høyreklikk:', {
+            'rad.id': rad.id,
+            erMarkert,
+            'markerte (DOM-blå)': markerte,
+            resIds,
+            'e.target': e.target.tagName + (e.target.id ? '#' + e.target.id : '')
+        });
         e.preventDefault();
         visKontekstmeny(resIds, e.clientX, e.clientY);
     }
