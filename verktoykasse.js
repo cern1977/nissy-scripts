@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.16 ===
+// === WESTBYS VERKTØYKASSE v1.17 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -15,8 +15,9 @@
 // v1.14: les markerte fra DOM (blå rader), ikke g_voppLS.selected — sistnevnte ga "0"
 // v1.15: debug-logging i høyreklikk-handler for å spore resId="0"-bug
 // v1.16: fiks hardkodet "v1.8"-streng i log + vis array-innhold direkte
+// v1.17: bruk index-løkke i stedet for entries()-destructuring (NISSY/Rico ga resId=0)
 (function() {
-    const VERSJON = '1.16';
+    const VERSJON = '1.17';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -901,8 +902,9 @@
             input.disabled = true;
             progressEl.style.display = 'block';
             let ok = 0, fail = 0;
-            for (const [i, resId] of resIds.entries()) {
-                progressEl.textContent = `${i + 1}/${resIds.length} — endrer ${resId}…`;
+            for (let idx = 0; idx < resIds.length; idx++) {
+                const resId = resIds[idx];
+                progressEl.textContent = `${idx + 1}/${resIds.length} — endrer ${resId}…`;
                 try {
                     const r = await endreTidPaaResId(resId, norm);
                     if (r.ok) ok++; else { fail++; console.warn('[VERKTØYKASSE] feil for', resId, r); }
