@@ -18,6 +18,8 @@
     if (window.__westby_toolshed_init) return;
     window.__westby_toolshed_init = true;
 
+    try { window.resizeTo(290, 360); } catch (e) {}
+
     var BASE = 'https://thomaswestby.no/skript/loader.php';
     var doc = document;
     var parentWindow = window.opener;
@@ -37,34 +39,34 @@
     var style = doc.createElement('style');
     style.textContent = [
         '* { box-sizing: border-box; }',
-        'body { margin:0; padding:0; background:#0f172a; color:#f8fafc; font-family:system-ui,-apple-system,sans-serif; font-size:14px; line-height:1.4; }',
-        '.hdr { background:#1e293b; padding:10px 16px; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center; }',
-        '.hdr h1 { margin:0; font-size:15px; font-weight:700; }',
-        '.hdr-ver { font-size:10px; color:#64748b; }',
-        '.body { padding:14px 16px; }',
-        '.status-line { font-size:12px; color:#94a3b8; margin-bottom:12px; text-align:center; }',
-        '.tool-btn { display:flex; align-items:center; gap:10px; padding:10px 12px; background:#1e293b; border:1px solid #334155; border-radius:8px; color:#f8fafc; cursor:pointer; font-size:13px; width:100%; text-align:left; font-family:inherit; margin-bottom:6px; transition:background 0.12s,border-color 0.12s; }',
+        'body { margin:0; padding:0; background:#0f172a; color:#f8fafc; font-family:system-ui,-apple-system,sans-serif; font-size:12px; line-height:1.3; }',
+        '.hdr { background:#1e293b; padding:6px 10px; border-bottom:1px solid #334155; display:flex; justify-content:space-between; align-items:center; }',
+        '.hdr h1 { margin:0; font-size:12px; font-weight:700; }',
+        '.hdr-ver { font-size:9px; color:#64748b; }',
+        '.body { padding:8px 10px; }',
+        '.advarsel { background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.45); border-radius:5px; padding:6px 8px; font-size:10px; color:#a7f3d0; margin-bottom:8px; text-align:center; line-height:1.35; }',
+        '.advarsel b { color:#10b981; }',
+        '.status-line { font-size:10px; color:#94a3b8; margin-bottom:6px; text-align:center; }',
+        '.tool-btn { display:flex; align-items:center; gap:6px; padding:5px 8px; background:#1e293b; border:1px solid #334155; border-radius:5px; color:#f8fafc; cursor:pointer; font-size:11px; width:100%; text-align:left; font-family:inherit; margin-bottom:3px; transition:background 0.12s,border-color 0.12s; }',
         '.tool-btn:hover:not(:disabled) { background:#1e40af; border-color:#3b82f6; }',
         '.tool-btn:disabled { cursor:default; }',
-        '.emoji { font-size:20px; flex-shrink:0; }',
+        '.emoji { font-size:14px; flex-shrink:0; }',
         '.tool-txt { flex:1; min-width:0; }',
-        '.tool-navn { font-weight:600; }',
-        '.tool-beskr { font-size:11px; color:#94a3b8; margin-top:2px; }',
-        '.badge { padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:0.3px; color:white; flex-shrink:0; min-width:52px; text-align:center; }',
-        '.ftr { padding:8px 16px; border-top:1px solid #334155; font-size:10px; color:#64748b; text-align:center; }',
-        '.feil { background:#7f1d1d; color:white; padding:8px 12px; border-radius:6px; font-size:12px; margin-bottom:10px; }',
-        '.banner-advarsel { background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); border-radius:6px; padding:8px 12px; font-size:11px; color:#fbbf24; margin-bottom:10px; }'
+        '.tool-navn { font-weight:600; font-size:11px; }',
+        '.badge { padding:1px 4px; border-radius:3px; font-size:8px; font-weight:700; letter-spacing:0.3px; color:white; flex-shrink:0; min-width:42px; text-align:center; }',
+        '.feil { background:#7f1d1d; color:white; padding:6px 8px; border-radius:5px; font-size:10px; margin-bottom:8px; }',
+        '.banner-advarsel { background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); border-radius:5px; padding:6px 8px; font-size:10px; color:#fbbf24; margin-bottom:8px; }'
     ].join('\n');
     head.appendChild(style);
 
     body.innerHTML = [
-        '<div class="hdr"><h1>🧰 Verktøyhylle</h1><span class="hdr-ver" id="__version">laster…</span></div>',
+        '<div class="hdr"><h1>🧰 Verktøyhylle</h1><span class="hdr-ver" id="__version">…</span></div>',
         '<div class="body">',
+        '  <div class="advarsel"><b>Aktiv</b> — ikke lukk. Lukkes denne, forsvinner verktøyene ved F5 i NISSY.</div>',
         '  <div id="__banner"></div>',
         '  <div class="status-line" id="__status">Henter verktøyliste…</div>',
         '  <div id="__tools"></div>',
-        '</div>',
-        '<div class="ftr" id="__footer">Popupen kan minimeres. Den holder verktøy i gang i NISSY — også etter F5.</div>'
+        '</div>'
     ].join('');
 
     // === State ===
@@ -192,12 +194,11 @@
             '<span class="emoji">' + (t.emoji || '🔧') + '</span>' +
             '<div class="tool-txt">' +
             '<div class="tool-navn"></div>' +
-            (t.beskrivelse ? '<div class="tool-beskr"></div>' : '') +
             '</div>' +
             '<span class="badge"></span>';
 
         btn.querySelector('.tool-navn').textContent = t.navn || t.id;
-        if (t.beskrivelse) btn.querySelector('.tool-beskr').textContent = t.beskrivelse;
+        if (t.beskrivelse) btn.title = t.beskrivelse;
         var badge = btn.querySelector('.badge');
         btnBadgeById[t.id] = badge;
 
