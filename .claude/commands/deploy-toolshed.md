@@ -1,18 +1,20 @@
 # /deploy-toolshed — Bump + deploy + git-push for Verktøyhylle
 
-Hele deploy-rutinen i én kommando. Repoet `~/Developer/nissy-scripts/` er kanonisk arbeidsplass — master-fila `toolshed.js` redigeres direkte her, og git tar vare på historikken.
+Hele deploy-rutinen i én kommando. Repoet `~/Developer/nissy-scripts/` er kanonisk arbeidsplass — master-fila `toolshed.js` (og senere `toolshed_dev.js`) redigeres direkte her, og git tar vare på historikken.
 
-> ℹ️ **Verktøyhylle-regel:** Bare én fil (`toolshed.js`), ingen dev/prod-split. Hver deploy går rett ut til alle brukere — bekreft endringen med Thomas først.
+> ⚠️ **Verktøyhylle-regel:** Verktøyhylle har (foreløpig) bare prod-fila — dev-løypa er reservert i skillen, men `toolshed_dev.js` er ikke etablert ennå. Inntil videre går alle deploys rett til prod, og endringen treffer alle brukere umiddelbart. Bekreft alltid med Thomas først.
 
 ## Når brukes
 
-Hver gang en kode-endring i `toolshed.js` er ferdig og skal pushes til server + commits til git.
+Hver gang en kode-endring i `toolshed.js` (evt. `toolshed_dev.js` når dev-løypa er på plass) er ferdig og skal pushes til server + commits til git.
 
 ## Filer og stier (må matche nøyaktig)
 
-- **Master:** `~/Developer/nissy-scripts/toolshed.js`
+- **Master prod:** `~/Developer/nissy-scripts/toolshed.js`
+- **Master dev:** `~/Developer/nissy-scripts/toolshed_dev.js` *(ikke opprettet ennå)*
 - **Server SSH:** `czvnsicn5_ssh@ssh.czvnsicn5.service.one` passord `Hercules2026`
-- **Server-fil:** `~/webroots/by-route/thomaswestby.no_/skript/toolshed.js`
+- **Server prod-fil:** `~/webroots/by-route/thomaswestby.no_/skript/toolshed.js`
+- **Server dev-fil:** `~/webroots/by-route/thomaswestby.no_/skript/toolshed_dev.js` *(ikke opprettet ennå)*
 - **GitHub-repo:** `cern1977/nissy-scripts` (origin, branch `main`)
 - **Dagslogg:** `/Users/thomaswestby/Library/CloudStorage/OneDrive-Personlig/AI/OUS/docs/YYYY-MM-DD.md`
 - **Endringslogg:** `/Users/thomaswestby/Library/CloudStorage/OneDrive-Personlig/AI/OUS/docs/ENDRINGSLOGG.md`
@@ -23,25 +25,27 @@ Hver gang en kode-endring i `toolshed.js` er ferdig og skal pushes til server + 
 
 Spør Thomas:
 - **«Hva har du endret?»** (én setning til commit-melding + dagslogg)
+- Hvis `dev` i args → STOPP og varsle: dev-fila er ikke etablert ennå (se «Fremtidig: dev-løype» nederst)
+- Ellers → prod-deploy bekreftes (alle brukere får endringen umiddelbart — vær eksplisitt om det)
 
 Ikke fortsett uten svar.
 
 ### Steg 2 — Finn gjeldende versjon
 
-Les linjen nær toppen av `~/Developer/nissy-scripts/toolshed.js`:
+Les `var VERSJON`-linjen nær toppen av `~/Developer/nissy-scripts/toolshed.js`:
 ```
 var VERSJON = '1.N';
 ```
 
 Parse N. Neste versjon = N+1. Hopp aldri mer enn ett hakk.
 
-(NB: `toolshed.json` på serveren kan også ha et `versjon`-felt som overstyrer dette i UI-et. Hvis det settes der, hold fila i sync — ellers er JS-konstanten kilden.)
+(NB: `toolshed.json` på serveren kan også ha et `versjon`-felt som overstyrer JS-konstanten i UI-et. Hvis det settes der, hold fila i sync — ellers er JS-konstanten kilden.)
 
 ### Steg 3 — Bump versjon i master-fil
 
 Endre `'1.N'` → `'1.(N+1)'` i `~/Developer/nissy-scripts/toolshed.js`.
 
-### Steg 4 — Push til server
+### Steg 4 — Push til server (prod)
 
 ```bash
 sshpass -p 'Hercules2026' ssh -o StrictHostKeyChecking=no \
@@ -90,13 +94,13 @@ Legg til øverst i `docs/ENDRINGSLOGG.md`:
 - [beskrivelse fra steg 1]
 ```
 
-(Verktøyhylle har ikke dev/prod-split, så hver deploy logges også i endringsloggen.)
+(Inntil dev-løypa er på plass logges hver deploy i endringsloggen, siden det er en prod-deploy.)
 
 ### Steg 8 — Rapporter til Thomas
 
 Én kort oppsummering:
 ```
-✅ v1.N deployet
+✅ v1.N deployet (prod)
 - Repo: commit + push til cern1977/nissy-scripts (main)
 - Server: toolshed.js (v1.N bekreftet via curl)
 - Dagslogg: docs/YYYY-MM-DD.md oppdatert
@@ -109,6 +113,7 @@ Legg til øverst i `docs/ENDRINGSLOGG.md`:
 - **Hvis curl-verifisering viser feil versjon:** Varsel Thomas om cache-problem på server (Varnish kan ta inntil 2 min — bruk cache-bust-parameter `?cb=$(date +%s)`)
 - **Hvis git push feiler (ikke fast-forward o.l.):** STOPP, vis status, spør Thomas
 - **Hvis Thomas ikke svarer på «hva endret du?»:** STOPP, ikke anta noe
+- **Hvis `dev` brukes som argument:** STOPP — dev-løypa er ikke etablert ennå
 
 ## Hva skillen eksplisitt FORBYR
 
@@ -117,8 +122,23 @@ Legg til øverst i `docs/ENDRINGSLOGG.md`:
 - Push uten dagslogg-oppføring
 - `--no-verify` eller `git push --force` uten Thomas' eksplisitte bestilling
 - Hoppe over GitHub-push selv om server-push lykkes
+- Bruke `dev`-argumentet før `toolshed_dev.js` finnes på master + server
 
 ## Argumenter
 
-- `/deploy-toolshed` (ingen args) — bump + push til server + commit/push til git
+- `/deploy-toolshed` (ingen args) — prod-bump + push prod til server + commit/push til git *(eneste fungerende modus inntil dev-løypa er på plass)*
+- `/deploy-toolshed prod` — eksplisitt prod-deploy (samme som default inntil dev-løypa finnes; senere blir dette prod-promotering fra dev)
+- `/deploy-toolshed dev` — *(reservert)* dev-bump + push dev til server. Krever at `toolshed_dev.js` er etablert
 - `/deploy-toolshed dry` — vis hva som VILLE skjedd uten å pushe (til debug)
+
+## Fremtidig: dev-løype
+
+Når Verktøyhylle skal få egen dev-fil:
+
+1. Kopier `toolshed.js` → `toolshed_dev.js` i repoet
+2. Bytt `var VERSJON = '1.N';` til `'1.N-dev'` i dev-fila
+3. Endre eventuelle interne referanser (loader-URL, `__westby_toolshed_init`-flagg etc.) så dev og prod ikke kolliderer hvis begge lastes
+4. Etabler dev-fila på serveren første gang manuelt
+5. Endre denne skillen til samme mønster som `/deploy-live`:
+   - Default `/deploy-toolshed` = dev-bump + push dev
+   - `/deploy-toolshed prod` = transformer dev til prod (`-dev` strippes), push begge, eksplisitt bekreftelse fra Thomas
