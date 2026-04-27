@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.21 ===
+// === WESTBYS VERKTØYKASSE v1.22 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -20,8 +20,9 @@
 // v1.19: legg til windowName/instanceId i DWR-encrypt — påkrevd av server
 // v1.20: behold httpSessionId — server krever den også
 // v1.21: oppdater DWR-regex til å matche ny syntaks (dwr.engine.remote.handleCallback)
+// v1.22: fjern debug-log fra kontekstmenyHandler — Endre hentetid bekreftet fungerende
 (function() {
-    const VERSJON = '1.21';
+    const VERSJON = '1.22';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -940,7 +941,6 @@
             if (!/^\d+$/.test(id)) return;
             resIds = [id];
         }
-        console.log('[VERKTØYKASSE] høyreklikk: rad.id=' + rad.id + ' erMarkert=' + erMarkert + ' markerte=' + JSON.stringify(markerte) + ' resIds=' + JSON.stringify(resIds) + ' target=' + e.target.tagName);
         e.preventDefault();
         visKontekstmeny(resIds, e.clientX, e.clientY);
     }
