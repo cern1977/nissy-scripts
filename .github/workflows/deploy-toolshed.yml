@@ -1,0 +1,48 @@
+name: Deploy Verktøyhylle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'toolshed.js'
+      - '.github/workflows/deploy-toolshed.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-toolshed
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy toolshed.js til server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ssh.czvnsicn5.service.one
+          username: czvnsicn5_ssh
+          password: ${{ secrets.SERVER_SSH_PASSWORD }}
+          source: "toolshed.js"
+          target: "~/webroots/by-route/thomaswestby.no_/skript/"
+          overwrite: true
+
+      - name: Verifiser deploy via curl
+        run: |
+          sleep 3
+          RESPONS=$(curl -s "https://thomaswestby.no/skript/toolshed.js?cb=$(date +%s)")
+          VERSJON=$(echo "$RESPONS" | grep -m 1 "var VERSJON")
+          echo "Server svarer: $VERSJON"
+          if [ -z "$VERSJON" ]; then
+            echo "❌ Fant ikke VERSJON-linjen — deploy kan ha feilet"
+            exit 1
+          fi
+          LOKAL=$(grep -m 1 "var VERSJON" toolshed.js)
+          if [ "$VERSJON" != "$LOKAL" ]; then
+            echo "⚠️  Versjon på server ($VERSJON) matcher ikke repo ($LOKAL)"
+            echo "    Kan være Varnish-cache (opptil 2 min) — sjekk igjen om litt"
+            exit 1
+          fi
+          echo "✅ Verktøyhylle deployet OK"
