@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.20 ===
+// === WESTBYS VERKTØYKASSE v1.21 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -19,8 +19,9 @@
 // v1.18: userid = NISSY-brukernavn (thwe), ikke tall — confirm-API godtar brukernavn
 // v1.19: legg til windowName/instanceId i DWR-encrypt — påkrevd av server
 // v1.20: behold httpSessionId — server krever den også
+// v1.21: oppdater DWR-regex til å matche ny syntaks (dwr.engine.remote.handleCallback)
 (function() {
-    const VERSJON = '1.20';
+    const VERSJON = '1.21';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -765,8 +766,9 @@
             credentials: 'include'
         });
         const text = await res.text();
-        const m = text.match(/_remoteHandleCallback\([^,]+,[^,]+,"([^"]+)"\)/);
-        if (!m) throw new Error('encrypt-respons uforståelig');
+        // Matcher både gammel (_remoteHandleCallback) og ny (dwr.engine.remote.handleCallback) syntaks
+        const m = text.match(/handleCallback\([^,]+,[^,]+,"([^"]+)"\)/);
+        if (!m) throw new Error('encrypt-respons uforståelig: ' + text.slice(0, 200));
         return m[1];
     }
 
