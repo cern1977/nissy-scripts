@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.29';
+    const VERSION = '38.4.29-dev';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {

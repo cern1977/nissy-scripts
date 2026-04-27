@@ -16,7 +16,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.21';
+    const VERSJON_FULL = '6.2.21-dev';
     const TITTEL = `Overvåker Live v${VERSJON_FULL}`;
     console.log(`${TITTEL} startet`);
     const VERSJON = VERSJON_FULL;
@@ -1596,7 +1596,7 @@ function kjorOvrvaker() {
                     // Heartbeat-overv\u00e5king + auto-reinject etter F5
                     window._sisteHeartbeat = Date.now();
                     window._reinjecting = false;
-                    window._skriptUrl = 'https://thomaswestby.no/skript/skript.php?fil=overvaaker_live.js';
+                    window._skriptUrl = 'https://thomaswestby.no/skript/skript.php?fil=overvaaker_live_dev.js';
 
                     function reinjectSkript() {
                         if (window._reinjecting) return;
