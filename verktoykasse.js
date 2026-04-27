@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.9 ===
+// === WESTBYS VERKTØYKASSE v1.10 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -8,8 +8,9 @@
 // v1.7: pnr-oppslag (ssnSearch) — henter kommende turer for et fnr
 // v1.8: høyreklikk-meny på markerte turer i Planlegger — Endre hentetid
 // v1.9: høyreklikk kun på ventende-rader (V-), ikke pågående — pågående krever tilstandssjekk
+// v1.10: vis versjon i meny-header + tooltip
 (function() {
-    const VERSJON = '1.9';
+    const VERSJON = '1.10';
     if (window.__westbyVerktoykasse) {
         console.log('[VERKTØYKASSE] allerede lastet, hopper over');
         return;
@@ -130,7 +131,7 @@
         const knapp = document.createElement('div');
         knapp.setAttribute('role', 'button');
         knapp.setAttribute('tabindex', '0');
-        knapp.title = tilgang.navn ? `Verktøykasse — ${tilgang.navn}` : 'Westbys verktøykasse';
+        knapp.title = tilgang.navn ? `Verktøykasse v${VERSJON} — ${tilgang.navn}` : `Westbys verktøykasse v${VERSJON}`;
         knapp.style.cssText = [
             'position:fixed', 'top:6px', 'right:8px', 'z-index:2147483647',
             'width:72px', 'height:82px', 'border:none', 'background:transparent',
@@ -173,6 +174,10 @@
         const h = document.createElement('div');
         h.textContent = tilgang.navn ? tilgang.navn.split(',')[0] : 'Westbys verktøykasse';
         h.style.cssText = 'padding:8px 12px;font-size:12px;color:#f8fafc;font-weight:700;display:flex;align-items:center;gap:6px;';
+        const ver = document.createElement('span');
+        ver.textContent = `v${VERSJON}`;
+        ver.style.cssText = 'font-size:10px;color:#64748b;font-weight:500;';
+        h.appendChild(ver);
         if (tilgang.rolle && tilgang.rolle !== 'ansatt') {
             const badge = document.createElement('span');
             badge.textContent = tilgang.rolle.toUpperCase();
