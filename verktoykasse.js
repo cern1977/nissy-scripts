@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.10 ===
+// === WESTBYS VERKTØYKASSE v1.11 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -9,8 +9,9 @@
 // v1.8: høyreklikk-meny på markerte turer i Planlegger — Endre hentetid
 // v1.9: høyreklikk kun på ventende-rader (V-), ikke pågående — pågående krever tilstandssjekk
 // v1.10: vis versjon i meny-header + tooltip
+// v1.11: vis nåværende hentetid(er) i Endre-tid-modal (lest fra blå Reise tid-kolonne)
 (function() {
-    const VERSJON = '1.10';
+    const VERSJON = '1.11';
     if (window.__westbyVerktoykasse) {
         console.log('[VERKTØYKASSE] allerede lastet, hopper over');
         return;
@@ -826,17 +827,33 @@
         }, 0);
     }
 
+    function lesHentetidFraRad(resId) {
+        const rad = document.getElementById('V-' + resId);
+        if (!rad) return null;
+        const blaa = rad.querySelector('font[color="#0000FF"]');
+        if (!blaa) return null;
+        // Reise tid-cellen kan inneholde "DD-MM HH:MM" eller bare "HH:MM" — plukk ut HH:MM
+        const m = blaa.textContent.match(/(\d{1,2}:\d{2})/);
+        return m ? m[1] : null;
+    }
+
     function visEndreTidModal(resIds) {
         document.getElementById('vkt-modal')?.remove();
         const overlay = document.createElement('div');
         overlay.id = 'vkt-modal';
         overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
 
+        const tiderNaa = resIds.map(lesHentetidFraRad).filter(Boolean);
+        const tidLinje = tiderNaa.length
+            ? (tiderNaa.length === 1 ? `Tid nå: <b style="color:#e2e8f0;">${tiderNaa[0]}</b>` : `Tider nå: <b style="color:#e2e8f0;">${tiderNaa.join(' · ')}</b>`)
+            : '';
+
         const dialog = document.createElement('div');
         dialog.style.cssText = 'background:#1e293b;color:#e2e8f0;padding:20px;border-radius:12px;min-width:340px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,0.5);';
         dialog.innerHTML = `
             <h3 style="margin:0 0 6px;font-size:15px;">Endre hentetid</h3>
-            <div style="font-size:12px;color:#94a3b8;margin-bottom:14px;">${resIds.length} tur${resIds.length > 1 ? 'er' : ''} valgt</div>
+            <div style="font-size:12px;color:#94a3b8;margin-bottom:6px;">${resIds.length} tur${resIds.length > 1 ? 'er' : ''} valgt</div>
+            ${tidLinje ? `<div style="font-size:12px;color:#94a3b8;margin-bottom:14px;">${tidLinje}</div>` : '<div style="margin-bottom:14px;"></div>'}
             <label style="display:block;font-size:12px;margin-bottom:6px;color:#cbd5e1;">Ny hentetid (tt:mm)</label>
             <input id="vkt-tid" type="text" placeholder="14:30" maxlength="5" autocomplete="off" style="width:100%;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#fff;font-size:14px;font-family:monospace;box-sizing:border-box;">
             <div id="vkt-progress" style="margin-top:12px;font-size:12px;color:#94a3b8;display:none;"></div>
