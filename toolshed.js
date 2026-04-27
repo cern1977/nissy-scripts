@@ -246,7 +246,7 @@
                 toolsById[t.id] = t;
                 container.appendChild(renderTool(t));
             });
-            doc.getElementById('__version').textContent = 'v' + (data.versjon || '1.0');
+            doc.getElementById('__version').textContent = 'v' + (data.versjon || '1.1');
             // Start keeper-loop — sjekker hvert sekund at ønskede verktøy kjører
             setInterval(keeperTick, 1000);
         })
