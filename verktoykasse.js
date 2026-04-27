@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.13 ===
+// === WESTBYS VERKTØYKASSE v1.14 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -12,8 +12,9 @@
 // v1.11: vis nåværende hentetid(er) i Endre-tid-modal (lest fra blå Reise tid-kolonne)
 // v1.12: nåværende tid blir placeholder i input — ingen egen "Tid nå"-linje
 // v1.13: defensiv DOM-fjerning (Rico kræsjer på .remove() når elementet er borte)
+// v1.14: les markerte fra DOM (blå rader), ikke g_voppLS.selected — sistnevnte ga "0"
 (function() {
-    const VERSJON = '1.13';
+    const VERSJON = '1.14';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -718,14 +719,16 @@
     let _rekUserid = null;
 
     function lesMarkerteResIds() {
-        try {
-            if (window.g_voppLS?.selected?.length) {
-                return g_voppLS.selected
-                    .map(id => String(id).replace(/^V-/, ''))
-                    .filter(s => /^\d+$/.test(s));
+        // Les direkte fra DOM — alle V-rader med blå bakgrunn er markert.
+        // Tidligere brukt g_voppLS.selected, men strukturen var upålitelig (ga "0" som id).
+        const ids = [];
+        document.querySelectorAll('tr[id^="V-"]').forEach(r => {
+            if (r.style.backgroundColor === NISSY_BLAA) {
+                const id = r.id.replace(/^V-/, '');
+                if (/^\d+$/.test(id)) ids.push(id);
             }
-        } catch (_) {}
-        return [];
+        });
+        return ids;
     }
 
     async function hentRekUserid() {
