@@ -18,6 +18,8 @@
     if (window.__westby_toolshed_init) return;
     window.__westby_toolshed_init = true;
 
+    var VERSJON = '1.1';
+
     try { window.resizeTo(290, 360); } catch (e) {}
 
     var BASE = 'https://thomaswestby.no/skript/loader.php';
@@ -60,7 +62,7 @@
     head.appendChild(style);
 
     body.innerHTML = [
-        '<div class="hdr"><h1>🧰 Verktøyhylle</h1><span class="hdr-ver" id="__version">v1.1</span></div>',
+        '<div class="hdr"><h1>🧰 Verktøyhylle</h1><span class="hdr-ver" id="__version">v' + VERSJON + '</span></div>',
         '<div class="body">',
         '  <div class="advarsel"><b>Aktiv</b> — ikke lukk. Lukkes denne, forsvinner verktøyene ved F5 i NISSY.</div>',
         '  <div id="__banner"></div>',
@@ -246,7 +248,7 @@
                 toolsById[t.id] = t;
                 container.appendChild(renderTool(t));
             });
-            doc.getElementById('__version').textContent = 'v' + (data.versjon || '1.1');
+            doc.getElementById('__version').textContent = 'v' + (data.versjon || VERSJON);
             // Start keeper-loop — sjekker hvert sekund at ønskede verktøy kjører
             setInterval(keeperTick, 1000);
         })
