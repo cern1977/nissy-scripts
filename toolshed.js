@@ -20,7 +20,7 @@
     if (window.__westby_toolshed_init) return;
     window.__westby_toolshed_init = true;
 
-    var VERSJON = '1.3';
+    var VERSJON = '1.4';
 
     try { window.resizeTo(290, 360); } catch (e) {}
 
@@ -193,6 +193,7 @@
     // ved hver F5 i NISSY uten at popupen må lukkes/åpnes manuelt.
     function selvReload() {
         if (keeperIntervalId) { clearInterval(keeperIntervalId); keeperIntervalId = null; }
+        try { avsluttSesjon(); } catch (e) {}
         try { delete window.__westby_toolshed_init; } catch (e) { window.__westby_toolshed_init = false; }
         body.innerHTML = '';
         var s = doc.createElement('script');
@@ -288,6 +289,84 @@
     if (!harOpener) {
         visBanner('Denne popupen ble åpnet uten en tilknyttet NISSY-fane. Lukk og åpne på nytt fra bookmarken i NISSY.', 'warn');
     }
+
+    // === Sesjon-tracking ===
+    // Synker mot ovr_sesjoner via live_sesjon.php — samme endpoint som Live/Avvik.
+    // Vises i OUS Dashboard → Sesjoner-panel.
+    var SESJON_URL = 'https://thomaswestby.no/skript/live_sesjon.php';
+    var sesjonId = null;
+
+    function hentSignaturFraOpener() {
+        if (!openerAlive()) return 'Ukjent';
+        try {
+            var match = parentWindow.document.body.innerHTML.match(/Pasientreisekontor[^<]*-\s*(?:&nbsp;\s*)*([^<]+)/);
+            if (match) {
+                var fullNavn = match[1].trim().replace(/&nbsp;/g, '').trim();
+                var deler = fullNavn.split(',').map(function (s) { return s.trim(); });
+                if (deler.length === 2) return deler[1] + ' ' + deler[0].charAt(0) + '.';
+                return fullNavn;
+            }
+        } catch (e) {}
+        try { return parentWindow.localStorage.getItem('overvaker_signatur') || 'Ukjent'; } catch (e) {}
+        return 'Ukjent';
+    }
+
+    function hentNissyBrukernavnFraOpener() {
+        if (!openerAlive()) return '';
+        try {
+            var lagret = parentWindow.localStorage.getItem('ovr_nissy_brukernavn');
+            if (lagret) return lagret.trim().toLowerCase();
+            var cookies = parentWindow.document.cookie.split(';').map(function (c) { return c.trim(); });
+            var suffikser = ['efilter', 'vfilter', 'rfilter', 'popp', 'vopp'];
+            for (var i = 0; i < cookies.length; i++) {
+                var navn = cookies[i].split('=')[0];
+                for (var j = 0; j < suffikser.length; j++) {
+                    var s = suffikser[j];
+                    if (navn.endsWith(s) && navn.length > s.length) {
+                        return navn.slice(0, -s.length).toLowerCase();
+                    }
+                }
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    function startSesjon() {
+        var params = new URLSearchParams({
+            handling: 'start',
+            nissy_id: hentNissyBrukernavnFraOpener(),
+            signatur: hentSignaturFraOpener(),
+            versjon: VERSJON,
+            skript: 'Verktøykasse'
+        });
+        fetch(SESJON_URL + '?' + params)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) { if (j && j.ok && j.id) sesjonId = j.id; })
+            .catch(function () {});
+    }
+
+    function heartbeatSesjon() {
+        if (sesjonId === null) { startSesjon(); return; }
+        var params = new URLSearchParams({
+            handling: 'heartbeat', id: sesjonId, versjon: VERSJON
+        });
+        fetch(SESJON_URL + '?' + params).catch(function () {});
+    }
+
+    function avsluttSesjon() {
+        if (sesjonId === null) return;
+        try {
+            var data = new Blob([JSON.stringify({ handling: 'slutt', id: sesjonId })], { type: 'application/json' });
+            navigator.sendBeacon(SESJON_URL, data);
+        } catch (e) {}
+        sesjonId = null;
+    }
+
+    window.addEventListener('beforeunload', avsluttSesjon);
+    window.addEventListener('pagehide', avsluttSesjon);
+
+    startSesjon();
+    setInterval(heartbeatSesjon, 60000);
 
     // Esc → lukk popupen
     doc.addEventListener('keydown', function (e) {
