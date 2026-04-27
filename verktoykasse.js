@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.18 ===
+// === WESTBYS VERKTØYKASSE v1.19 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -17,8 +17,9 @@
 // v1.16: fiks hardkodet "v1.8"-streng i log + vis array-innhold direkte
 // v1.17: bruk index-løkke i stedet for entries()-destructuring (NISSY/Rico ga resId=0)
 // v1.18: userid = NISSY-brukernavn (thwe), ikke tall — confirm-API godtar brukernavn
+// v1.19: legg til windowName/instanceId i DWR-encrypt — påkrevd av server
 (function() {
-    const VERSJON = '1.18';
+    const VERSJON = '1.19';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -745,13 +746,14 @@
     async function dwrEncryptResId(resId) {
         const body = [
             'callCount=1',
+            'windowName=',
             'c0-scriptName=Requisition',
             'c0-methodName=encrypt',
             'c0-id=0',
             `c0-param0=string:${resId}`,
             'batchId=1',
+            'instanceId=0',
             'page=/rekvisisjon/',
-            'httpSessionId=',
             'scriptSessionId='
         ].join('\n');
         const res = await fetch(`${REK_BASE}/dwr/call/plaincall/Requisition.encrypt.dwr`, {
