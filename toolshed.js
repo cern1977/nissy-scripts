@@ -60,7 +60,7 @@
     head.appendChild(style);
 
     body.innerHTML = [
-        '<div class="hdr"><h1>🧰 Verktøyhylle</h1><span class="hdr-ver" id="__version">…</span></div>',
+        '<div class="hdr"><h1>🧰 Verktøyhylle</h1><span class="hdr-ver" id="__version">v1.1</span></div>',
         '<div class="body">',
         '  <div class="advarsel"><b>Aktiv</b> — ikke lukk. Lukkes denne, forsvinner verktøyene ved F5 i NISSY.</div>',
         '  <div id="__banner"></div>',
