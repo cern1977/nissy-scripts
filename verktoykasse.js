@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.7 ===
+// === WESTBYS VERKTØYKASSE v1.8 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -6,8 +6,9 @@
 // v1.5: turid → (reqId, resId) via searchStatus (tur/retur støttes)
 // v1.6: rekvisisjons-modul keep-alive (separat indikator)
 // v1.7: pnr-oppslag (ssnSearch) — henter kommende turer for et fnr
+// v1.8: høyreklikk-meny på markerte turer i Planlegger — Endre hentetid
 (function() {
-    const VERSJON = '1.7';
+    const VERSJON = '1.8';
     if (window.__westbyVerktoykasse) {
         console.log('[VERKTØYKASSE] allerede lastet, hopper over');
         return;
@@ -695,14 +696,232 @@
         }
     }
 
+    // === HØYREKLIKK-MENY PÅ MARKERTE TURER (Planlegger) ===
+    // Aktiveres på sider hvor NISSY tegner rader som tr#P-<resId> (Planlegger / popp-lista).
+    // Høyreklikk på markert rad → opererer på alle markerte. Høyreklikk på umarkert → kun den raden.
+
+    const REK_BASE = 'https://pastrans-sorost.mq.nhn.no/rekvisisjon';
+    const NISSY_BLAA = 'rgb(148, 169, 220)';
+    let _rekUserid = null;
+
+    function lesMarkerteResIds() {
+        try {
+            if (window.g_poppLS?.selected?.length) {
+                return g_poppLS.selected
+                    .map(id => String(id).replace(/^P-/, ''))
+                    .filter(s => /^\d+$/.test(s));
+            }
+        } catch (_) {}
+        return [];
+    }
+
+    async function hentRekUserid() {
+        if (_rekUserid) return _rekUserid;
+        try {
+            const r = await fetch(`${REK_BASE}/requisition/`, { credentials: 'include' });
+            const html = await r.text();
+            const m = html.match(/userid=(\d+)/);
+            if (m) { _rekUserid = m[1]; return _rekUserid; }
+        } catch (_) {}
+        return null;
+    }
+
+    async function dwrEncryptResId(resId) {
+        const body = [
+            'callCount=1',
+            'c0-scriptName=Requisition',
+            'c0-methodName=encrypt',
+            'c0-id=0',
+            `c0-param0=string:${resId}`,
+            'batchId=1',
+            'page=/rekvisisjon/',
+            'httpSessionId=',
+            'scriptSessionId='
+        ].join('\n');
+        const res = await fetch(`${REK_BASE}/dwr/call/plaincall/Requisition.encrypt.dwr`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body,
+            credentials: 'include'
+        });
+        const text = await res.text();
+        const m = text.match(/_remoteHandleCallback\([^,]+,[^,]+,"([^"]+)"\)/);
+        if (!m) throw new Error('encrypt-respons uforståelig');
+        return m[1];
+    }
+
+    async function endreTidPaaResId(resId, nyTid) {
+        const userid = await hentRekUserid();
+        if (!userid) return { ok: false, feil: 'fant ikke userid' };
+        const token = await dwrEncryptResId(resId);
+        const confirmUrl = `${REK_BASE}/requisition/confirm?loggedin=true&id_enc=${token}&userid=${userid}&ns=true`;
+        const html = await fetch(confirmUrl, { credentials: 'include' }).then(r => r.text());
+        const form = new DOMParser().parseFromString(html, 'text/html').querySelector('form');
+        if (!form) return { ok: false, feil: 'skjema ikke funnet' };
+        const fd = new FormData(form);
+        fd.set('departureTime', nyTid);
+        fd.set('trip.startDateManuallySet', 'true');
+        const res = await fetch(confirmUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams([...fd]).toString(),
+            credentials: 'include'
+        });
+        return { ok: res.ok, status: res.status };
+    }
+
+    function visKontekstmeny(resIds, x, y) {
+        document.getElementById('vkt-ctx-meny')?.remove();
+        const meny = document.createElement('div');
+        meny.id = 'vkt-ctx-meny';
+        meny.style.cssText = [
+            'position:fixed', `left:${x}px`, `top:${y}px`, 'z-index:2147483647',
+            'background:#1e293b', 'border:1px solid #334155', 'border-radius:8px',
+            'padding:4px', 'min-width:220px',
+            'box-shadow:0 10px 30px rgba(0,0,0,0.5)',
+            'font-family:-apple-system,BlinkMacSystemFont,sans-serif', 'font-size:13px'
+        ].join(';');
+
+        const tittel = document.createElement('div');
+        tittel.textContent = `${resIds.length} tur${resIds.length > 1 ? 'er' : ''} valgt`;
+        tittel.style.cssText = 'padding:6px 12px;font-size:11px;color:#94a3b8;border-bottom:1px solid #334155;margin-bottom:4px;';
+        meny.appendChild(tittel);
+
+        const valg = [
+            { tekst: '⏰ Endre hentetid…', handler: () => visEndreTidModal(resIds) },
+        ];
+        valg.forEach(v => {
+            const a = document.createElement('div');
+            a.textContent = v.tekst;
+            a.style.cssText = 'padding:8px 12px;color:#e2e8f0;cursor:pointer;border-radius:4px;';
+            a.onmouseover = () => a.style.background = '#334155';
+            a.onmouseout = () => a.style.background = '';
+            a.onclick = () => { meny.remove(); v.handler(); };
+            meny.appendChild(a);
+        });
+
+        document.body.appendChild(meny);
+
+        // Sørg for at menyen ikke går utenfor vinduet
+        const r = meny.getBoundingClientRect();
+        if (r.right > window.innerWidth) meny.style.left = (window.innerWidth - r.width - 8) + 'px';
+        if (r.bottom > window.innerHeight) meny.style.top = (window.innerHeight - r.height - 8) + 'px';
+
+        setTimeout(() => {
+            const lukk = (e) => {
+                if (!meny.contains(e.target)) {
+                    meny.remove();
+                    document.removeEventListener('click', lukk, true);
+                    document.removeEventListener('contextmenu', lukk, true);
+                }
+            };
+            document.addEventListener('click', lukk, true);
+            document.addEventListener('contextmenu', lukk, true);
+        }, 0);
+    }
+
+    function visEndreTidModal(resIds) {
+        document.getElementById('vkt-modal')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'vkt-modal';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
+
+        const dialog = document.createElement('div');
+        dialog.style.cssText = 'background:#1e293b;color:#e2e8f0;padding:20px;border-radius:12px;min-width:340px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,0.5);';
+        dialog.innerHTML = `
+            <h3 style="margin:0 0 6px;font-size:15px;">Endre hentetid</h3>
+            <div style="font-size:12px;color:#94a3b8;margin-bottom:14px;">${resIds.length} tur${resIds.length > 1 ? 'er' : ''} valgt</div>
+            <label style="display:block;font-size:12px;margin-bottom:6px;color:#cbd5e1;">Ny hentetid (tt:mm)</label>
+            <input id="vkt-tid" type="text" placeholder="14:30" maxlength="5" autocomplete="off" style="width:100%;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#fff;font-size:14px;font-family:monospace;box-sizing:border-box;">
+            <div id="vkt-progress" style="margin-top:12px;font-size:12px;color:#94a3b8;display:none;"></div>
+            <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
+                <button id="vkt-avbryt" style="padding:8px 16px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;cursor:pointer;font-size:13px;">Avbryt</button>
+                <button id="vkt-ok" style="padding:8px 16px;background:#3b82f6;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">OK</button>
+            </div>
+        `;
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        const input = dialog.querySelector('#vkt-tid');
+        const progressEl = dialog.querySelector('#vkt-progress');
+        const okBtn = dialog.querySelector('#vkt-ok');
+        const avbrytBtn = dialog.querySelector('#vkt-avbryt');
+        input.focus();
+
+        const lukk = () => overlay.remove();
+        avbrytBtn.onclick = lukk;
+        overlay.onclick = (e) => { if (e.target === overlay) lukk(); };
+
+        okBtn.onclick = async () => {
+            const raa = input.value.trim();
+            if (!/^\d{1,2}:\d{2}$/.test(raa)) {
+                input.style.borderColor = '#ef4444';
+                return;
+            }
+            const [h, m] = raa.split(':');
+            const norm = h.padStart(2, '0') + ':' + m.padStart(2, '0');
+            const hh = +h, mm = +m;
+            if (hh > 23 || mm > 59) {
+                input.style.borderColor = '#ef4444';
+                return;
+            }
+            okBtn.disabled = true;
+            avbrytBtn.disabled = true;
+            input.disabled = true;
+            progressEl.style.display = 'block';
+            let ok = 0, fail = 0;
+            for (const [i, resId] of resIds.entries()) {
+                progressEl.textContent = `${i + 1}/${resIds.length} — endrer ${resId}…`;
+                try {
+                    const r = await endreTidPaaResId(resId, norm);
+                    if (r.ok) ok++; else { fail++; console.warn('[VERKTØYKASSE] feil for', resId, r); }
+                } catch (e) {
+                    console.warn('[VERKTØYKASSE] endreTid kastet for', resId, e);
+                    fail++;
+                }
+            }
+            progressEl.textContent = `Ferdig: ${ok} endret${fail ? ', ' + fail + ' feilet' : ''}`;
+            progressEl.style.color = fail ? '#fbbf24' : '#10b981';
+            avbrytBtn.disabled = false;
+            avbrytBtn.textContent = 'Lukk';
+        };
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter') okBtn.click();
+            if (e.key === 'Escape') lukk();
+        };
+    }
+
+    function kontekstmenyHandler(e) {
+        const rad = e.target.closest && e.target.closest('tr[id^="P-"]');
+        if (!rad) return;
+        const erMarkert = rad.style.backgroundColor === NISSY_BLAA;
+        const markerte = lesMarkerteResIds();
+        let resIds;
+        if (erMarkert && markerte.length > 0) {
+            resIds = markerte;
+        } else {
+            const id = rad.id.replace(/^P-/, '');
+            if (!/^\d+$/.test(id)) return;
+            resIds = [id];
+        }
+        e.preventDefault();
+        visKontekstmeny(resIds, e.clientX, e.clientY);
+    }
+
+    function aktiverKontekstmeny() {
+        document.addEventListener('contextmenu', kontekstmenyHandler, true);
+        console.log('[VERKTØYKASSE] Høyreklikk-meny på P-rader aktiv');
+    }
+
     const nissy = hentNissyBrukernavn();
-    console.log('[VERKTØYKASSE v1.7] Henter tilgang for nissy_id=' + (nissy || '(tom)'));
+    console.log('[VERKTØYKASSE v1.8] Henter tilgang for nissy_id=' + (nissy || '(tom)'));
     hentTilgang(nissy).then(async t => {
         console.log('[VERKTØYKASSE] Tilgang:', t);
         tegnMeny(t);
         tegnAdminStatus();                 // Vis "sjekker"-status umiddelbart
         await oppdaterAdminStatus();       // Første admin-sjekk
         await oppdaterRekvisisjonStatus(); // Første rekvisisjon-sjekk
+        aktiverKontekstmeny();             // Høyreklikk-meny på markerte turer
         pollVentende();                    // Første turid-poll
         pollPnrVentende();                 // Første pnr-poll
         setInterval(oppdaterAdminStatus, ADMIN_PING_MS);
