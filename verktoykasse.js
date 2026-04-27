@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.8 ===
+// === WESTBYS VERKTØYKASSE v1.9 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -7,8 +7,9 @@
 // v1.6: rekvisisjons-modul keep-alive (separat indikator)
 // v1.7: pnr-oppslag (ssnSearch) — henter kommende turer for et fnr
 // v1.8: høyreklikk-meny på markerte turer i Planlegger — Endre hentetid
+// v1.9: høyreklikk kun på ventende-rader (V-), ikke pågående — pågående krever tilstandssjekk
 (function() {
-    const VERSJON = '1.8';
+    const VERSJON = '1.9';
     if (window.__westbyVerktoykasse) {
         console.log('[VERKTØYKASSE] allerede lastet, hopper over');
         return;
@@ -697,7 +698,7 @@
     }
 
     // === HØYREKLIKK-MENY PÅ MARKERTE TURER (Planlegger) ===
-    // Aktiveres på sider hvor NISSY tegner rader som tr#P-<resId> (Planlegger / popp-lista).
+    // Aktiveres på sider hvor NISSY tegner rader som tr#V-<resId> (Planlegger / vopp-lista — ventende).
     // Høyreklikk på markert rad → opererer på alle markerte. Høyreklikk på umarkert → kun den raden.
 
     const REK_BASE = 'https://pastrans-sorost.mq.nhn.no/rekvisisjon';
@@ -706,9 +707,9 @@
 
     function lesMarkerteResIds() {
         try {
-            if (window.g_poppLS?.selected?.length) {
-                return g_poppLS.selected
-                    .map(id => String(id).replace(/^P-/, ''))
+            if (window.g_voppLS?.selected?.length) {
+                return g_voppLS.selected
+                    .map(id => String(id).replace(/^V-/, ''))
                     .filter(s => /^\d+$/.test(s));
             }
         } catch (_) {}
@@ -892,7 +893,7 @@
     }
 
     function kontekstmenyHandler(e) {
-        const rad = e.target.closest && e.target.closest('tr[id^="P-"]');
+        const rad = e.target.closest && e.target.closest('tr[id^="V-"]');
         if (!rad) return;
         const erMarkert = rad.style.backgroundColor === NISSY_BLAA;
         const markerte = lesMarkerteResIds();
@@ -900,7 +901,7 @@
         if (erMarkert && markerte.length > 0) {
             resIds = markerte;
         } else {
-            const id = rad.id.replace(/^P-/, '');
+            const id = rad.id.replace(/^V-/, '');
             if (!/^\d+$/.test(id)) return;
             resIds = [id];
         }
@@ -910,7 +911,7 @@
 
     function aktiverKontekstmeny() {
         document.addEventListener('contextmenu', kontekstmenyHandler, true);
-        console.log('[VERKTØYKASSE] Høyreklikk-meny på P-rader aktiv');
+        console.log('[VERKTØYKASSE] Høyreklikk-meny på V-rader (ventende) aktiv');
     }
 
     const nissy = hentNissyBrukernavn();
