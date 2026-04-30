@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.30-dev';
+    const VERSION = '38.4.31-dev';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -2385,7 +2385,13 @@
         // meldPasReise + meldTransport sendes som fritekst til vedtak.php?handling=soek;
         // serveren matcher saksnummer/kort_id som substring mot gyldige vedtak.
         // Hvis ingenting funnet men meldingen antyder godkjenning → merkes for visning.
-        const _antyder = (t) => /godkjent|gyldig til|ref\.?\s*nr|vedtak/i.test(t);
+        // Meldingen antyder godkjenning hvis den inneholder:
+        // - eksplisitte ord (godkjent, gyldig til, ref.nr, vedtak)
+        // - eller et ref.nr-mønster: "21/21773-11", "2026/12345-1", "K-1234"
+        const _antyder = (t) =>
+            /godkjent|gyldig til|ref\.?\s*nr|vedtak/i.test(t) ||
+            /\b\d{2,4}\/\d{3,}-\d+\b/.test(t) ||
+            /\b[A-Z]{1,3}-\d{4,}\b/.test(t);
         const _turdatoFraStart = (start) => {
             const m = (start || '').match(/(\d{1,2})\.(\d{1,2})/);
             if (!m) return '';
