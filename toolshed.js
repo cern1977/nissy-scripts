@@ -20,7 +20,7 @@
     if (window.__westby_toolshed_init) return;
     window.__westby_toolshed_init = true;
 
-    var VERSJON = '1.6';
+    var VERSJON = '1.7';
 
     try { window.resizeTo(310, 200); } catch (e) {}
 
@@ -277,6 +277,13 @@
             });
             // Start keeper-loop — sjekker hvert sekund at ønskede verktøy kjører
             keeperIntervalId = setInterval(keeperTick, 1000);
+            // Browser-throttling: setInterval saktes til ca 1×/min når popup er i bakgrunnen.
+            // Trigger en umiddelbar tick når popup får fokus/blir synlig, så re-inject etter F5
+            // skjer med en gang man klikker tilbake.
+            window.addEventListener('focus', keeperTick);
+            doc.addEventListener('visibilitychange', function () {
+                if (!doc.hidden) keeperTick();
+            });
         })
         .catch(function (e) {
             doc.getElementById('__status').style.display = 'none';
