@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.32 ===
+// === WESTBYS VERKTØYKASSE v1.33 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -31,8 +31,9 @@
 // v1.30: separer klikk-flate fra glow — bilde+glow under, klikk-flate (skjold-form) over
 // v1.31: stram klikk-polygon mer — glow-området skal ikke være klikkbart
 // v1.32: fjern filter-endring på hover (kun skalering nå) — glow konstant
+// v1.33: fiks toggle — mousedown lukket meny før hver klikk, så klikk alltid åpnet
 (function() {
-    const VERSJON = '1.32';
+    const VERSJON = '1.33';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -315,8 +316,8 @@
             offsetY = e.clientY - r.top;
             startX = e.clientX;
             startY = e.clientY;
-            // Skjul menyen mens vi drar
-            meny.style.display = 'none';
+            // Ikke skjul menyen her — vi vet ikke ennå om dette blir en drag eller en klikk.
+            // Lukke-på-drag skjer i mousemove når terskelen passeres.
         });
 
         document.addEventListener('mousemove', (e) => {
@@ -324,6 +325,7 @@
             const dx = Math.abs(e.clientX - startX);
             const dy = Math.abs(e.clientY - startY);
             if (!harFlyttet && dx < 4 && dy < 4) return;  // terskel før vi kaller det drag
+            if (!harFlyttet) meny.style.display = 'none';  // skjul meny når drag faktisk starter
             harFlyttet = true;
             // Klamp mot vindu
             const maksX = window.innerWidth - knapp.offsetWidth - 2;
