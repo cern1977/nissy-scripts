@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.29 ===
+// === WESTBYS VERKTØYKASSE v1.31 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -28,8 +28,10 @@
 // v1.27: enda 1.5x større skjold (110×130 → 165×195)
 // v1.28: mindre status-glow (4+10px → 2+5px) — passer bedre med større skjold
 // v1.29: clip-path skjold-silhuett — bare skjoldet er klikkbart, ikke firkanten
+// v1.30: separer klikk-flate fra glow — bilde+glow under, klikk-flate (skjold-form) over
+// v1.31: stram klikk-polygon mer — glow-området skal ikke være klikkbart
 (function() {
-    const VERSJON = '1.29';
+    const VERSJON = '1.31';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -159,29 +161,36 @@
         knapp.style.cssText = [
             'position:fixed', 'top:6px', 'right:8px', 'z-index:2147483647',
             'width:165px', 'height:195px', 'border:none', 'background:transparent',
-            'cursor:pointer', 'transition:transform 0.15s',
+            'cursor:default', 'transition:transform 0.15s',
             'padding:0', 'overflow:visible',
             'display:flex', 'align-items:center', 'justify-content:center',
-            'font-size:36px', 'line-height:1',
-            // Klipper både synlig og klikkbart område til skjold-silhuett
-            'clip-path:polygon(50% 0%, 100% 12%, 100% 55%, 80% 95%, 50% 100%, 20% 95%, 0% 55%, 0% 12%)'
+            'font-size:36px', 'line-height:1'
         ].join(';');
 
         const logoImg = document.createElement('img');
         logoImg.src = 'https://thomaswestby.no/img/pre_logo.png';
         logoImg.alt = '';
-        logoImg.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 3px 8px rgba(0,0,0,0.5));transition:filter 0.15s;';
+        logoImg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 3px 8px rgba(0,0,0,0.5));transition:filter 0.15s;pointer-events:none;';
         logoImg.onerror = () => {
             knapp.removeChild(logoImg);
             knapp.textContent = '🏥';
         };
         knapp.appendChild(logoImg);
 
-        knapp.onmouseover = () => {
+        // Klikk-flate over bildet med skjold-silhuett — fanger bare klikk på selve skjoldet
+        const klikkFlate = document.createElement('div');
+        klikkFlate.style.cssText = [
+            'position:absolute', 'inset:0', 'z-index:1',
+            'cursor:pointer',
+            'clip-path:polygon(50% 10%, 78% 18%, 78% 50%, 68% 78%, 50% 86%, 32% 78%, 22% 50%, 22% 18%)'
+        ].join(';');
+        knapp.appendChild(klikkFlate);
+
+        klikkFlate.onmouseover = () => {
             knapp.style.transform = 'scale(1.1)';
             logoImg.style.filter = logoImg.dataset.hoverFilter || 'drop-shadow(0 6px 18px rgba(0,0,0,0.65))';
         };
-        knapp.onmouseout = () => {
+        klikkFlate.onmouseout = () => {
             knapp.style.transform = '';
             logoImg.style.filter = logoImg.dataset.normalFilter || 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))';
         };
@@ -365,11 +374,11 @@
             }
         });
 
-        // Toggle meny — hopp over hvis vi nettopp dro
-        knapp.onclick = (e) => {
+        // Toggle meny — bare når klikk landet på klikkFlate (skjold-silhuett)
+        klikkFlate.onclick = (e) => {
             e.stopPropagation();
             if (harFlyttet) {
-                harFlyttet = false;  // nullstill for neste klikk
+                harFlyttet = false;
                 return;
             }
             if (meny.style.display === 'none' || !meny.style.display) {
@@ -380,10 +389,8 @@
             }
         };
         document.addEventListener('click', (e) => {
-            if (!meny.contains(e.target) && e.target !== knapp && !knapp.contains(e.target)) meny.style.display = 'none';
+            if (!meny.contains(e.target) && !knapp.contains(e.target)) meny.style.display = 'none';
         });
-
-        knapp.style.cursor = 'grab';
 
         (document.documentElement || document.body).appendChild(knapp);
         (document.documentElement || document.body).appendChild(meny);
