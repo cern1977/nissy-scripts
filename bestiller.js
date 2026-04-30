@@ -1,11 +1,12 @@
 // ############################################################
-// # Snippets: NissyBestillNåAuto v5.4                       #
+// # Snippets: NissyBestillNåAuto v5.5                       #
 // # Skrevet av Jan R. Jørgensen, Pasientreiser Østfold       #
 // # Skrevet av Thomas Westby, Pasientreiser Oslo og Akershus #
 // # v5.4: Floating draggable panel, kun fetch-modus          #
+// # v5.5: Rett rekkefølge i 19142-intervall, 19284 = dato+4  #
 // ############################################################
 
-const VERSION = '5.4';
+const VERSION = '5.5';
 
 (() => {
   // Rydd localStorage så panelet alltid vises ved kjøring
