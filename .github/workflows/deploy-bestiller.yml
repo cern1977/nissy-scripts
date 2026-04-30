@@ -1,0 +1,42 @@
+name: Deploy Bestiller
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bestiller.js'
+      - '.github/workflows/deploy-bestiller.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-bestiller
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Push bestiller.js til server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ssh.czvnsicn5.service.one
+          username: czvnsicn5_ssh
+          password: ${{ secrets.SERVER_SSH_PASSWORD }}
+          source: "bestiller.js"
+          target: "~/webroots/by-route/thomaswestby.no_/skript/"
+          overwrite: true
+
+      - name: Verifiser deploy via curl
+        run: |
+          sleep 3
+          VERSJON=$(curl -s "https://thomaswestby.no/skript/bestiller.js?cb=$(date +%s)" | grep -m 1 "const VERSION")
+          echo "Server: $VERSJON"
+          LOKAL=$(grep -m 1 "const VERSION" bestiller.js)
+          if [ "$VERSJON" != "$LOKAL" ]; then
+            echo "⚠️  Versjon mismatch (server: $VERSJON / repo: $LOKAL) — sjekk Varnish-cache"
+            exit 1
+          fi
+          echo "✅ Bestiller deployet OK"
