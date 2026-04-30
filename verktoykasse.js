@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.22 ===
+// === WESTBYS VERKTØYKASSE v1.23 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -21,8 +21,9 @@
 // v1.20: behold httpSessionId — server krever den også
 // v1.21: oppdater DWR-regex til å matche ny syntaks (dwr.engine.remote.handleCallback)
 // v1.22: fjern debug-log fra kontekstmenyHandler — Endre hentetid bekreftet fungerende
+// v1.23: Endre-tid blir popover ved cursor (ikke fullscreen modal) + slankere layout
 (function() {
-    const VERSJON = '1.22';
+    const VERSJON = '1.23';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -811,7 +812,7 @@
         meny.appendChild(tittel);
 
         const valg = [
-            { tekst: '⏰ Endre hentetid…', handler: () => visEndreTidModal(resIds) },
+            { tekst: '⏰ Endre hentetid…', handler: () => visEndreTidModal(resIds, x, y) },
         ];
         valg.forEach(v => {
             const a = document.createElement('div');
@@ -853,56 +854,58 @@
         return m ? m[1] : null;
     }
 
-    function visEndreTidModal(resIds) {
+    function visEndreTidModal(resIds, x = 100, y = 100) {
         trygtFjern(document.getElementById('vkt-modal'));
-        const overlay = document.createElement('div');
-        overlay.id = 'vkt-modal';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
 
         const tiderNaa = resIds.map(lesHentetidFraRad).filter(Boolean);
         const placeholderTid = tiderNaa[0] || 'tt:mm';
+        const antall = `${resIds.length} tur${resIds.length > 1 ? 'er' : ''}`;
 
-        const dialog = document.createElement('div');
-        dialog.style.cssText = 'background:#1e293b;color:#e2e8f0;padding:20px;border-radius:12px;min-width:340px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,0.5);';
-        dialog.innerHTML = `
-            <h3 style="margin:0 0 6px;font-size:15px;">Endre hentetid</h3>
-            <div style="font-size:12px;color:#94a3b8;margin-bottom:14px;">${resIds.length} tur${resIds.length > 1 ? 'er' : ''} valgt</div>
-            <label style="display:block;font-size:12px;margin-bottom:6px;color:#cbd5e1;">Ny hentetid (tt:mm)</label>
-            <input id="vkt-tid" type="text" placeholder="${placeholderTid}" maxlength="5" autocomplete="off" style="width:100%;padding:8px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#fff;font-size:14px;font-family:monospace;box-sizing:border-box;">
-            <div id="vkt-progress" style="margin-top:12px;font-size:12px;color:#94a3b8;display:none;"></div>
-            <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
-                <button id="vkt-avbryt" style="padding:8px 16px;background:#334155;color:#e2e8f0;border:none;border-radius:6px;cursor:pointer;font-size:13px;">Avbryt</button>
-                <button id="vkt-ok" style="padding:8px 16px;background:#3b82f6;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">OK</button>
+        const pop = document.createElement('div');
+        pop.id = 'vkt-modal';
+        pop.style.cssText = [
+            'position:fixed', `left:${x}px`, `top:${y}px`, 'z-index:2147483647',
+            'background:#1e293b', 'color:#e2e8f0', 'border:1px solid #334155',
+            'border-radius:8px', 'padding:8px', 'width:200px',
+            'box-shadow:0 10px 30px rgba(0,0,0,0.5)',
+            'font-family:-apple-system,BlinkMacSystemFont,sans-serif', 'font-size:13px'
+        ].join(';');
+        pop.innerHTML = `
+            <div style="font-size:11px;color:#94a3b8;padding:0 2px 6px;border-bottom:1px solid #334155;margin-bottom:6px;">Endre hentetid · ${antall}</div>
+            <div style="display:flex;gap:6px;">
+                <input id="vkt-tid" type="text" placeholder="${placeholderTid}" maxlength="5" autocomplete="off"
+                    style="flex:1;min-width:0;padding:6px 8px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#fff;font-size:13px;font-family:monospace;box-sizing:border-box;">
+                <button id="vkt-ok" style="padding:6px 12px;background:#3b82f6;color:white;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;">OK</button>
             </div>
+            <div id="vkt-progress" style="margin-top:6px;font-size:11px;color:#94a3b8;display:none;"></div>
         `;
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
+        document.body.appendChild(pop);
 
-        const input = dialog.querySelector('#vkt-tid');
-        const progressEl = dialog.querySelector('#vkt-progress');
-        const okBtn = dialog.querySelector('#vkt-ok');
-        const avbrytBtn = dialog.querySelector('#vkt-avbryt');
+        // Bounds-sjekk: ikke utenfor vinduet
+        const r = pop.getBoundingClientRect();
+        if (r.right > window.innerWidth) pop.style.left = (window.innerWidth - r.width - 8) + 'px';
+        if (r.bottom > window.innerHeight) pop.style.top = (window.innerHeight - r.height - 8) + 'px';
+
+        const input = pop.querySelector('#vkt-tid');
+        const progressEl = pop.querySelector('#vkt-progress');
+        const okBtn = pop.querySelector('#vkt-ok');
         input.focus();
 
-        const lukk = () => trygtFjern(overlay);
-        avbrytBtn.onclick = lukk;
-        overlay.onclick = (e) => { if (e.target === overlay) lukk(); };
+        const lukk = () => {
+            trygtFjern(pop);
+            document.removeEventListener('click', utenforKlikk, true);
+        };
+        const utenforKlikk = (e) => { if (!pop.contains(e.target)) lukk(); };
+        setTimeout(() => document.addEventListener('click', utenforKlikk, true), 0);
 
         okBtn.onclick = async () => {
             const raa = input.value.trim();
-            if (!/^\d{1,2}:\d{2}$/.test(raa)) {
-                input.style.borderColor = '#ef4444';
-                return;
-            }
-            const [h, m] = raa.split(':');
-            const norm = h.padStart(2, '0') + ':' + m.padStart(2, '0');
-            const hh = +h, mm = +m;
-            if (hh > 23 || mm > 59) {
-                input.style.borderColor = '#ef4444';
-                return;
-            }
+            const m = raa.match(/^(\d{1,2}):(\d{2})$/);
+            if (!m) { input.style.borderColor = '#ef4444'; return; }
+            const hh = +m[1], mm = +m[2];
+            if (hh > 23 || mm > 59) { input.style.borderColor = '#ef4444'; return; }
+            const norm = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
             okBtn.disabled = true;
-            avbrytBtn.disabled = true;
             input.disabled = true;
             progressEl.style.display = 'block';
             let ok = 0, fail = 0;
@@ -917,10 +920,9 @@
                     fail++;
                 }
             }
-            progressEl.textContent = `Ferdig: ${ok} endret${fail ? ', ' + fail + ' feilet' : ''}`;
+            progressEl.textContent = `${ok} endret${fail ? ', ' + fail + ' feilet' : ''}`;
             progressEl.style.color = fail ? '#fbbf24' : '#10b981';
-            avbrytBtn.disabled = false;
-            avbrytBtn.textContent = 'Lukk';
+            setTimeout(lukk, fail ? 2500 : 1200);
         };
         input.onkeydown = (e) => {
             if (e.key === 'Enter') okBtn.click();
