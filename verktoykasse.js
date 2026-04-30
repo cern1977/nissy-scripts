@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.26 ===
+// === WESTBYS VERKTØYKASSE v1.27 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -25,8 +25,9 @@
 // v1.24: ett input-felt per tur med pasientnavn — kan endre ulike tider samtidig
 // v1.25: status-glow følger skjold-formen (drop-shadow), ikke firkant (box-shadow)
 // v1.26: større skjold-knapp (72×82 → 110×130)
+// v1.27: enda 1.5x større skjold (110×130 → 165×195)
 (function() {
-    const VERSJON = '1.26';
+    const VERSJON = '1.27';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -155,7 +156,7 @@
         knapp.title = tilgang.navn ? `Verktøykasse v${VERSJON} — ${tilgang.navn}` : `Westbys verktøykasse v${VERSJON}`;
         knapp.style.cssText = [
             'position:fixed', 'top:6px', 'right:8px', 'z-index:2147483647',
-            'width:110px', 'height:130px', 'border:none', 'background:transparent',
+            'width:165px', 'height:195px', 'border:none', 'background:transparent',
             'cursor:pointer', 'transition:transform 0.15s',
             'padding:0', 'overflow:visible',
             'display:flex', 'align-items:center', 'justify-content:center',
