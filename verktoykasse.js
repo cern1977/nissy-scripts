@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.24 ===
+// === WESTBYS VERKTØYKASSE v1.25 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -23,8 +23,9 @@
 // v1.22: fjern debug-log fra kontekstmenyHandler — Endre hentetid bekreftet fungerende
 // v1.23: Endre-tid blir popover ved cursor (ikke fullscreen modal) + slankere layout
 // v1.24: ett input-felt per tur med pasientnavn — kan endre ulike tider samtidig
+// v1.25: status-glow følger skjold-formen (drop-shadow), ikke firkant (box-shadow)
 (function() {
-    const VERSJON = '1.24';
+    const VERSJON = '1.25';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -172,11 +173,11 @@
 
         knapp.onmouseover = () => {
             knapp.style.transform = 'scale(1.1)';
-            logoImg.style.filter = 'drop-shadow(0 6px 18px rgba(0,0,0,0.65))';
+            logoImg.style.filter = logoImg.dataset.hoverFilter || 'drop-shadow(0 6px 18px rgba(0,0,0,0.65))';
         };
         knapp.onmouseout = () => {
             knapp.style.transform = '';
-            logoImg.style.filter = 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))';
+            logoImg.style.filter = logoImg.dataset.normalFilter || 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))';
         };
 
         // Meny
@@ -386,14 +387,14 @@
     // === Admin-status-visning: ring + bakgrunn + puls ved utlogging ===
     function tegnAdminStatus() {
         if (!knappRef) return;
-        // Sørg for at puls-animasjonen finnes
+        // Puls-animasjon — bruker drop-shadow på selve skjold-formen, ikke box-shadow på firkant
         if (!document.getElementById('vkt-style')) {
             const st = document.createElement('style');
             st.id = 'vkt-style';
             st.textContent = `
                 @keyframes vkt-pulse {
-                    0%, 100% { box-shadow: 0 0 0 2px #ef4444; }
-                    50%      { box-shadow: 0 0 0 2px #ef4444, 0 0 10px #ef4444, 0 0 20px rgba(239,68,68,0.35); }
+                    0%, 100% { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 4px #ef4444); }
+                    50%      { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 10px #ef4444) drop-shadow(0 0 18px rgba(239,68,68,0.6)); }
                 }
             `;
             document.head.appendChild(st);
@@ -402,13 +403,29 @@
         // Fjern evt. gammel rekDot
         trygtFjern(knappRef.querySelector('.vkt-rekdot'));
 
+        const logoImg = knappRef.querySelector('img');
         const allOk = adminStatus === 'ok' && rekStatus === 'ok';
         const noeUtlogget = adminStatus === 'utlogget' || rekStatus === 'utlogget';
 
-        knappRef.style.animation = noeUtlogget ? 'vkt-pulse 1.8s ease-in-out infinite' : '';
-        knappRef.style.boxShadow = allOk
-            ? '0 0 0 2px #10b981'
-            : '0 0 0 2px #ef4444';
+        // Status-glow som følger formen (drop-shadow stacker — base mørk skygge + farget glow)
+        knappRef.style.boxShadow = '';
+        knappRef.style.animation = '';
+        if (logoImg) {
+            const glowColor = allOk ? '#10b981' : '#ef4444';
+            const baseShadow = 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))';
+            const hoverShadow = 'drop-shadow(0 6px 18px rgba(0,0,0,0.65))';
+            const glow = `drop-shadow(0 0 4px ${glowColor}) drop-shadow(0 0 10px ${glowColor})`;
+            logoImg.dataset.normalFilter = `${baseShadow} ${glow}`;
+            logoImg.dataset.hoverFilter = `${hoverShadow} ${glow}`;
+            // Hvis puls aktiv, la animasjonen styre filter — ellers sett statisk
+            if (noeUtlogget) {
+                logoImg.style.animation = 'vkt-pulse 1.8s ease-in-out infinite';
+                logoImg.style.filter = '';
+            } else {
+                logoImg.style.animation = '';
+                logoImg.style.filter = logoImg.dataset.normalFilter;
+            }
+        }
 
         // Tooltip — kort beskrivelse av hva som er feil
         const grunnTittel = knappRef.dataset.tittel || knappRef.title.split('\n')[0];
