@@ -26,7 +26,7 @@ const VERSION = '5.4';
   }
   const FILTRE = [
     { id: 19142, navn: datoNavn(4) + '-' + datoNavn(6) },
-    { id: 19284, navn: datoNavn(6) },
+    { id: 19284, navn: datoNavn(4) },
     { id: 19138, navn: datoNavn(3) },
     { id: 19176, navn: datoNavn(2) },
     { id: 19274, navn: datoNavn(1) },
