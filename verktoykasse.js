@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.28 ===
+// === WESTBYS VERKTØYKASSE v1.29 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -27,8 +27,9 @@
 // v1.26: større skjold-knapp (72×82 → 110×130)
 // v1.27: enda 1.5x større skjold (110×130 → 165×195)
 // v1.28: mindre status-glow (4+10px → 2+5px) — passer bedre med større skjold
+// v1.29: clip-path skjold-silhuett — bare skjoldet er klikkbart, ikke firkanten
 (function() {
-    const VERSJON = '1.28';
+    const VERSJON = '1.29';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -161,7 +162,9 @@
             'cursor:pointer', 'transition:transform 0.15s',
             'padding:0', 'overflow:visible',
             'display:flex', 'align-items:center', 'justify-content:center',
-            'font-size:36px', 'line-height:1'
+            'font-size:36px', 'line-height:1',
+            // Klipper både synlig og klikkbart område til skjold-silhuett
+            'clip-path:polygon(50% 0%, 100% 12%, 100% 55%, 80% 95%, 50% 100%, 20% 95%, 0% 55%, 0% 12%)'
         ].join(';');
 
         const logoImg = document.createElement('img');
