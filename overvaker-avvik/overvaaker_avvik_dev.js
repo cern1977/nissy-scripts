@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.29-dev';
+    const VERSION = '38.4.30-dev';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -186,6 +186,25 @@
     }
 
     const SERVER_BASE = 'https://thomaswestby.no/skript';
+
+    // Slå opp vedtak i DB — returnerer første gyldige treff, eller null.
+    // Sender hele meldingsteksten; serveren matcher saksnummer/kort_id som substring.
+    async function sjekkVedtakIDb(tekst, turdato) {
+        if (!tekst || !tekst.trim()) return null;
+        try {
+            const url = `${SERVER_BASE}/vedtak.php?handling=soek` +
+                `&tekst=${encodeURIComponent(tekst)}` +
+                `&turdato=${encodeURIComponent(turdato || '')}`;
+            const res = await fetch(url, { cache: 'no-store' });
+            const j = await res.json();
+            if (!j.ok || !Array.isArray(j.treff) || !j.treff.length) return null;
+            return j.treff.find(v => v.gyldig) || null;
+        } catch (e) {
+            console.warn('[VEDTAK] Feil ved oppslag:', e);
+            return null;
+        }
+    }
+
     const FIL_ADR = 'godkjente_adresser.json';
     const FIL_KOM = 'godkjente_kommune.json';
 
@@ -2361,45 +2380,37 @@
             }
         }
 
-        // ── Runde 2b: "Gyldig til"-godkjenning i meldPasReise ───────
-        for (const f of funn) {
-            if (!f.adminData || f.kanskjeSykehus) continue;
-            const melding = f.adminData.meldPasReise || '';
-            const meldingLow = melding.toLowerCase();
-            if (!meldingLow.includes('gyldig til') && !meldingLow.includes('godkjent til')) continue;
+        // ── Runde 2b: Vedtak-oppslag i DB ───────────────────────────
+        // Stoler ikke på datoer/tekst i meldingsfeltet — DB er kilden til sannhet.
+        // meldPasReise + meldTransport sendes som fritekst til vedtak.php?handling=soek;
+        // serveren matcher saksnummer/kort_id som substring mot gyldige vedtak.
+        // Hvis ingenting funnet men meldingen antyder godkjenning → merkes for visning.
+        const _antyder = (t) => /godkjent|gyldig til|ref\.?\s*nr|vedtak/i.test(t);
+        const _turdatoFraStart = (start) => {
+            const m = (start || '').match(/(\d{1,2})\.(\d{1,2})/);
+            if (!m) return '';
+            return `${new Date().getFullYear()}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+        };
 
-            // Parse dato: "30/6-26", "31/5-26", "30.06.26", "30/06/2026" osv.
-            // Støtter "Gyldig til" og "Godkjent til"
-            const datoMatch = melding.match(/(?:gyldig|godkjent) til\s+(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2,4})/i);
-            if (!datoMatch) continue;
-
-            let dag = parseInt(datoMatch[1]);
-            let mnd = parseInt(datoMatch[2]);
-            let aar = parseInt(datoMatch[3]);
-            if (aar < 100) aar += 2000;
-
-            const gyldigTil = new Date(aar, mnd - 1, dag, 23, 59, 59);
-            const idag = new Date();
-
-            // Parse ref.nr: "Ref.nr:", "Ref nr:", "Ref:" — med/uten punktum og mellomrom
-            const refMatch = melding.match(/ref\.?\s*nr[.:]*\s*([\w\/\-]+)/i) || melding.match(/\bref[.:]\s*([\w\/\-]+)/i);
-            const refNr = refMatch ? refMatch[1] : '';
-
-            const datoVis = `${dag.toString().padStart(2, '0')}.${mnd.toString().padStart(2, '0')}.${aar}`;
-
-            if (gyldigTil >= idag) {
-                f.kanskjeSykehus = true;
-                f.godkjenningDato = datoVis;
-                f.godkjenningRef = refNr;
-                f.kanskjeGrunn = (f.kanskjeGrunn ? f.kanskjeGrunn + ' + ' : '') + 'gyldig til ' + datoVis + (refNr ? ' | Ref: ' + refNr : '');
-                console.log(`[KOMMUNE] Runde 2b godkjenning: gyldig til ${datoVis} ref=${refNr}`);
-            } else {
-                // Utløpt — vis advarsel på kortet, men ikke kanskje
-                f.godkjenningUtlopt = datoVis;
-                f.godkjenningRef = refNr;
-                console.log(`[KOMMUNE] Runde 2b utløpt godkjenning: var gyldig til ${datoVis}`);
-            }
-        }
+        const vedtakJobs = funn
+            .filter(f => !f.kanskjeSykehus && f.adminData)
+            .map(async f => {
+                const meldPas   = f.adminData.meldPasReise  || '';
+                const meldTrans = f.adminData.meldTransport  || '';
+                const kombinert = [meldPas, meldTrans].filter(Boolean).join(' ');
+                if (!kombinert) return;
+                const turdato = _turdatoFraStart(f.start);
+                const vedtak = await sjekkVedtakIDb(kombinert, turdato);
+                if (vedtak) {
+                    f.vedtakGodkjent = true;
+                    f.vedtakData = vedtak;
+                    console.log(`[KOMMUNE] Runde 2b vedtak funnet: RID=${f.reqId} saksnr=${vedtak.saksnummer || vedtak.kort_id} gyldig_tom=${vedtak.gyldig_tom}`);
+                } else if (_antyder(kombinert)) {
+                    f.meldingAntyder = kombinert;
+                    console.log(`[KOMMUNE] Runde 2b antyder men ikke i DB: RID=${f.reqId} melding="${kombinert.substring(0, 80)}"`);
+                }
+            });
+        await Promise.all(vedtakJobs);
 
         // ── Runde 3: API-verifisering av gjenstående avvik ──────────
         // Bruker Geonorge API for nøyaktig kommune (postnr kan gi feil ved grenseadresser)
@@ -2602,10 +2613,12 @@
             const typeNavn = { barn: 'Barn', pnr: 'PNR', dublett: 'Dublett', adresse: 'Adresse', kommune: 'Kommune' };
             let deler = [];
             if (type === 'kommune') {
+                const antVedtak  = funn.filter(f => f.vedtakGodkjent).length;
                 const antKanskje = funn.filter(f => f.kanskjeSykehus).length;
-                const antVanlige = funn.length - antKanskje;
+                const antVanlige = funn.length - antKanskje - antVedtak;
                 deler.push(`<strong style="color:#dc2626;">&#9888;&#65039; ${antVanlige} avvik</strong>`);
                 if (antKanskje > 0) deler.push(`<strong style="color:#d97706;">&#127973; ${antKanskje} kanskje</strong>`);
+                if (antVedtak  > 0) deler.push(`<strong style="color:#16a34a;">&#9989; ${antVedtak} vedtak</strong>`);
             } else if (type === 'adresse') {
                 const antKanskje = funn.filter(f => f.kanskjePostnr).length;
                 const antVanlige = funn.length - antKanskje;
@@ -2645,8 +2658,9 @@
         if (funn.length === 0) {
             html += '<div style="text-align:center; padding:50px; color:#10b981; font-size:18px; font-weight:bold;">&#10004; Ingen funn</div>';
         } else if (type === 'kommune' && funn.length > 0) {
-            // Split i vanlige funn og kanskje-sykehus
-            const vanlige = funn.filter(f => !f.kanskjeSykehus);
+            // Split: avvik / kanskje-sykehus / vedtak-godkjente
+            const vedtakGodkjente = funn.filter(f => f.vedtakGodkjent);
+            const vanlige = funn.filter(f => !f.kanskjeSykehus && !f.vedtakGodkjent);
             const kanskje = funn.filter(f => f.kanskjeSykehus);
 
             // Kolonne 1: Avvik (røde)
@@ -2702,9 +2716,19 @@
             }
             statsHtml += '</div>';
 
+            // Kolonne 3b: Godkjent via vedtak (testvisning)
+            let vedtakHtml = `<div style="padding:8px 12px; margin-bottom:12px; background:#dcfce7; border:1px solid #16a34a; border-radius:8px; font-weight:600; font-size:14px; color:#14532d;">
+                &#9989; Godkjent via vedtak: ${vedtakGodkjente.length}
+                <span style="font-weight:normal; font-size:11px; margin-left:8px; color:#166534;">Testvisning \u2014 disse filtreres bort n\u00e5r vedtak er verifisert</span>
+            </div>`;
+            for (const f of vedtakGodkjente) vedtakHtml += renderKort(f);
+
             html += '<div class="kommune-kolonner">';
             html += '<div class="kommune-kol kommune-kol-avvik">' + avvikHtml + '</div>';
             html += '<div class="kommune-kol kommune-kol-kanskje">' + kanskjeHtml + '</div>';
+            if (vedtakGodkjente.length > 0) {
+                html += '<div class="kommune-kol" style="min-width:320px;">' + vedtakHtml + '</div>';
+            }
             html += '<div class="kommune-kol kommune-kol-stats">' + statsHtml + '</div>';
             html += '</div>';
         } else if (type === 'adresse' && funn.some(f => f.kanskjePostnr)) {
@@ -3202,8 +3226,8 @@
                     ${kHarAdmin && f.adminData.telefoner && f.adminData.telefoner.length ? '<div style="margin-bottom:8px; padding:6px 10px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; font-size:13px;"><span style="color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-right:8px;">Telefon</span>' + f.adminData.telefoner.map(t => '<a href="tel:' + t.nr.replace(/[^+0-9]/g,'') + '" style="color:#2563eb;text-decoration:none;font-weight:600;">' + t.nr + '</a> <span style="color:#94a3b8;font-size:11px;font-weight:normal;">(' + t.kilde + ')</span>').join(' &nbsp;|&nbsp; ') + '</div>' : ''}
                     ${kFolkAdr ? '<div style="margin-bottom:8px;"><span class="label">Folkeregistrert adresse</span><div class="value">' + kFolkAdr + kKommuneSpan(kFolkKommune) + '</div></div>' : ''}
                     ${kHarAdmin ? '<div class="row" style="border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f8fafc;"><div class="col"><span class="label">Hentested</span>' + (kFraNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kFraNavn + '</div>' : '') + '<div class="value">' + (kFraAdr || fraVis) + kKommuneSpan(kHenteKommune, f.fraKilde) + '</div>' + (f.adminData.fraKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.fraKommentar + '</div>' : '') + '</div><div style="display:flex; align-items:center; justify-content:center; min-width:40px; max-width:40px; padding:0 4px;"><span style="font-size:20px;">&#10145;&#65039;</span></div><div class="col"><span class="label">Leveringssted</span>' + (kTilNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kTilNavn + '</div>' : '') + '<div class="value">' + (kTilAdr || tilVis) + kKommuneSpan(kLeverKommune, f.tilKilde) + '</div>' + (f.adminData.tilKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.tilKommentar + '</div>' : '') + '</div></div>' : (!kKanskje ? '<div style="margin-bottom:8px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:11px; color:#92400e;">&#9888; Admin ikke tilgjengelig — viser kun data fra tabell. <a href="https://pastrans-sorost.mq.nhn.no/administrasjon/" target="_blank" style="color:#1d4ed8; text-decoration:underline;">Logg inn i admin</a> og skann p\u00e5 nytt for full info.</div>' : '') + '<div class="row"><div class="col"><span class="label">Fra</span><span class="value">' + (f.start || '') + '<br>' + fraVis + kKommuneSpan(kHenteKommune, f.fraKilde) + '</span><span class="label">Til</span><span class="value">' + tilVis + kKommuneSpan(kLeverKommune, f.tilKilde) + '</span></div><div class="col"><span class="label">Rekvirent</span><span class="value">' + (f.rekvirent || '---') + '</span><span class="label">Status</span><span class="value">' + (f.status || '---') + '</span></div></div>'}
-                    ${f.godkjenningDato ? '<div style="margin-top:6px; padding:6px 10px; background:#dcfce7; border:1px solid #16a34a; border-radius:6px; font-size:12px; color:#14532d; display:flex; align-items:center; gap:8px;">&#9989; <strong>Godkjenning gyldig til ' + f.godkjenningDato + '</strong>' + (f.godkjenningRef ? ' &nbsp;|&nbsp; Ref: <code style="background:#bbf7d0; padding:1px 5px; border-radius:3px;">' + f.godkjenningRef + '</code>' : '') + '</div>' : ''}
-                    ${f.godkjenningUtlopt ? '<div style="margin-top:6px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e; display:flex; align-items:center; gap:8px;">&#9888;&#65039; <strong>Godkjenning utl&#248;pt ' + f.godkjenningUtlopt + '</strong>' + (f.godkjenningRef ? ' &nbsp;|&nbsp; Ref: ' + f.godkjenningRef : '') + '</div>' : ''}
+                    ${f.vedtakData ? '<div style="margin-top:6px; padding:6px 10px; background:#dcfce7; border:1px solid #16a34a; border-radius:6px; font-size:12px; color:#14532d; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">&#9989; <strong>Vedtak funnet:</strong>&nbsp;' + esc(f.vedtakData.saksnummer || f.vedtakData.kort_id || '') + (f.vedtakData.formaal ? ' &mdash; ' + esc(f.vedtakData.formaal) : '') + ' &nbsp;|&nbsp; Gyldig til <strong>' + esc(f.vedtakData.gyldig_tom || '') + '</strong>' + (f.vedtakData.kategori ? ' &nbsp;<span style="background:#bbf7d0; padding:1px 5px; border-radius:3px; font-size:11px;">' + esc(f.vedtakData.kategori) + '</span>' : '') + '</div>' : ''}
+                    ${f.meldingAntyder ? '<div style="margin-top:6px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e; display:flex; align-items:flex-start; gap:8px;">&#9888;&#65039; <span><strong>Melding antyder godkjenning \u2014 ikke funnet i vedtak-DB</strong><br><span style="font-size:11px; color:#78350f;">' + esc(f.meldingAntyder.substring(0, 120)) + (f.meldingAntyder.length > 120 ? '\u2026' : '') + '</span></span></div>' : ''}
                     ${kMeldTrans ? '<div style="margin-top:6px; padding:4px 8px; background:#eff6ff; border-radius:4px; font-size:11px; color:#1e40af;"><strong>Melding transport:</strong> ' + kMeldTrans + '</div>' : ''}
                     ${kMeldPasReise ? '<div style="margin-top:4px; padding:4px 8px; background:#f0fdf4; border-radius:4px; font-size:11px; color:#166534;"><strong>Melding pasientreise:</strong> ' + kMeldPasReise + '</div>' : ''}
                 </div>
