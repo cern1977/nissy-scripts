@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.31 ===
+// === WESTBYS VERKTØYKASSE v1.32 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -30,8 +30,9 @@
 // v1.29: clip-path skjold-silhuett — bare skjoldet er klikkbart, ikke firkanten
 // v1.30: separer klikk-flate fra glow — bilde+glow under, klikk-flate (skjold-form) over
 // v1.31: stram klikk-polygon mer — glow-området skal ikke være klikkbart
+// v1.32: fjern filter-endring på hover (kun skalering nå) — glow konstant
 (function() {
-    const VERSJON = '1.31';
+    const VERSJON = '1.32';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -188,11 +189,9 @@
 
         klikkFlate.onmouseover = () => {
             knapp.style.transform = 'scale(1.1)';
-            logoImg.style.filter = logoImg.dataset.hoverFilter || 'drop-shadow(0 6px 18px rgba(0,0,0,0.65))';
         };
         klikkFlate.onmouseout = () => {
             knapp.style.transform = '';
-            logoImg.style.filter = logoImg.dataset.normalFilter || 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))';
         };
 
         // Meny
