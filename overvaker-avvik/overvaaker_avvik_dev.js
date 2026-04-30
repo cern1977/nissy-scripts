@@ -15,6 +15,8 @@
     //
     const VERSION = '38.4.32-dev';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
+    // Testvisning av vedtak-godkjente turer — kun i dev-bygg
+    const VIS_VEDTAK_KOLONNE = VERSION.endsWith('-dev');
 
     const CONFIG = {
         RFILTER_IDS: [19249, 19250, 19251, 19259, 19260, 19261, 19262, 19263, 19275, 19276, 19277, 19278],
@@ -2624,7 +2626,7 @@
                 const antVanlige = funn.length - antKanskje - antVedtak;
                 deler.push(`<strong style="color:#dc2626;">&#9888;&#65039; ${antVanlige} avvik</strong>`);
                 if (antKanskje > 0) deler.push(`<strong style="color:#d97706;">&#127973; ${antKanskje} kanskje</strong>`);
-                if (antVedtak  > 0) deler.push(`<strong style="color:#16a34a;">&#9989; ${antVedtak} vedtak</strong>`);
+                if (VIS_VEDTAK_KOLONNE && antVedtak > 0) deler.push(`<strong style="color:#16a34a;">&#9989; ${antVedtak} vedtak</strong>`);
             } else if (type === 'adresse') {
                 const antKanskje = funn.filter(f => f.kanskjePostnr).length;
                 const antVanlige = funn.length - antKanskje;
@@ -2732,7 +2734,7 @@
             html += '<div class="kommune-kolonner">';
             html += '<div class="kommune-kol kommune-kol-avvik">' + avvikHtml + '</div>';
             html += '<div class="kommune-kol kommune-kol-kanskje">' + kanskjeHtml + '</div>';
-            if (vedtakGodkjente.length > 0) {
+            if (VIS_VEDTAK_KOLONNE && vedtakGodkjente.length > 0) {
                 html += '<div class="kommune-kol" style="min-width:320px;">' + vedtakHtml + '</div>';
             }
             html += '<div class="kommune-kol kommune-kol-stats">' + statsHtml + '</div>';
