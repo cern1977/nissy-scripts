@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.27 ===
+// === WESTBYS VERKTØYKASSE v1.28 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -26,8 +26,9 @@
 // v1.25: status-glow følger skjold-formen (drop-shadow), ikke firkant (box-shadow)
 // v1.26: større skjold-knapp (72×82 → 110×130)
 // v1.27: enda 1.5x større skjold (110×130 → 165×195)
+// v1.28: mindre status-glow (4+10px → 2+5px) — passer bedre med større skjold
 (function() {
-    const VERSJON = '1.27';
+    const VERSJON = '1.28';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -395,8 +396,8 @@
             st.id = 'vkt-style';
             st.textContent = `
                 @keyframes vkt-pulse {
-                    0%, 100% { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 4px #ef4444); }
-                    50%      { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 10px #ef4444) drop-shadow(0 0 18px rgba(239,68,68,0.6)); }
+                    0%, 100% { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 2px #ef4444); }
+                    50%      { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 5px #ef4444) drop-shadow(0 0 9px rgba(239,68,68,0.6)); }
                 }
             `;
             document.head.appendChild(st);
@@ -416,7 +417,7 @@
             const glowColor = allOk ? '#10b981' : '#ef4444';
             const baseShadow = 'drop-shadow(0 3px 8px rgba(0,0,0,0.5))';
             const hoverShadow = 'drop-shadow(0 6px 18px rgba(0,0,0,0.65))';
-            const glow = `drop-shadow(0 0 4px ${glowColor}) drop-shadow(0 0 10px ${glowColor})`;
+            const glow = `drop-shadow(0 0 2px ${glowColor}) drop-shadow(0 0 5px ${glowColor})`;
             logoImg.dataset.normalFilter = `${baseShadow} ${glow}`;
             logoImg.dataset.hoverFilter = `${hoverShadow} ${glow}`;
             // Hvis puls aktiv, la animasjonen styre filter — ellers sett statisk
