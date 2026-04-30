@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.31-dev';
+    const VERSION = '38.4.32-dev';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -1299,9 +1299,9 @@
     // ==================================================================
     //    BroadcastChannel
     // ==================================================================
-    // Unikt kanalnavn per kjøring -- isolerer gamle lyttere
-    window._avvikGen = (window._avvikGen || 0) + 1;
-    const CHANNEL_NAME = 'overvaker_avvik_' + window._avvikGen;
+    // Fast kanalnavn -- popup forblir synkronisert også etter re-kjøring av skriptet.
+    // Gammel kanal lukkes eksplisitt nedenfor, så gamle lyttere dør uansett.
+    const CHANNEL_NAME = 'overvaker_avvik';
     // Lukk forrige kanal og timere
     if (window._avvikChannelMain) {
         try { window._avvikChannelMain.close(); } catch (e) {}
