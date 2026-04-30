@@ -25,7 +25,7 @@ const VERSION = '5.4';
     return String(d.getDate()).padStart(2,'0') + '.' + String(d.getMonth()+1).padStart(2,'0');
   }
   const FILTRE = [
-    { id: 19142, navn: datoNavn(6) + '-' + datoNavn(4) },
+    { id: 19142, navn: datoNavn(4) + '-' + datoNavn(6) },
     { id: 19284, navn: datoNavn(6) },
     { id: 19138, navn: datoNavn(3) },
     { id: 19176, navn: datoNavn(2) },
