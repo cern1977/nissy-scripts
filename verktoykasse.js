@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.23 ===
+// === WESTBYS VERKTØYKASSE v1.24 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -22,8 +22,9 @@
 // v1.21: oppdater DWR-regex til å matche ny syntaks (dwr.engine.remote.handleCallback)
 // v1.22: fjern debug-log fra kontekstmenyHandler — Endre hentetid bekreftet fungerende
 // v1.23: Endre-tid blir popover ved cursor (ikke fullscreen modal) + slankere layout
+// v1.24: ett input-felt per tur med pasientnavn — kan endre ulike tider samtidig
 (function() {
-    const VERSJON = '1.23';
+    const VERSJON = '1.24';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -854,28 +855,49 @@
         return m ? m[1] : null;
     }
 
+    function lesPasientnavnFraRad(resId) {
+        const rad = document.getElementById('V-' + resId);
+        if (!rad) return null;
+        // Pnavn er andre <td> (etter ikon-cellen) — ingen <font>, vanlig tekst
+        const tds = rad.querySelectorAll('td');
+        if (tds.length < 2) return null;
+        const tekst = tds[1].textContent.trim();
+        return tekst || null;
+    }
+
     function visEndreTidModal(resIds, x = 100, y = 100) {
         trygtFjern(document.getElementById('vkt-modal'));
 
-        const tiderNaa = resIds.map(lesHentetidFraRad).filter(Boolean);
-        const placeholderTid = tiderNaa[0] || 'tt:mm';
-        const antall = `${resIds.length} tur${resIds.length > 1 ? 'er' : ''}`;
+        const turer = resIds.map(id => ({
+            resId: id,
+            navn: lesPasientnavnFraRad(id) || id,
+            tidNaa: lesHentetidFraRad(id) || 'tt:mm'
+        }));
+        const antall = `${turer.length} tur${turer.length > 1 ? 'er' : ''}`;
 
         const pop = document.createElement('div');
         pop.id = 'vkt-modal';
         pop.style.cssText = [
             'position:fixed', `left:${x}px`, `top:${y}px`, 'z-index:2147483647',
             'background:#1e293b', 'color:#e2e8f0', 'border:1px solid #334155',
-            'border-radius:8px', 'padding:8px', 'width:200px',
+            'border-radius:8px', 'padding:8px', 'width:280px',
             'box-shadow:0 10px 30px rgba(0,0,0,0.5)',
             'font-family:-apple-system,BlinkMacSystemFont,sans-serif', 'font-size:13px'
         ].join(';');
+
+        const radHTML = turer.map((t, i) => `
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                <div title="${t.navn}" style="flex:1;min-width:0;font-size:12px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.navn}</div>
+                <input data-idx="${i}" type="text" placeholder="${t.tidNaa}" maxlength="5" autocomplete="off"
+                    style="width:64px;padding:5px 7px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#fff;font-size:13px;font-family:monospace;box-sizing:border-box;text-align:center;">
+            </div>
+        `).join('');
+
         pop.innerHTML = `
-            <div style="font-size:11px;color:#94a3b8;padding:0 2px 6px;border-bottom:1px solid #334155;margin-bottom:6px;">Endre hentetid · ${antall}</div>
-            <div style="display:flex;gap:6px;">
-                <input id="vkt-tid" type="text" placeholder="${placeholderTid}" maxlength="5" autocomplete="off"
-                    style="flex:1;min-width:0;padding:6px 8px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#fff;font-size:13px;font-family:monospace;box-sizing:border-box;">
-                <button id="vkt-ok" style="padding:6px 12px;background:#3b82f6;color:white;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;">OK</button>
+            <div style="font-size:11px;color:#94a3b8;padding:0 2px 6px;border-bottom:1px solid #334155;margin-bottom:8px;">Endre hentetid · ${antall}</div>
+            ${radHTML}
+            <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+                <button id="vkt-ok" style="padding:6px 14px;background:#3b82f6;color:white;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;">OK</button>
             </div>
             <div id="vkt-progress" style="margin-top:6px;font-size:11px;color:#94a3b8;display:none;"></div>
         `;
@@ -886,10 +908,10 @@
         if (r.right > window.innerWidth) pop.style.left = (window.innerWidth - r.width - 8) + 'px';
         if (r.bottom > window.innerHeight) pop.style.top = (window.innerHeight - r.height - 8) + 'px';
 
-        const input = pop.querySelector('#vkt-tid');
+        const inputs = pop.querySelectorAll('input[data-idx]');
         const progressEl = pop.querySelector('#vkt-progress');
         const okBtn = pop.querySelector('#vkt-ok');
-        input.focus();
+        inputs[0]?.focus();
 
         const lukk = () => {
             trygtFjern(pop);
@@ -898,25 +920,47 @@
         const utenforKlikk = (e) => { if (!pop.contains(e.target)) lukk(); };
         setTimeout(() => document.addEventListener('click', utenforKlikk, true), 0);
 
-        okBtn.onclick = async () => {
-            const raa = input.value.trim();
-            const m = raa.match(/^(\d{1,2}):(\d{2})$/);
-            if (!m) { input.style.borderColor = '#ef4444'; return; }
+        function parseTid(raa) {
+            const m = raa.trim().match(/^(\d{1,2}):(\d{2})$/);
+            if (!m) return null;
             const hh = +m[1], mm = +m[2];
-            if (hh > 23 || mm > 59) { input.style.borderColor = '#ef4444'; return; }
-            const norm = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+            if (hh > 23 || mm > 59) return null;
+            return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+        }
+
+        okBtn.onclick = async () => {
+            // Samle inn tider — bare felter med verdi telles
+            const oppgaver = [];
+            let valideringFeil = false;
+            inputs.forEach(inp => {
+                inp.style.borderColor = '#334155';
+                const raa = inp.value.trim();
+                if (!raa) return;
+                const norm = parseTid(raa);
+                if (!norm) { inp.style.borderColor = '#ef4444'; valideringFeil = true; return; }
+                const idx = +inp.dataset.idx;
+                oppgaver.push({ resId: turer[idx].resId, tid: norm });
+            });
+            if (valideringFeil) return;
+            if (!oppgaver.length) {
+                progressEl.style.display = 'block';
+                progressEl.style.color = '#94a3b8';
+                progressEl.textContent = 'Ingen tider angitt — fyll inn de du vil endre';
+                return;
+            }
             okBtn.disabled = true;
-            input.disabled = true;
+            inputs.forEach(i => i.disabled = true);
             progressEl.style.display = 'block';
+            progressEl.style.color = '#94a3b8';
             let ok = 0, fail = 0;
-            for (let idx = 0; idx < resIds.length; idx++) {
-                const resId = resIds[idx];
-                progressEl.textContent = `${idx + 1}/${resIds.length} — endrer ${resId}…`;
+            for (let i = 0; i < oppgaver.length; i++) {
+                const o = oppgaver[i];
+                progressEl.textContent = `${i + 1}/${oppgaver.length} — endrer ${o.resId}…`;
                 try {
-                    const r = await endreTidPaaResId(resId, norm);
-                    if (r.ok) ok++; else { fail++; console.warn('[VERKTØYKASSE] feil for', resId, r); }
+                    const r = await endreTidPaaResId(o.resId, o.tid);
+                    if (r.ok) ok++; else { fail++; console.warn('[VERKTØYKASSE] feil for', o.resId, r); }
                 } catch (e) {
-                    console.warn('[VERKTØYKASSE] endreTid kastet for', resId, e);
+                    console.warn('[VERKTØYKASSE] endreTid kastet for', o.resId, e);
                     fail++;
                 }
             }
@@ -924,10 +968,13 @@
             progressEl.style.color = fail ? '#fbbf24' : '#10b981';
             setTimeout(lukk, fail ? 2500 : 1200);
         };
-        input.onkeydown = (e) => {
-            if (e.key === 'Enter') okBtn.click();
-            if (e.key === 'Escape') lukk();
-        };
+
+        inputs.forEach(inp => {
+            inp.onkeydown = (e) => {
+                if (e.key === 'Enter') okBtn.click();
+                if (e.key === 'Escape') lukk();
+            };
+        });
     }
 
     function kontekstmenyHandler(e) {
