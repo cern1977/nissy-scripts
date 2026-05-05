@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.7-dev ===
+// === BASIC TOOLS v1.8-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -7,12 +7,13 @@
 // v1.5: 800ms delay (400 var fortsatt for fort på batch >5) + progress-toast under kjøring
 // v1.6: vent til P-rad faktisk forsvinner fra DOM før neste kall (adaptivt vs fast delay)
 // v1.7: kombinerer DOM-polling med minimum 2 sek mellom kall — DOM alene ga 5/10
+// v1.8: dynamisk kø — re-detekter markerte P-rader fra DOM mellom hvert kall
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.7-dev';
+    const VERSJON = '1.8-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -434,9 +435,6 @@
                 toast.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:10px 14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.5);min-width:200px;';
                 document.body.appendChild(toast);
 
-                let ok = 0, fail = 0;
-                // NISSY rate-limiter ved batch — venter til hver P-rad er borte fra DOM
-                // før vi sender neste kall. Tilpasser seg server-fart i stedet for fast delay.
                 async function ventTilBorte(resId, maks = 5000) {
                     const start = Date.now();
                     while (Date.now() - start < maks) {
@@ -445,25 +443,44 @@
                     }
                     return false;
                 }
-                const MIN_TID_PER_KALL = 2000; // 2 sek minimum
-                for (let i = 0; i < fremtidige.length; i++) {
-                    const t = fremtidige[i];
-                    toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
-                    const start = Date.now();
+
+                // Dynamisk kø: re-detekter markerte fremtidige P-rader hver iterasjon
+                // Stopp hvis ingen flere markerte ELLER hvis samme tur dukker opp 2× på rad (no-op)
+                const totalt = fremtidige.length;
+                let ok = 0, fail = 0;
+                const harBehandlet = new Set();
+                let forrigeResId = null;
+                while (true) {
+                    const markerte = lesMarkertePaagaaende().filter(t =>
+                        !erIDagEllerTidligere(t.dato) && !harBehandlet.has(t.resId)
+                    );
+                    if (markerte.length === 0) break;
+                    const t = markerte[0];
+                    if (t.resId === forrigeResId) {
+                        // Samme tur som sist — ble ikke fjernet, gi opp på den
+                        fail++;
+                        harBehandlet.add(t.resId);
+                        forrigeResId = null;
+                        continue;
+                    }
+                    forrigeResId = t.resId;
+                    toast.textContent = `Trekker tilbake ${ok + fail + 1}/${totalt}: ${t.navn}`;
                     try {
                         window.removePaagaaendeOppdrag(t.resId, t.reqId);
                         const borte = await ventTilBorte(t.resId);
-                        if (borte) ok++;
-                        else { fail++; console.warn(`[${NAVN}] timeout: P-${t.resId} forsvant ikke innen 5 sek`); }
+                        if (borte) {
+                            ok++;
+                            harBehandlet.add(t.resId);
+                            forrigeResId = null;
+                        } else {
+                            console.warn(`[${NAVN}] P-${t.resId} forsvant ikke — prøver igjen neste runde`);
+                        }
                     } catch (e) {
-                        console.warn(`[${NAVN}] trekk tilbake feilet for resId=${t.resId}`, e);
+                        console.warn(`[${NAVN}] trekk tilbake kastet for resId=${t.resId}`, e);
                         fail++;
+                        harBehandlet.add(t.resId);
                     }
-                    // Sikre minimum 2 sek totalt mellom kall (DOM kan svare raskere enn server kan håndtere flere)
-                    const brukt = Date.now() - start;
-                    if (brukt < MIN_TID_PER_KALL && i < fremtidige.length - 1) {
-                        await new Promise(r => setTimeout(r, MIN_TID_PER_KALL - brukt));
-                    }
+                    await new Promise(r => setTimeout(r, 800));
                 }
                 toast.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
                 toast.style.color = fail ? '#fbbf24' : '#10b981';
