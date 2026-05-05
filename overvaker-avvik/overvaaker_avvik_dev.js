@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.32-dev';
+    const VERSION = '38.4.33-dev';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
     // Testvisning av vedtak-godkjente turer — kun i dev-bygg
     const VIS_VEDTAK_KOLONNE = VERSION.endsWith('-dev');
@@ -1745,7 +1745,10 @@
         const filtreArr = [...aktiveFiltre];
         console.log(`[DISPATCH] hentDispatchData() -- ${filtreArr.length} filtre: [${filtreArr.join(', ')}]`);
         const t = Date.now();
-        const nissyCookie = document.cookie.match(/thwerfilter=(\d+)/);
+        const _rfilterNavn = NISSY_BRUKERNAVN ? NISSY_BRUKERNAVN + 'rfilter' : null;
+        const nissyCookie = _rfilterNavn
+            ? document.cookie.match(new RegExp(_rfilterNavn + '=(\\d+)'))
+            : null;
         const nissyFilterFra = nissyCookie ? nissyCookie[1] : null;
 
         // Hent NISSY sin nåværende søkestreng (fra input-feltet) for å gjenopprette etterpå
@@ -1798,7 +1801,7 @@
             } catch (e) {
                 console.warn('[DISPATCH] Kunne ikke gjenopprette NISSY-sesjon:', e.message);
             }
-            document.cookie = `thwerfilter=${nissyFilterFra}; path=/`;
+            if (_rfilterNavn) document.cookie = `${_rfilterNavn}=${nissyFilterFra}; path=/`;
         }
 
         console.log(`[DISPATCH] Totalt: ${alleRader.length} unike rader fra ${filtreArr.length} filtre`);
