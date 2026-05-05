@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.10-dev ===
+// === BASIC TOOLS v1.11-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -10,12 +10,13 @@
 // v1.8: dynamisk kø — re-detekter markerte P-rader fra DOM mellom hvert kall
 // v1.9: klikk X-img direkte i DOM (mimicker manuell flyt) + "Trekk tilbake alle uten ERS/RB/A/TK"
 // v1.10: finn X-img via onclick-attribute (img[src=...] feilet 13/13 i v1.9 — ukjent variasjon)
+// v1.11: søk X-img globalt i document via onclick-attribute (rad-lookup feilet etter re-render)
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.10-dev';
+    const VERSJON = '1.11-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -103,6 +104,18 @@
         for (const img of imgs) {
             const oc = img.getAttribute('onclick') || '';
             if (oc.startsWith('removePaagaaendeOppdrag')) return img;
+        }
+        return null;
+    }
+
+    // Finn X-img for et spesifikt (resId, reqId) globalt i hele dokumentet
+    // — robust mot at rader blir re-renderet mellom snapshot og prosessering.
+    function finnXImgGlobalt(resId, reqId) {
+        const alle = document.querySelectorAll('img[onclick^="removePaagaaendeOppdrag"]');
+        const target = `'${resId}','${reqId}'`;
+        for (const img of alle) {
+            const oc = img.getAttribute('onclick') || '';
+            if (oc.includes(target)) return img;
         }
         return null;
     }
@@ -481,11 +494,9 @@
                 for (let i = 0; i < fremtidige.length; i++) {
                     const t = fremtidige[i];
                     toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
-                    const rad = document.getElementById('P-' + t.resId);
-                    const xImg = finnXImg(rad);
+                    const xImg = finnXImgGlobalt(t.resId, t.reqId);
                     if (!xImg) {
-                        const imgs = rad ? Array.from(rad.querySelectorAll('img')).map(i => ({src: i.getAttribute('src'), oc: (i.getAttribute('onclick') || '').slice(0, 60)})) : 'rad ikke funnet';
-                        console.warn(`[${NAVN}] fant ikke X-knapp for P-${t.resId} — imgs:`, imgs);
+                        console.warn(`[${NAVN}] fant ikke X-knapp for P-${t.resId} (resId/reqId ${t.resId}/${t.reqId})`);
                         fail++;
                         continue;
                     }
@@ -549,20 +560,28 @@
                 }
 
                 let ok = 0, fail = 0;
-                for (let i = 0; i < alle.length; i++) {
-                    const rad = alle[i];
-                    const args = lesPaagaaendeArgs(rad);
-                    const navn = lesPasientnavnFraRadGeneric(rad) || args?.resId;
-                    t2.textContent = `Trekker tilbake ${i + 1}/${alle.length}: ${navn}`;
-                    const xImg = finnXImg(rad);
-                    if (!xImg || !args) { fail++; continue; }
+                // Pre-collect args before loop (radene re-renderes underveis)
+                const oppgaver = alle.map(r => ({
+                    args: lesPaagaaendeArgs(r),
+                    navn: lesPasientnavnFraRadGeneric(r)
+                })).filter(o => o.args);
+
+                for (let i = 0; i < oppgaver.length; i++) {
+                    const o = oppgaver[i];
+                    t2.textContent = `Trekker tilbake ${i + 1}/${oppgaver.length}: ${o.navn || o.args.resId}`;
+                    const xImg = finnXImgGlobalt(o.args.resId, o.args.reqId);
+                    if (!xImg) {
+                        console.warn(`[${NAVN}] fant ikke X-knapp for P-${o.args.resId}`);
+                        fail++;
+                        continue;
+                    }
                     try {
                         xImg.click();
-                        const borte = await ventTilBorte2(args.resId);
+                        const borte = await ventTilBorte2(o.args.resId);
                         if (borte) ok++;
-                        else { fail++; console.warn(`[${NAVN}] P-${args.resId} forsvant ikke innen 5 sek`); }
+                        else { fail++; console.warn(`[${NAVN}] P-${o.args.resId} forsvant ikke innen 5 sek`); }
                     } catch (e) {
-                        console.warn(`[${NAVN}] klikk feilet for ${args.resId}`, e);
+                        console.warn(`[${NAVN}] klikk feilet for ${o.args.resId}`, e);
                         fail++;
                     }
                     await new Promise(r => setTimeout(r, 500));
