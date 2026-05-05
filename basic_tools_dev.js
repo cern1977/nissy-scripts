@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.15-dev ===
+// === BASIC TOOLS v1.16-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -17,12 +17,13 @@
 //        finn Behov-kolonne via thead i stedet for hardkodet tds[5] (kolonner kan være skjult/fjernet)
 // v1.15: søk th-tekst globalt i tabellen (NISSY har ikke ekte <thead>-wrapper, bruker tr.tbh).
 //        Ingen caching siden bruker kan legge til/fjerne kolonner dynamisk under bruk.
+// v1.16: auto-retry også på markerte-flyten (samme som "alle" hadde fra v1.13)
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.15-dev';
+    const VERSJON = '1.16-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -559,31 +560,45 @@
                 // Klikk X-img i DOM i stedet for å kalle funksjonen direkte —
                 // matcher manuell flyt (som alltid funker) og trigger evt. event listeners.
                 const stoppAutoBekreft = aktiverAutoBekreft();
-                let ok = 0, fail = 0;
+                const totaltStart = fremtidige.length;
+                let totaltOk = 0;
+                let runde = 0;
+                // Spor hvilke turer som gjenstår — kun de som fortsatt har X-knapp i DOM
+                let gjenstaaende = fremtidige.slice();
                 try {
-                    for (let i = 0; i < fremtidige.length; i++) {
-                        const t = fremtidige[i];
-                        toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
-                        const xImg = finnXImgGlobalt(t.resId, t.reqId);
-                        if (!xImg) {
-                            console.warn(`[${NAVN}] fant ikke X-knapp for P-${t.resId}`);
-                            fail++;
-                            continue;
+                    while (gjenstaaende.length > 0) {
+                        runde++;
+                        let progressDenneRunde = 0;
+                        const denne = gjenstaaende.filter(t => finnXImgGlobalt(t.resId, t.reqId));
+                        if (denne.length === 0) break;
+                        for (let i = 0; i < denne.length; i++) {
+                            const t = denne[i];
+                            toast.textContent = `Runde ${runde}: ${i + 1}/${denne.length} (${totaltOk}/${totaltStart} totalt) — ${t.navn}`;
+                            const xImg = finnXImgGlobalt(t.resId, t.reqId);
+                            if (!xImg) continue;
+                            try {
+                                xImg.click();
+                                const borte = await ventTilBorte(t.resId);
+                                if (borte) { totaltOk++; progressDenneRunde++; }
+                            } catch (e) {
+                                console.warn(`[${NAVN}] klikk feilet for ${t.resId}`, e);
+                            }
+                            await new Promise(r => setTimeout(r, 1000));
                         }
-                        try {
-                            xImg.click();
-                            const borte = await ventTilBorte(t.resId);
-                            if (borte) ok++;
-                            else { fail++; console.warn(`[${NAVN}] P-${t.resId} forsvant ikke innen 10 sek`); }
-                        } catch (e) {
-                            console.warn(`[${NAVN}] klikk feilet for resId=${t.resId}`, e);
-                            fail++;
+                        // Re-evaluer hva som gjenstår: alt som fortsatt har X-knapp
+                        gjenstaaende = gjenstaaende.filter(t => finnXImgGlobalt(t.resId, t.reqId));
+                        if (progressDenneRunde === 0) {
+                            console.warn(`[${NAVN}] runde ${runde} ga 0 progress, gir opp med ${gjenstaaende.length} igjen`);
+                            break;
                         }
-                        await new Promise(r => setTimeout(r, 1000));
+                        console.log(`[${NAVN}] runde ${runde} ferdig: ${progressDenneRunde} prosessert, ${totaltOk}/${totaltStart} totalt`);
+                        if (gjenstaaende.length > 0) await new Promise(r => setTimeout(r, 1500));
                     }
                 } finally {
                     stoppAutoBekreft();
                 }
+                const fail = totaltStart - totaltOk;
+                const ok = totaltOk;
                 toast.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
                 toast.style.color = fail ? '#fbbf24' : '#10b981';
                 console.log(`[${NAVN}] trekk tilbake: ${ok} ok, ${fail} feilet`);
