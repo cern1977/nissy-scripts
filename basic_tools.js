@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.13 ===
+// === BASIC TOOLS v1.14 ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -13,12 +13,14 @@
 // v1.11: søk X-img globalt i document via onclick-attribute (rad-lookup feilet etter re-render)
 // v1.12: ventTilBorte 5s → 10s + delay 500ms → 1000ms (7/13 i v1.11 — noen rakk ikke fjernes)
 // v1.13: "Trekk tilbake alle" auto-retryer — re-scan + ny runde til ingen progress
+// v1.14: auto-bekreft varslingsboks (window.confirm + custom dialog) under batch-trekk-tilbake +
+//        finn Behov-kolonne via thead i stedet for hardkodet tds[5] (kolonner kan være skjult/fjernet)
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.13';
+    const VERSJON = '1.14';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -122,6 +124,43 @@
         return null;
     }
 
+    // Auto-bekrefter NISSY varslingsbokser. Returnerer et "stopp"-callback.
+    // - Overstyrer window.confirm til å returnere true (native confirm)
+    // - Setter opp MutationObserver som klikker "Ja"/"OK" i custom dialoger
+    function aktiverAutoBekreft() {
+        const origConfirm = window.confirm;
+        window.confirm = () => true;
+
+        // Custom NISSY-dialoger fra messagebox.min.js eller liknende —
+        // søk etter knapper med tekst "Ja", "OK", "Bekreft"
+        const observer = new MutationObserver(muts => {
+            muts.forEach(m => {
+                m.addedNodes.forEach(n => {
+                    if (n.nodeType !== 1) return;
+                    // Sjekk noden selv og dens etterkommere
+                    const knapper = [n, ...(n.querySelectorAll ? n.querySelectorAll('button, input[type="button"], a') : [])];
+                    for (const k of knapper) {
+                        const tekst = (k.textContent || k.value || '').trim().toLowerCase();
+                        if (tekst === 'ja' || tekst === 'ok') {
+                            // Sjekk at det er synlig (ikke en skjult skabelon)
+                            const r = k.getBoundingClientRect && k.getBoundingClientRect();
+                            if (r && (r.width || r.height)) {
+                                setTimeout(() => k.click(), 50);
+                                return;
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        return () => {
+            window.confirm = origConfirm;
+            observer.disconnect();
+        };
+    }
+
     // Plukk ut (resId, reqId) fra remove-knappens onclick i en P-rad
     // Format: onclick="removePaagaaendeOppdrag('80400090','66961981')"
     function lesPaagaaendeArgs(rad) {
@@ -131,17 +170,38 @@
         return m ? { resId: m[1], reqId: m[2] } : null;
     }
 
-    // Behov-kolonnen er typisk td index 5 (etter actions, navn, reise tid, opp tid, reise måte)
+    // Finn kolonne-index for "Behov" ved å lete i tabellens thead.
+    // Cacher per tabell så vi ikke parser thead på hver rad.
+    const _behovIdxCache = new WeakMap();
+    function finnBehovKolonneIdx(rad) {
+        const tabell = rad?.closest('table');
+        if (!tabell) return -1;
+        if (_behovIdxCache.has(tabell)) return _behovIdxCache.get(tabell);
+        const headers = tabell.querySelectorAll('thead th, thead td');
+        let idx = -1;
+        for (let i = 0; i < headers.length; i++) {
+            const tekst = (headers[i].textContent || '').trim().toLowerCase();
+            if (tekst === 'behov' || tekst.startsWith('behov')) { idx = i; break; }
+        }
+        _behovIdxCache.set(tabell, idx);
+        if (idx < 0) console.warn(`[${NAVN}] fant ikke Behov-kolonne — Behov-filter deaktivert`);
+        return idx;
+    }
+
     function lesBehovFraRad(rad) {
         if (!rad) return '';
-        const tds = rad.querySelectorAll('td');
-        if (tds.length < 6) return '';
-        return tds[5].textContent.trim().toUpperCase();
+        const idx = finnBehovKolonneIdx(rad);
+        if (idx < 0) return '';
+        const tds = rad.querySelectorAll(':scope > td');
+        if (idx >= tds.length) return '';
+        return tds[idx].textContent.trim().toUpperCase();
     }
 
     // True hvis raden har "spesielt" Behov som vi IKKE skal trekke tilbake automatisk
     const SPESIELLE_BEHOV = ['ERS', 'RB', 'A', 'TK'];
     function harSpesieltBehov(rad) {
+        const idx = finnBehovKolonneIdx(rad);
+        if (idx < 0) return true;  // hvis vi ikke kan lese kolonnen, vær konservativ — IKKE trekk tilbake
         const behov = lesBehovFraRad(rad);
         if (!behov) return false;
         const koder = behov.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
@@ -492,26 +552,31 @@
 
                 // Klikk X-img i DOM i stedet for å kalle funksjonen direkte —
                 // matcher manuell flyt (som alltid funker) og trigger evt. event listeners.
+                const stoppAutoBekreft = aktiverAutoBekreft();
                 let ok = 0, fail = 0;
-                for (let i = 0; i < fremtidige.length; i++) {
-                    const t = fremtidige[i];
-                    toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
-                    const xImg = finnXImgGlobalt(t.resId, t.reqId);
-                    if (!xImg) {
-                        console.warn(`[${NAVN}] fant ikke X-knapp for P-${t.resId} (resId/reqId ${t.resId}/${t.reqId})`);
-                        fail++;
-                        continue;
+                try {
+                    for (let i = 0; i < fremtidige.length; i++) {
+                        const t = fremtidige[i];
+                        toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
+                        const xImg = finnXImgGlobalt(t.resId, t.reqId);
+                        if (!xImg) {
+                            console.warn(`[${NAVN}] fant ikke X-knapp for P-${t.resId}`);
+                            fail++;
+                            continue;
+                        }
+                        try {
+                            xImg.click();
+                            const borte = await ventTilBorte(t.resId);
+                            if (borte) ok++;
+                            else { fail++; console.warn(`[${NAVN}] P-${t.resId} forsvant ikke innen 10 sek`); }
+                        } catch (e) {
+                            console.warn(`[${NAVN}] klikk feilet for resId=${t.resId}`, e);
+                            fail++;
+                        }
+                        await new Promise(r => setTimeout(r, 1000));
                     }
-                    try {
-                        xImg.click();
-                        const borte = await ventTilBorte(t.resId);
-                        if (borte) ok++;
-                        else { fail++; console.warn(`[${NAVN}] P-${t.resId} forsvant ikke innen 10 sek`); }
-                    } catch (e) {
-                        console.warn(`[${NAVN}] klikk feilet for resId=${t.resId}`, e);
-                        fail++;
-                    }
-                    await new Promise(r => setTimeout(r, 1000));
+                } finally {
+                    stoppAutoBekreft();
                 }
                 toast.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
                 toast.style.color = fail ? '#fbbf24' : '#10b981';
@@ -572,40 +637,43 @@
                     });
                 }
 
+                const stoppAutoBekreft2 = aktiverAutoBekreft();
                 const totaltStart = alle.length;
                 let totaltOk = 0;
                 let runde = 0;
-                while (true) {
-                    runde++;
-                    const kandidater = finnAlleKandidater();
-                    if (kandidater.length === 0) break;
-                    let progressDenneRunde = 0;
-                    const oppgaver = kandidater.map(r => ({
-                        args: lesPaagaaendeArgs(r),
-                        navn: lesPasientnavnFraRadGeneric(r)
-                    })).filter(o => o.args);
-                    for (let i = 0; i < oppgaver.length; i++) {
-                        const o = oppgaver[i];
-                        t2.textContent = `Runde ${runde}: ${i + 1}/${oppgaver.length} (${totaltOk}/${totaltStart} totalt) — ${o.navn || o.args.resId}`;
-                        const xImg = finnXImgGlobalt(o.args.resId, o.args.reqId);
-                        if (!xImg) continue;  // borte fra DOM = sannsynligvis allerede prosessert
-                        try {
-                            xImg.click();
-                            const borte = await ventTilBorte2(o.args.resId);
-                            if (borte) { totaltOk++; progressDenneRunde++; }
-                        } catch (e) {
-                            console.warn(`[${NAVN}] klikk feilet for ${o.args.resId}`, e);
+                try {
+                    while (true) {
+                        runde++;
+                        const kandidater = finnAlleKandidater();
+                        if (kandidater.length === 0) break;
+                        let progressDenneRunde = 0;
+                        const oppgaver = kandidater.map(r => ({
+                            args: lesPaagaaendeArgs(r),
+                            navn: lesPasientnavnFraRadGeneric(r)
+                        })).filter(o => o.args);
+                        for (let i = 0; i < oppgaver.length; i++) {
+                            const o = oppgaver[i];
+                            t2.textContent = `Runde ${runde}: ${i + 1}/${oppgaver.length} (${totaltOk}/${totaltStart} totalt) — ${o.navn || o.args.resId}`;
+                            const xImg = finnXImgGlobalt(o.args.resId, o.args.reqId);
+                            if (!xImg) continue;
+                            try {
+                                xImg.click();
+                                const borte = await ventTilBorte2(o.args.resId);
+                                if (borte) { totaltOk++; progressDenneRunde++; }
+                            } catch (e) {
+                                console.warn(`[${NAVN}] klikk feilet for ${o.args.resId}`, e);
+                            }
+                            await new Promise(r => setTimeout(r, 1000));
                         }
-                        await new Promise(r => setTimeout(r, 1000));
+                        if (progressDenneRunde === 0) {
+                            console.warn(`[${NAVN}] runde ${runde} ga 0 progress, gir opp med ${kandidater.length} igjen`);
+                            break;
+                        }
+                        console.log(`[${NAVN}] runde ${runde} ferdig: ${progressDenneRunde} prosessert, ${totaltOk} totalt`);
+                        await new Promise(r => setTimeout(r, 1500));
                     }
-                    if (progressDenneRunde === 0) {
-                        // Ingen flyttet seg i denne runden — gi opp
-                        console.warn(`[${NAVN}] runde ${runde} ga 0 progress, gir opp med ${kandidater.length} igjen`);
-                        break;
-                    }
-                    console.log(`[${NAVN}] runde ${runde} ferdig: ${progressDenneRunde} prosessert, ${totaltOk} totalt`);
-                    // Liten ekstra pause mellom runder for å la NISSY-queuen tømme seg
-                    await new Promise(r => setTimeout(r, 1500));
+                } finally {
+                    stoppAutoBekreft2();
                 }
                 const igjen = finnAlleKandidater().length;
                 t2.textContent = `Ferdig: ${totaltOk} trukket tilbake${igjen ? `, ${igjen} igjen (NISSY queue)` : ''}`;
