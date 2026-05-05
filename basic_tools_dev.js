@@ -1,15 +1,17 @@
-// === BASIC TOOLS v1.5-dev ===
+// === BASIC TOOLS v1.7-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3-dev: høyreklikk på P-rader (pågående) → "Trekk tilbake" (kun fremtidig dato)
 // v1.4-dev: batch — markér flere P-rader, høyreklikk en av dem, trekk tilbake alle samtidig
 // v1.5-dev: dato-parser leter i hele radens tekst (P-rader har annen struktur enn V-rader)
+// v1.6-dev: dato-parser krever ikke HH:MM etter datoen — tar første gyldig DD.MM
+// v1.7-dev: dato-parser bruker negativ lookahead så "3.51..." ikke matcher som "3.5"
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.5-dev';
+    const VERSJON = '1.7-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -62,21 +64,24 @@
         return tekst || null;
     }
 
-    // Plukk ut første "DD.MM HH:MM" (eller "DD-MM HH:MM") fra radens tekst.
-    // Fungerer for både V- og P-rader, uavhengig av <font>-fargen, fordi vi
-    // søker på TD-text-content i sin helhet.
+    // Finn første gyldige DD.MM (eller DD-MM) i radens textContent.
+    // Validerer at dag 1–31 og måned 1–12 så vi ikke matcher feil tall.
     function lesAvgangsdatoFraRad(rad) {
         if (!rad) return null;
         const tekst = rad.textContent || '';
-        const m = tekst.match(/(\d{1,2})[.\-](\d{1,2})\s+\d{1,2}:\d{2}/);
-        if (!m) return null;
         const idag = new Date();
-        const d = new Date(idag.getFullYear(), +m[2] - 1, +m[1]);
-        // Hvis dato er tidligere enn i dag, anta neste år (krasj over årsskiftet)
-        if (d < new Date(idag.getFullYear(), idag.getMonth(), idag.getDate())) {
-            d.setFullYear(idag.getFullYear() + 1);
+        const idagMidn = new Date(idag.getFullYear(), idag.getMonth(), idag.getDate());
+        // Negativ lookahead (?!\d) — rejecter "3.51" der "3.5" ellers ville matchet
+        const treff = tekst.matchAll(/(\d{1,2})[.\-](\d{1,2})(?!\d)/g);
+        for (const m of treff) {
+            const dag = +m[1], mnd = +m[2];
+            if (dag < 1 || dag > 31 || mnd < 1 || mnd > 12) continue;
+            const d = new Date(idag.getFullYear(), mnd - 1, dag);
+            // Hvis dato er tidligere enn i dag, anta neste år
+            if (d < idagMidn) d.setFullYear(idag.getFullYear() + 1);
+            return d;
         }
-        return d;
+        return null;
     }
 
     function erIDagEllerTidligere(dato) {
