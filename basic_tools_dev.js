@@ -1,15 +1,16 @@
-// === BASIC TOOLS v1.4-dev ===
+// === BASIC TOOLS v1.5-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
 //       Bruker NISSYs egen window.removePaagaaendeOppdrag(resId, reqId) som transport.
 // v1.4: 400ms delay mellom hver trekk-tilbake — NISSY rate-limiter ved batch (max 3 ble prosessert)
+// v1.5: 800ms delay (400 var fortsatt for fort på batch >5) + progress-toast under kjøring
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.4-dev';
+    const VERSJON = '1.5-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -423,10 +424,20 @@
                     alert('Fant ikke removePaagaaendeOppdrag — er du på Planlegger-siden?');
                     return;
                 }
+
+                // Progress-toast nede til høyre
+                trygtFjern(document.getElementById('vkt-tt-progress'));
+                const toast = document.createElement('div');
+                toast.id = 'vkt-tt-progress';
+                toast.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:10px 14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.5);min-width:200px;';
+                document.body.appendChild(toast);
+
                 let ok = 0, fail = 0;
-                // NISSY rate-limiter — kalles raskt etter hverandre blir bare ~3 prosessert.
-                // Sleeper 400ms mellom hvert kall så hver melding rekker å bli sendt/mottatt.
-                for (const t of fremtidige) {
+                // NISSY rate-limiter — kalles raskt etter hverandre blir bare en del prosessert.
+                // 800ms mellom hver så batchen ikke kollapses.
+                for (let i = 0; i < fremtidige.length; i++) {
+                    const t = fremtidige[i];
+                    toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
                     try {
                         window.removePaagaaendeOppdrag(t.resId, t.reqId);
                         ok++;
@@ -434,9 +445,12 @@
                         console.warn(`[${NAVN}] trekk tilbake feilet for resId=${t.resId}`, e);
                         fail++;
                     }
-                    await new Promise(r => setTimeout(r, 400));
+                    await new Promise(r => setTimeout(r, 800));
                 }
+                toast.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
+                toast.style.color = fail ? '#fbbf24' : '#10b981';
                 console.log(`[${NAVN}] trekk tilbake: ${ok} ok, ${fail} feilet`);
+                setTimeout(() => trygtFjern(toast), fail ? 4000 : 2000);
             };
         } else {
             a.innerHTML = '🔙 Trekk tilbake <span style="font-size:10px;font-style:italic;">(kun fremtidig dato)</span>';
