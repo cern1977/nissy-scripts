@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.14-dev ===
+// === BASIC TOOLS v1.15-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -15,12 +15,14 @@
 // v1.13: "Trekk tilbake alle" auto-retryer — re-scan + ny runde til ingen progress
 // v1.14: auto-bekreft varslingsboks (window.confirm + custom dialog) under batch-trekk-tilbake +
 //        finn Behov-kolonne via thead i stedet for hardkodet tds[5] (kolonner kan være skjult/fjernet)
+// v1.15: søk th-tekst globalt i tabellen (NISSY har ikke ekte <thead>-wrapper, bruker tr.tbh).
+//        Ingen caching siden bruker kan legge til/fjerne kolonner dynamisk under bruk.
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.14-dev';
+    const VERSJON = '1.15-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -170,22 +172,26 @@
         return m ? { resId: m[1], reqId: m[2] } : null;
     }
 
-    // Finn kolonne-index for "Behov" ved å lete i tabellens thead.
-    // Cacher per tabell så vi ikke parser thead på hver rad.
-    const _behovIdxCache = new WeakMap();
+    // Finn kolonne-index for "Behov" ved å søke gjennom alle th i tabellen
+    // (NISSYs header-rad bruker tr.tbh, ikke ekte <thead>-wrapper).
+    // Ingen caching — bruker kan endre kolonner dynamisk under bruk.
     function finnBehovKolonneIdx(rad) {
         const tabell = rad?.closest('table');
         if (!tabell) return -1;
-        if (_behovIdxCache.has(tabell)) return _behovIdxCache.get(tabell);
-        const headers = tabell.querySelectorAll('thead th, thead td');
-        let idx = -1;
-        for (let i = 0; i < headers.length; i++) {
-            const tekst = (headers[i].textContent || '').trim().toLowerCase();
-            if (tekst === 'behov' || tekst.startsWith('behov')) { idx = i; break; }
+        const allTh = tabell.querySelectorAll('th');
+        for (const th of allTh) {
+            const tekst = (th.textContent || '').trim().toLowerCase();
+            if (tekst === 'behov') {
+                const cells = th.parentElement?.children;
+                if (cells) {
+                    for (let i = 0; i < cells.length; i++) {
+                        if (cells[i] === th) return i;
+                    }
+                }
+                break;
+            }
         }
-        _behovIdxCache.set(tabell, idx);
-        if (idx < 0) console.warn(`[${NAVN}] fant ikke Behov-kolonne — Behov-filter deaktivert`);
-        return idx;
+        return -1;
     }
 
     function lesBehovFraRad(rad) {
