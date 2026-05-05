@@ -1,8 +1,9 @@
-// === WESTBYS VERKTØYKASSE v2.0 ===
+// === WESTBYS VERKTØYKASSE v2.1 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
 //       Basic Tools auto-lastes etter tilgang er hentet. Toggle for dev-versjon i menyen (superadmin).
+// v2.1: kompakt meny + Admin/Rekvisisjon-snarveier i header med statusprikker
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -38,7 +39,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.0';
+    const VERSJON = '2.1';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -204,8 +205,8 @@
         const meny = document.createElement('div');
         meny.style.cssText = [
             'position:fixed', 'top:60px', 'right:10px', 'z-index:2147483647',
-            'background:#1e293b', 'border:1px solid #334155', 'border-radius:12px',
-            'padding:8px', 'display:none', 'min-width:240px',
+            'background:#1e293b', 'border:1px solid #334155', 'border-radius:10px',
+            'padding:4px', 'display:none', 'min-width:220px',
             'box-shadow:0 10px 30px rgba(0,0,0,0.5)',
             'font-family:-apple-system,BlinkMacSystemFont,sans-serif'
         ].join(';');
@@ -213,23 +214,50 @@
         // Header
         const h = document.createElement('div');
         h.textContent = tilgang.navn ? tilgang.navn.split(',')[0] : 'Westbys verktøykasse';
-        h.style.cssText = 'padding:8px 12px;font-size:12px;color:#f8fafc;font-weight:700;display:flex;align-items:center;gap:6px;';
+        h.style.cssText = 'padding:6px 10px 4px;font-size:11px;color:#f8fafc;font-weight:700;display:flex;align-items:center;gap:6px;';
         const ver = document.createElement('span');
         ver.textContent = `v${VERSJON}`;
-        ver.style.cssText = 'font-size:10px;color:#64748b;font-weight:500;';
+        ver.style.cssText = 'font-size:9px;color:#64748b;font-weight:500;';
         h.appendChild(ver);
         if (tilgang.rolle && tilgang.rolle !== 'ansatt') {
             const badge = document.createElement('span');
             badge.textContent = tilgang.rolle.toUpperCase();
-            badge.style.cssText = 'font-size:9px;padding:1px 5px;background:#1d4ed8;color:#bfdbfe;border-radius:3px;font-weight:700;';
+            badge.style.cssText = 'font-size:8px;padding:1px 4px;background:#1d4ed8;color:#bfdbfe;border-radius:3px;font-weight:700;';
             h.appendChild(badge);
         }
         meny.appendChild(h);
 
+        // Admin / Rekvisisjon-snarveier med statusprikker
+        const lagSnarvei = (tekst, url, statusKey) => {
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.style.cssText = 'flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:5px 8px;color:#e2e8f0;text-decoration:none;font-size:11px;border-radius:5px;background:#0f172a;border:1px solid #334155;transition:background 0.1s;';
+            a.onmouseover = () => a.style.background = '#334155';
+            a.onmouseout = () => a.style.background = '#0f172a';
+            const prikk = document.createElement('span');
+            prikk.dataset.statusFor = statusKey;
+            prikk.style.cssText = 'width:6px;height:6px;border-radius:50%;background:#64748b;flex-shrink:0;';
+            const t = document.createElement('span');
+            t.textContent = tekst;
+            a.appendChild(prikk);
+            a.appendChild(t);
+            return a;
+        };
+        const snarveier = document.createElement('div');
+        snarveier.style.cssText = 'display:flex;gap:4px;padding:0 4px 4px;';
+        snarveier.appendChild(lagSnarvei('Admin', ADMIN_URL, 'admin'));
+        snarveier.appendChild(lagSnarvei('Rekvisisjon', REK_URL, 'rek'));
+        meny.appendChild(snarveier);
+
+        const skille = document.createElement('div');
+        skille.style.cssText = 'border-top:1px solid #334155;margin:2px 0;';
+        meny.appendChild(skille);
+
         if (!tilgang.verktoy || tilgang.verktoy.length === 0) {
             const tom = document.createElement('div');
             tom.textContent = 'Ingen tilgjengelige verktøy';
-            tom.style.cssText = 'padding:12px;font-size:12px;color:#64748b;text-align:center;font-style:italic;';
+            tom.style.cssText = 'padding:8px 10px;font-size:11px;color:#64748b;text-align:center;font-style:italic;';
             meny.appendChild(tom);
         }
 
@@ -237,13 +265,13 @@
             if (v.separator) {
                 const sep = document.createElement('div');
                 sep.textContent = v.tekst;
-                sep.style.cssText = 'padding:10px 12px 4px;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid #334155;margin-top:4px;';
+                sep.style.cssText = 'padding:6px 10px 2px;font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid #334155;margin-top:2px;';
                 meny.appendChild(sep);
                 return;
             }
             const lenke = document.createElement('a');
             lenke.href = '#';
-            lenke.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;color:#e2e8f0;text-decoration:none;font-size:13px;border-radius:6px;transition:background 0.1s;';
+            lenke.style.cssText = 'display:flex;align-items:center;gap:7px;padding:5px 10px;color:#e2e8f0;text-decoration:none;font-size:12px;border-radius:5px;transition:background 0.1s;';
             lenke.onmouseover = () => lenke.style.background = '#334155';
             lenke.onmouseout = () => lenke.style.background = '';
 
@@ -271,7 +299,7 @@
         if (!tilgang.funnet) {
             const f = document.createElement('div');
             f.textContent = 'Ukjent bruker — viser standardsett';
-            f.style.cssText = 'padding:6px 12px;font-size:10px;color:#64748b;border-top:1px solid #334155;margin-top:4px;font-style:italic;';
+            f.style.cssText = 'padding:5px 10px;font-size:9px;color:#64748b;border-top:1px solid #334155;margin-top:2px;font-style:italic;';
             meny.appendChild(f);
         }
 
@@ -279,7 +307,7 @@
         if (tilgang.rolle === 'superadmin') {
             const devSep = document.createElement('div');
             devSep.textContent = 'AVANSERT';
-            devSep.style.cssText = 'padding:10px 12px 4px;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid #334155;margin-top:4px;';
+            devSep.style.cssText = 'padding:6px 10px 2px;font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid #334155;margin-top:2px;';
             meny.appendChild(devSep);
 
             let devAktiv = false;
@@ -287,10 +315,10 @@
             const devLenke = document.createElement('div');
             const oppdaterDevTekst = () => {
                 devLenke.innerHTML = (devAktiv ? '☑' : '☐') + ' Bruk dev Basic Tools' +
-                    (devAktiv ? ' <span style="color:#fbbf24;font-weight:700;font-size:10px;letter-spacing:0.5px;">DEV</span>' : '');
+                    (devAktiv ? ' <span style="color:#fbbf24;font-weight:700;font-size:9px;letter-spacing:0.5px;">DEV</span>' : '');
             };
             oppdaterDevTekst();
-            devLenke.style.cssText = 'padding:8px 12px;color:#e2e8f0;cursor:pointer;border-radius:4px;font-size:12px;';
+            devLenke.style.cssText = 'padding:5px 10px;color:#e2e8f0;cursor:pointer;border-radius:4px;font-size:11px;';
             devLenke.onmouseover = () => devLenke.style.background = '#334155';
             devLenke.onmouseout = () => devLenke.style.background = '';
             devLenke.onclick = () => {
@@ -485,6 +513,11 @@
         knappRef.title = feilLinjer.length
             ? `${grunnTittel}\n${feilLinjer.join('\n')}`
             : grunnTittel;
+
+        // Oppdater statusprikker i meny-snarveiene (admin / rekvisisjon)
+        const farge = (s) => s === 'ok' ? '#10b981' : (s === 'utlogget' ? '#ef4444' : '#fbbf24');
+        document.querySelectorAll('[data-status-for="admin"]').forEach(el => el.style.background = farge(adminStatus));
+        document.querySelectorAll('[data-status-for="rek"]').forEach(el => el.style.background = farge(rekStatus));
 
         // Toast ved utlogget (admin eller rekvisisjon)
         const eksisterende = document.getElementById('vkt-toast');
