@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.33 ===
+// === WESTBYS VERKTØYKASSE v1.34 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -32,8 +32,9 @@
 // v1.31: stram klikk-polygon mer — glow-området skal ikke være klikkbart
 // v1.32: fjern filter-endring på hover (kun skalering nå) — glow konstant
 // v1.33: fiks toggle — mousedown lukket meny før hver klikk, så klikk alltid åpnet
+// v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 (function() {
-    const VERSJON = '1.33';
+    const VERSJON = '1.34';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -353,15 +354,6 @@
         });
 
         // Dobbel-klikk for å resette posisjon (tilbake til øverst høyre)
-        knapp.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            knapp.style.left = '';
-            knapp.style.top = '10px';
-            knapp.style.right = '10px';
-            try { localStorage.removeItem(LS_KEY); } catch (_) { /* ignore */ }
-        });
-
         // Oppdater meny-posisjon ved vindu-resize (så den ikke blir liggende utenfor)
         window.addEventListener('resize', () => {
             if (meny.style.display === 'block') plassérMeny();
