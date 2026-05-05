@@ -1,14 +1,15 @@
-// === BASIC TOOLS v1.3 ===
+// === BASIC TOOLS v1.4 ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
 //       Bruker NISSYs egen window.removePaagaaendeOppdrag(resId, reqId) som transport.
+// v1.4: 400ms delay mellom hver trekk-tilbake — NISSY rate-limiter ved batch (max 3 ble prosessert)
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.3';
+    const VERSJON = '1.4';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -413,7 +414,7 @@
             a.innerHTML = `🔙 Trekk tilbake ${teller} tur${teller > 1 ? 'er' : ''}${skipText}`;
             a.onmouseover = () => a.style.background = '#334155';
             a.onmouseout = () => a.style.background = '';
-            a.onclick = () => {
+            a.onclick = async () => {
                 trygtFjern(meny);
                 const navnliste = fremtidige.slice(0, 5).map(t => t.navn).join(', ') +
                     (fremtidige.length > 5 ? ` … (+${fremtidige.length - 5} til)` : '');
@@ -423,7 +424,9 @@
                     return;
                 }
                 let ok = 0, fail = 0;
-                fremtidige.forEach(t => {
+                // NISSY rate-limiter — kalles raskt etter hverandre blir bare ~3 prosessert.
+                // Sleeper 400ms mellom hvert kall så hver melding rekker å bli sendt/mottatt.
+                for (const t of fremtidige) {
                     try {
                         window.removePaagaaendeOppdrag(t.resId, t.reqId);
                         ok++;
@@ -431,7 +434,8 @@
                         console.warn(`[${NAVN}] trekk tilbake feilet for resId=${t.resId}`, e);
                         fail++;
                     }
-                });
+                    await new Promise(r => setTimeout(r, 400));
+                }
                 console.log(`[${NAVN}] trekk tilbake: ${ok} ok, ${fail} feilet`);
             };
         } else {
