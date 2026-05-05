@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.12 ===
+// === BASIC TOOLS v1.13 ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -12,12 +12,13 @@
 // v1.10: finn X-img via onclick-attribute (img[src=...] feilet 13/13 i v1.9 — ukjent variasjon)
 // v1.11: søk X-img globalt i document via onclick-attribute (rad-lookup feilet etter re-render)
 // v1.12: ventTilBorte 5s → 10s + delay 500ms → 1000ms (7/13 i v1.11 — noen rakk ikke fjernes)
+// v1.13: "Trekk tilbake alle" auto-retryer — re-scan + ny runde til ingen progress
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.12';
+    const VERSJON = '1.13';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -560,36 +561,56 @@
                     return false;
                 }
 
-                let ok = 0, fail = 0;
-                // Pre-collect args before loop (radene re-renderes underveis)
-                const oppgaver = alle.map(r => ({
-                    args: lesPaagaaendeArgs(r),
-                    navn: lesPasientnavnFraRadGeneric(r)
-                })).filter(o => o.args);
-
-                for (let i = 0; i < oppgaver.length; i++) {
-                    const o = oppgaver[i];
-                    t2.textContent = `Trekker tilbake ${i + 1}/${oppgaver.length}: ${o.navn || o.args.resId}`;
-                    const xImg = finnXImgGlobalt(o.args.resId, o.args.reqId);
-                    if (!xImg) {
-                        console.warn(`[${NAVN}] fant ikke X-knapp for P-${o.args.resId}`);
-                        fail++;
-                        continue;
-                    }
-                    try {
-                        xImg.click();
-                        const borte = await ventTilBorte2(o.args.resId);
-                        if (borte) ok++;
-                        else { fail++; console.warn(`[${NAVN}] P-${o.args.resId} forsvant ikke innen 10 sek`); }
-                    } catch (e) {
-                        console.warn(`[${NAVN}] klikk feilet for ${o.args.resId}`, e);
-                        fail++;
-                    }
-                    await new Promise(r => setTimeout(r, 1000));
+                // Re-skanner kandidater fra DOM mellom hver "runde" og prøver igjen til
+                // det ikke skjer mer progress. Håndterer NISSYs queue-fenomen ved store batches.
+                function finnAlleKandidater() {
+                    return Array.from(document.querySelectorAll('tr[id^="P-"]')).filter(r => {
+                        if (!lesPaagaaendeArgs(r)) return false;
+                        if (erIDagEllerTidligere(lesAvgangsdatoFraRad(r))) return false;
+                        if (harSpesieltBehov(r)) return false;
+                        return true;
+                    });
                 }
-                t2.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
-                t2.style.color = fail ? '#fbbf24' : '#10b981';
-                setTimeout(() => trygtFjern(t2), fail ? 4000 : 2000);
+
+                const totaltStart = alle.length;
+                let totaltOk = 0;
+                let runde = 0;
+                while (true) {
+                    runde++;
+                    const kandidater = finnAlleKandidater();
+                    if (kandidater.length === 0) break;
+                    let progressDenneRunde = 0;
+                    const oppgaver = kandidater.map(r => ({
+                        args: lesPaagaaendeArgs(r),
+                        navn: lesPasientnavnFraRadGeneric(r)
+                    })).filter(o => o.args);
+                    for (let i = 0; i < oppgaver.length; i++) {
+                        const o = oppgaver[i];
+                        t2.textContent = `Runde ${runde}: ${i + 1}/${oppgaver.length} (${totaltOk}/${totaltStart} totalt) — ${o.navn || o.args.resId}`;
+                        const xImg = finnXImgGlobalt(o.args.resId, o.args.reqId);
+                        if (!xImg) continue;  // borte fra DOM = sannsynligvis allerede prosessert
+                        try {
+                            xImg.click();
+                            const borte = await ventTilBorte2(o.args.resId);
+                            if (borte) { totaltOk++; progressDenneRunde++; }
+                        } catch (e) {
+                            console.warn(`[${NAVN}] klikk feilet for ${o.args.resId}`, e);
+                        }
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                    if (progressDenneRunde === 0) {
+                        // Ingen flyttet seg i denne runden — gi opp
+                        console.warn(`[${NAVN}] runde ${runde} ga 0 progress, gir opp med ${kandidater.length} igjen`);
+                        break;
+                    }
+                    console.log(`[${NAVN}] runde ${runde} ferdig: ${progressDenneRunde} prosessert, ${totaltOk} totalt`);
+                    // Liten ekstra pause mellom runder for å la NISSY-queuen tømme seg
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+                const igjen = finnAlleKandidater().length;
+                t2.textContent = `Ferdig: ${totaltOk} trukket tilbake${igjen ? `, ${igjen} igjen (NISSY queue)` : ''}`;
+                t2.style.color = igjen ? '#fbbf24' : '#10b981';
+                setTimeout(() => trygtFjern(t2), igjen ? 5000 : 2500);
             };
         } else {
             alleA.innerHTML = '🌐 Trekk tilbake alle <span style="font-size:10px;font-style:italic;">(ingen kandidater)</span>';
