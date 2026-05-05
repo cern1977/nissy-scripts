@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.9 ===
+// === BASIC TOOLS v1.10 ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -9,12 +9,13 @@
 // v1.7: kombinerer DOM-polling med minimum 2 sek mellom kall — DOM alene ga 5/10
 // v1.8: dynamisk kø — re-detekter markerte P-rader fra DOM mellom hvert kall
 // v1.9: klikk X-img direkte i DOM (mimicker manuell flyt) + "Trekk tilbake alle uten ERS/RB/A/TK"
+// v1.10: finn X-img via onclick-attribute (img[src=...] feilet 13/13 i v1.9 — ukjent variasjon)
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.9';
+    const VERSJON = '1.10';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -94,10 +95,22 @@
         return dato.getTime() <= idagMidn.getTime();
     }
 
-    // Plukk ut (resId, reqId) fra remove.gif-knappens onclick i en P-rad
+    // Finn X-img i P-rad via onclick-attribute (mer robust enn å matche src="remove.gif"
+    // siden filnavnet kan variere på tvers av NISSY-versjoner).
+    function finnXImg(rad) {
+        if (!rad) return null;
+        const imgs = rad.querySelectorAll('img');
+        for (const img of imgs) {
+            const oc = img.getAttribute('onclick') || '';
+            if (oc.startsWith('removePaagaaendeOppdrag')) return img;
+        }
+        return null;
+    }
+
+    // Plukk ut (resId, reqId) fra remove-knappens onclick i en P-rad
     // Format: onclick="removePaagaaendeOppdrag('80400090','66961981')"
     function lesPaagaaendeArgs(rad) {
-        const x = rad?.querySelector('img[src$="remove.gif"]');
+        const x = finnXImg(rad);
         const onclick = x?.getAttribute('onclick') || '';
         const m = onclick.match(/removePaagaaendeOppdrag\('(\d+)','(\d+)'\)/);
         return m ? { resId: m[1], reqId: m[2] } : null;
@@ -469,9 +482,10 @@
                     const t = fremtidige[i];
                     toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
                     const rad = document.getElementById('P-' + t.resId);
-                    const xImg = rad?.querySelector('img[src$="remove.gif"]');
+                    const xImg = finnXImg(rad);
                     if (!xImg) {
-                        console.warn(`[${NAVN}] fant ikke X-knapp for P-${t.resId}`);
+                        const imgs = rad ? Array.from(rad.querySelectorAll('img')).map(i => ({src: i.getAttribute('src'), oc: (i.getAttribute('onclick') || '').slice(0, 60)})) : 'rad ikke funnet';
+                        console.warn(`[${NAVN}] fant ikke X-knapp for P-${t.resId} — imgs:`, imgs);
                         fail++;
                         continue;
                     }
@@ -540,7 +554,7 @@
                     const args = lesPaagaaendeArgs(rad);
                     const navn = lesPasientnavnFraRadGeneric(rad) || args?.resId;
                     t2.textContent = `Trekker tilbake ${i + 1}/${alle.length}: ${navn}`;
-                    const xImg = rad.querySelector('img[src$="remove.gif"]');
+                    const xImg = finnXImg(rad);
                     if (!xImg || !args) { fail++; continue; }
                     try {
                         xImg.click();
