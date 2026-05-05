@@ -1,5 +1,8 @@
-// === WESTBYS VERKTØYKASSE v1.35 ===
+// === WESTBYS VERKTØYKASSE v2.0 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
+// v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
+//       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
+//       Basic Tools auto-lastes etter tilgang er hentet. Toggle for dev-versjon i menyen (superadmin).
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -35,7 +38,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '1.35';
+    const VERSJON = '2.0';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -270,6 +273,41 @@
             f.textContent = 'Ukjent bruker — viser standardsett';
             f.style.cssText = 'padding:6px 12px;font-size:10px;color:#64748b;border-top:1px solid #334155;margin-top:4px;font-style:italic;';
             meny.appendChild(f);
+        }
+
+        // Dev-toggle for Basic Tools — kun synlig for superadmin
+        if (tilgang.rolle === 'superadmin') {
+            const devSep = document.createElement('div');
+            devSep.textContent = 'AVANSERT';
+            devSep.style.cssText = 'padding:10px 12px 4px;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid #334155;margin-top:4px;';
+            meny.appendChild(devSep);
+
+            let devAktiv = false;
+            try { devAktiv = localStorage.getItem('vkt_basic_tools_dev') === '1'; } catch (_) {}
+            const devLenke = document.createElement('div');
+            const oppdaterDevTekst = () => {
+                devLenke.innerHTML = (devAktiv ? '☑' : '☐') + ' Bruk dev Basic Tools' +
+                    (devAktiv ? ' <span style="color:#fbbf24;font-weight:700;font-size:10px;letter-spacing:0.5px;">DEV</span>' : '');
+            };
+            oppdaterDevTekst();
+            devLenke.style.cssText = 'padding:8px 12px;color:#e2e8f0;cursor:pointer;border-radius:4px;font-size:12px;';
+            devLenke.onmouseover = () => devLenke.style.background = '#334155';
+            devLenke.onmouseout = () => devLenke.style.background = '';
+            devLenke.onclick = () => {
+                devAktiv = !devAktiv;
+                try {
+                    if (devAktiv) localStorage.setItem('vkt_basic_tools_dev', '1');
+                    else localStorage.removeItem('vkt_basic_tools_dev');
+                } catch (_) {}
+                oppdaterDevTekst();
+                // Krev F5 — last ikke basic_tools på nytt automatisk (handlere bør ikke registreres dobbelt)
+                const hint = document.createElement('div');
+                hint.textContent = 'F5 i NISSY for å bytte versjon';
+                hint.style.cssText = 'padding:4px 12px;font-size:10px;color:#fbbf24;font-style:italic;';
+                meny.appendChild(hint);
+                setTimeout(() => trygtFjern(hint), 3000);
+            };
+            meny.appendChild(devLenke);
         }
 
         // === Drag + posisjon-persistens ===
@@ -744,304 +782,19 @@
         }
     }
 
-    // === HØYREKLIKK-MENY PÅ MARKERTE TURER (Planlegger) ===
-    // Aktiveres på sider hvor NISSY tegner rader som tr#V-<resId> (Planlegger / vopp-lista — ventende).
-    // Høyreklikk på markert rad → opererer på alle markerte. Høyreklikk på umarkert → kun den raden.
 
-    const REK_BASE = 'https://pastrans-sorost.mq.nhn.no/rekvisisjon';
-    const NISSY_BLAA = 'rgb(148, 169, 220)';
-    let _rekUserid = null;
-
-    function lesMarkerteResIds() {
-        // Les direkte fra DOM — alle V-rader med blå bakgrunn er markert.
-        // Tidligere brukt g_voppLS.selected, men strukturen var upålitelig (ga "0" som id).
-        const ids = [];
-        document.querySelectorAll('tr[id^="V-"]').forEach(r => {
-            if (r.style.backgroundColor === NISSY_BLAA) {
-                const id = r.id.replace(/^V-/, '');
-                if (/^\d+$/.test(id)) ids.push(id);
-            }
-        });
-        return ids;
-    }
-
-    async function hentRekUserid() {
-        if (_rekUserid) return _rekUserid;
-        const navn = hentNissyBrukernavn();
-        if (navn) { _rekUserid = navn; return _rekUserid; }
-        return null;
-    }
-
-    async function dwrEncryptResId(resId) {
-        const body = [
-            'callCount=1',
-            'windowName=',
-            'c0-scriptName=Requisition',
-            'c0-methodName=encrypt',
-            'c0-id=0',
-            `c0-param0=string:${resId}`,
-            'batchId=1',
-            'instanceId=0',
-            'page=/rekvisisjon/',
-            'httpSessionId=',
-            'scriptSessionId='
-        ].join('\n');
-        const res = await fetch(`${REK_BASE}/dwr/call/plaincall/Requisition.encrypt.dwr`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body,
-            credentials: 'include'
-        });
-        const text = await res.text();
-        // Matcher både gammel (_remoteHandleCallback) og ny (dwr.engine.remote.handleCallback) syntaks
-        const m = text.match(/handleCallback\([^,]+,[^,]+,"([^"]+)"\)/);
-        if (!m) throw new Error('encrypt-respons uforståelig: ' + text.slice(0, 200));
-        return m[1];
-    }
-
-    function tidTilMin(t) {
-        const m = String(t || '').match(/^(\d{1,2}):(\d{2})$/);
-        return m ? +m[1] * 60 + +m[2] : null;
-    }
-
-    async function endreTidPaaResId(resId, nyTid, gammelTid) {
-        const userid = await hentRekUserid();
-        if (!userid) return { ok: false, feil: 'fant ikke userid' };
-        const token = await dwrEncryptResId(resId);
-        const confirmUrl = `${REK_BASE}/requisition/confirm?loggedin=true&id_enc=${token}&userid=${userid}&ns=true`;
-        const html = await fetch(confirmUrl, { credentials: 'include' }).then(r => r.text());
-        const form = new DOMParser().parseFromString(html, 'text/html').querySelector('form');
-        if (!form) return { ok: false, feil: 'skjema ikke funnet' };
-        const fd = new FormData(form);
-        fd.set('departureTime', nyTid);
-        fd.set('trip.startDateManuallySet', 'true');
-
-        // Auto-logg tidsendring til "Annen merknad til pasientreiser" (trip.comment) som delta i min, f.eks. "-15" eller "+22".
-        // Append til eksisterende verdi med mellomrom så historikk akkumuleres. Maks 255 tegn (server-grense).
-        const gMin = tidTilMin(gammelTid);
-        const nMin = tidTilMin(nyTid);
-        if (gMin !== null && nMin !== null) {
-            const delta = nMin - gMin;
-            if (delta !== 0) {
-                const merket = (delta > 0 ? '+' : '') + delta;
-                const eksisterende = (fd.get('trip.comment') || '').trim();
-                // Delta-merket skal stå helt foran så det er lett å se ved en rask titt
-                const ny = merket + (eksisterende ? ' ' + eksisterende : '');
-                fd.set('trip.comment', ny.slice(0, 255));
-            }
-        }
-
-        const res = await fetch(confirmUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams([...fd]).toString(),
-            credentials: 'include'
-        });
-        return { ok: res.ok, status: res.status };
-    }
-
-    function visKontekstmeny(resIds, x, y) {
-        trygtFjern(document.getElementById('vkt-ctx-meny'));
-        const meny = document.createElement('div');
-        meny.id = 'vkt-ctx-meny';
-        meny.style.cssText = [
-            'position:fixed', `left:${x}px`, `top:${y}px`, 'z-index:2147483647',
-            'background:#1e293b', 'border:1px solid #334155', 'border-radius:8px',
-            'padding:4px', 'min-width:220px',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.5)',
-            'font-family:-apple-system,BlinkMacSystemFont,sans-serif', 'font-size:13px'
-        ].join(';');
-
-        const tittel = document.createElement('div');
-        tittel.textContent = `${resIds.length} tur${resIds.length > 1 ? 'er' : ''} valgt`;
-        tittel.style.cssText = 'padding:6px 12px;font-size:11px;color:#94a3b8;border-bottom:1px solid #334155;margin-bottom:4px;';
-        meny.appendChild(tittel);
-
-        const valg = [
-            { tekst: '⏰ Endre hentetid…', handler: () => visEndreTidModal(resIds, x, y) },
-        ];
-        valg.forEach(v => {
-            const a = document.createElement('div');
-            a.textContent = v.tekst;
-            a.style.cssText = 'padding:8px 12px;color:#e2e8f0;cursor:pointer;border-radius:4px;';
-            a.onmouseover = () => a.style.background = '#334155';
-            a.onmouseout = () => a.style.background = '';
-            a.onclick = () => { trygtFjern(meny); v.handler(); };
-            meny.appendChild(a);
-        });
-
-        document.body.appendChild(meny);
-
-        // Sørg for at menyen ikke går utenfor vinduet
-        const r = meny.getBoundingClientRect();
-        if (r.right > window.innerWidth) meny.style.left = (window.innerWidth - r.width - 8) + 'px';
-        if (r.bottom > window.innerHeight) meny.style.top = (window.innerHeight - r.height - 8) + 'px';
-
-        setTimeout(() => {
-            const lukk = (e) => {
-                if (!meny.contains(e.target)) {
-                    trygtFjern(meny);
-                    document.removeEventListener('click', lukk, true);
-                    document.removeEventListener('contextmenu', lukk, true);
-                }
-            };
-            document.addEventListener('click', lukk, true);
-            document.addEventListener('contextmenu', lukk, true);
-        }, 0);
-    }
-
-    function lesHentetidFraRad(resId) {
-        const rad = document.getElementById('V-' + resId);
-        if (!rad) return null;
-        const blaa = rad.querySelector('font[color="#0000FF"]');
-        if (!blaa) return null;
-        // Reise tid-cellen kan inneholde "DD-MM HH:MM" eller bare "HH:MM" — plukk ut HH:MM
-        const m = blaa.textContent.match(/(\d{1,2}:\d{2})/);
-        return m ? m[1] : null;
-    }
-
-    function lesPasientnavnFraRad(resId) {
-        const rad = document.getElementById('V-' + resId);
-        if (!rad) return null;
-        // Pnavn er andre <td> (etter ikon-cellen) — ingen <font>, vanlig tekst
-        const tds = rad.querySelectorAll('td');
-        if (tds.length < 2) return null;
-        const tekst = tds[1].textContent.trim();
-        return tekst || null;
-    }
-
-    function visEndreTidModal(resIds, x = 100, y = 100) {
-        trygtFjern(document.getElementById('vkt-modal'));
-
-        const turer = resIds.map(id => ({
-            resId: id,
-            navn: lesPasientnavnFraRad(id) || id,
-            tidNaa: lesHentetidFraRad(id) || 'tt:mm'
-        }));
-        const antall = `${turer.length} tur${turer.length > 1 ? 'er' : ''}`;
-
-        const pop = document.createElement('div');
-        pop.id = 'vkt-modal';
-        pop.style.cssText = [
-            'position:fixed', `left:${x}px`, `top:${y}px`, 'z-index:2147483647',
-            'background:#1e293b', 'color:#e2e8f0', 'border:1px solid #334155',
-            'border-radius:8px', 'padding:8px', 'width:280px',
-            'box-shadow:0 10px 30px rgba(0,0,0,0.5)',
-            'font-family:-apple-system,BlinkMacSystemFont,sans-serif', 'font-size:13px'
-        ].join(';');
-
-        const radHTML = turer.map((t, i) => `
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-                <div title="${t.navn}" style="flex:1;min-width:0;font-size:12px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.navn}</div>
-                <input data-idx="${i}" type="text" placeholder="${t.tidNaa}" maxlength="5" autocomplete="off"
-                    style="width:64px;padding:5px 7px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#fff;font-size:13px;font-family:monospace;box-sizing:border-box;text-align:center;">
-            </div>
-        `).join('');
-
-        pop.innerHTML = `
-            <div style="font-size:11px;color:#94a3b8;padding:0 2px 6px;border-bottom:1px solid #334155;margin-bottom:8px;">Endre hentetid · ${antall}</div>
-            ${radHTML}
-            <div style="display:flex;justify-content:flex-end;margin-top:6px;">
-                <button id="vkt-ok" style="padding:6px 14px;background:#3b82f6;color:white;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;">OK</button>
-            </div>
-            <div id="vkt-progress" style="margin-top:6px;font-size:11px;color:#94a3b8;display:none;"></div>
-        `;
-        document.body.appendChild(pop);
-
-        // Bounds-sjekk: ikke utenfor vinduet
-        const r = pop.getBoundingClientRect();
-        if (r.right > window.innerWidth) pop.style.left = (window.innerWidth - r.width - 8) + 'px';
-        if (r.bottom > window.innerHeight) pop.style.top = (window.innerHeight - r.height - 8) + 'px';
-
-        const inputs = pop.querySelectorAll('input[data-idx]');
-        const progressEl = pop.querySelector('#vkt-progress');
-        const okBtn = pop.querySelector('#vkt-ok');
-        inputs[0]?.focus();
-
-        const lukk = () => {
-            trygtFjern(pop);
-            document.removeEventListener('click', utenforKlikk, true);
-        };
-        const utenforKlikk = (e) => { if (!pop.contains(e.target)) lukk(); };
-        setTimeout(() => document.addEventListener('click', utenforKlikk, true), 0);
-
-        function parseTid(raa) {
-            const m = raa.trim().match(/^(\d{1,2}):(\d{2})$/);
-            if (!m) return null;
-            const hh = +m[1], mm = +m[2];
-            if (hh > 23 || mm > 59) return null;
-            return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
-        }
-
-        okBtn.onclick = async () => {
-            // Samle inn tider — bare felter med verdi telles
-            const oppgaver = [];
-            let valideringFeil = false;
-            inputs.forEach(inp => {
-                inp.style.borderColor = '#334155';
-                const raa = inp.value.trim();
-                if (!raa) return;
-                const norm = parseTid(raa);
-                if (!norm) { inp.style.borderColor = '#ef4444'; valideringFeil = true; return; }
-                const idx = +inp.dataset.idx;
-                oppgaver.push({ resId: turer[idx].resId, tid: norm, gammelTid: turer[idx].tidNaa });
-            });
-            if (valideringFeil) return;
-            if (!oppgaver.length) {
-                progressEl.style.display = 'block';
-                progressEl.style.color = '#94a3b8';
-                progressEl.textContent = 'Ingen tider angitt — fyll inn de du vil endre';
-                return;
-            }
-            okBtn.disabled = true;
-            inputs.forEach(i => i.disabled = true);
-            progressEl.style.display = 'block';
-            progressEl.style.color = '#94a3b8';
-            let ok = 0, fail = 0;
-            for (let i = 0; i < oppgaver.length; i++) {
-                const o = oppgaver[i];
-                progressEl.textContent = `${i + 1}/${oppgaver.length} — endrer ${o.resId}…`;
-                try {
-                    const r = await endreTidPaaResId(o.resId, o.tid, o.gammelTid);
-                    if (r.ok) ok++; else { fail++; console.warn('[VERKTØYKASSE] feil for', o.resId, r); }
-                } catch (e) {
-                    console.warn('[VERKTØYKASSE] endreTid kastet for', o.resId, e);
-                    fail++;
-                }
-            }
-            progressEl.textContent = `${ok} endret${fail ? ', ' + fail + ' feilet' : ''}`;
-            progressEl.style.color = fail ? '#fbbf24' : '#10b981';
-            setTimeout(lukk, fail ? 2500 : 1200);
-        };
-
-        inputs.forEach(inp => {
-            inp.onkeydown = (e) => {
-                if (e.key === 'Enter') okBtn.click();
-                if (e.key === 'Escape') lukk();
-            };
-        });
-    }
-
-    function kontekstmenyHandler(e) {
-        const rad = e.target.closest && e.target.closest('tr[id^="V-"]');
-        if (!rad) return;
-        const erMarkert = rad.style.backgroundColor === NISSY_BLAA;
-        const markerte = lesMarkerteResIds();
-        let resIds;
-        if (erMarkert && markerte.length > 0) {
-            resIds = markerte;
-        } else {
-            const id = rad.id.replace(/^V-/, '');
-            if (!/^\d+$/.test(id)) return;
-            resIds = [id];
-        }
-        e.preventDefault();
-        visKontekstmeny(resIds, e.clientX, e.clientY);
-    }
-
-    function aktiverKontekstmeny() {
-        document.addEventListener('contextmenu', kontekstmenyHandler, true);
-        console.log('[VERKTØYKASSE] Høyreklikk-meny på V-rader (ventende) aktiv');
+    function lastBasicTools(tilgang) {
+        // Eksponerer brukernavn så basic_tools.js kan bruke det som userid mot rekvisisjons-API
+        window.__vkt_brukernavn = hentNissyBrukernavn() || '';
+        // Velg dev hvis (a) bruker er superadmin og (b) localStorage-flag er satt
+        const erSuperadmin = tilgang && tilgang.rolle === 'superadmin';
+        const devFlag = (() => { try { return localStorage.getItem('vkt_basic_tools_dev') === '1'; } catch (_) { return false; } })();
+        const fil = (erSuperadmin && devFlag) ? 'basic_tools_dev.js' : 'basic_tools.js';
+        const s = document.createElement('script');
+        s.src = `https://thomaswestby.no/skript/skript.php?fil=${fil}&_=${Date.now()}`;
+        s.onerror = () => console.warn(`[VERKTØYKASSE] kunne ikke laste ${fil}`);
+        document.head.appendChild(s);
+        console.log(`[VERKTØYKASSE] laster ${fil}`);
     }
 
     const nissy = hentNissyBrukernavn();
@@ -1052,7 +805,7 @@
         tegnAdminStatus();                 // Vis "sjekker"-status umiddelbart
         await oppdaterAdminStatus();       // Første admin-sjekk
         await oppdaterRekvisisjonStatus(); // Første rekvisisjon-sjekk
-        aktiverKontekstmeny();             // Høyreklikk-meny på markerte turer
+        lastBasicTools(t);                 // Last inline-handlinger (endre tid, etc)
         pollVentende();                    // Første turid-poll
         pollPnrVentende();                 // Første pnr-poll
         setInterval(oppdaterAdminStatus, ADMIN_PING_MS);
