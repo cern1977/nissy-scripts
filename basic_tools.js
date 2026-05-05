@@ -1,10 +1,11 @@
-// === BASIC TOOLS v1.0 ===
+// === BASIC TOOLS v1.1 ===
+// v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.0';
+    const VERSJON = '1.1';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -237,9 +238,14 @@
         setTimeout(() => document.addEventListener('click', utenforKlikk, true), 0);
 
         function parseTid(raa) {
-            const m = raa.trim().match(/^(\d{1,2}):(\d{2})$/);
-            if (!m) return null;
-            const hh = +m[1], mm = +m[2];
+            const t = raa.trim();
+            // Aksepter "tt:mm", "ttmm" (1300), eller "tmm" (830 → 8:30)
+            let hh, mm;
+            let m = t.match(/^(\d{1,2}):(\d{2})$/);
+            if (m) { hh = +m[1]; mm = +m[2]; }
+            else if (m = t.match(/^(\d{2})(\d{2})$/)) { hh = +m[1]; mm = +m[2]; }
+            else if (m = t.match(/^(\d{1})(\d{2})$/)) { hh = +m[1]; mm = +m[2]; }
+            else return null;
             if (hh > 23 || mm > 59) return null;
             return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
         }
@@ -288,6 +294,13 @@
             inp.onkeydown = (e) => {
                 if (e.key === 'Enter') okBtn.click();
                 if (e.key === 'Escape') lukk();
+            };
+            // Auto-formatering: når 4 sifre er skrevet uten kolon, sett inn ":" mellom siffer 2 og 3
+            inp.oninput = () => {
+                const v = inp.value;
+                if (/^\d{4}$/.test(v)) {
+                    inp.value = v.slice(0, 2) + ':' + v.slice(2);
+                }
             };
         });
     }
