@@ -1,9 +1,10 @@
-// === WESTBYS VERKTØYKASSE v2.1 ===
+// === WESTBYS VERKTØYKASSE v2.2 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
 //       Basic Tools auto-lastes etter tilgang er hentet. Toggle for dev-versjon i menyen (superadmin).
 // v2.1: kompakt meny + Admin/Rekvisisjon-snarveier i header med statusprikker
+// v2.2: vis Basic Tools-versjon i bunn av menyen (med DEV-tag hvis dev-modus)
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -39,7 +40,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.1';
+    const VERSJON = '2.2';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -302,6 +303,13 @@
             f.style.cssText = 'padding:5px 10px;font-size:9px;color:#64748b;border-top:1px solid #334155;margin-top:2px;font-style:italic;';
             meny.appendChild(f);
         }
+
+        // Basic Tools-versjon — oppdateres når basic_tools.js har lastet
+        const btFooter = document.createElement('div');
+        btFooter.id = 'vkt-bt-versjon';
+        btFooter.style.cssText = 'padding:4px 10px;font-size:9px;color:#475569;border-top:1px solid #334155;margin-top:2px;display:flex;align-items:center;gap:4px;';
+        btFooter.innerHTML = 'Basic Tools <span data-bt-ver>laster…</span>';
+        meny.appendChild(btFooter);
 
         // Dev-toggle for Basic Tools — kun synlig for superadmin
         if (tilgang.rolle === 'superadmin') {
@@ -825,7 +833,24 @@
         const fil = (erSuperadmin && devFlag) ? 'basic_tools_dev.js' : 'basic_tools.js';
         const s = document.createElement('script');
         s.src = `https://thomaswestby.no/skript/skript.php?fil=${fil}&_=${Date.now()}`;
-        s.onerror = () => console.warn(`[VERKTØYKASSE] kunne ikke laste ${fil}`);
+        s.onload = () => {
+            const bt = window.__basicTools;
+            const verEl = document.querySelector('#vkt-bt-versjon [data-bt-ver]');
+            if (verEl && bt) {
+                verEl.textContent = `v${bt.versjon}`;
+                if (bt.dev) {
+                    const tag = document.createElement('span');
+                    tag.textContent = ' DEV';
+                    tag.style.cssText = 'color:#fbbf24;font-weight:700;letter-spacing:0.5px;margin-left:2px;';
+                    verEl.appendChild(tag);
+                }
+            }
+        };
+        s.onerror = () => {
+            console.warn(`[VERKTØYKASSE] kunne ikke laste ${fil}`);
+            const verEl = document.querySelector('#vkt-bt-versjon [data-bt-ver]');
+            if (verEl) verEl.textContent = '⚠ feilet';
+        };
         document.head.appendChild(s);
         console.log(`[VERKTØYKASSE] laster ${fil}`);
     }
