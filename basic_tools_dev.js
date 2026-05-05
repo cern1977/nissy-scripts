@@ -1,13 +1,14 @@
-// === BASIC TOOLS v1.3-dev ===
+// === BASIC TOOLS v1.4-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3-dev: høyreklikk på P-rader (pågående) → "Trekk tilbake" (kun fremtidig dato)
+// v1.4-dev: batch — markér flere P-rader, høyreklikk en av dem, trekk tilbake alle samtidig
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.3-dev';
+    const VERSJON = '1.4-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -345,22 +346,49 @@
         });
     }
 
-    function visTrekkTilbakeMeny(rad, args, erFremtidig, x, y) {
+    function lesPasientnavnFraRadGeneric(rad) {
+        if (!rad) return null;
+        const tds = rad.querySelectorAll('td');
+        if (tds.length < 2) return null;
+        return tds[1].textContent.trim() || null;
+    }
+
+    // Samler alle blå-markerte P-rader → liste av {resId, reqId, navn, dato}
+    function lesMarkertePaagaaende() {
+        const liste = [];
+        document.querySelectorAll('tr[id^="P-"]').forEach(r => {
+            if (r.style.backgroundColor !== NISSY_BLAA) return;
+            const args = lesPaagaaendeArgs(r);
+            if (!args) return;
+            liste.push({
+                resId: args.resId,
+                reqId: args.reqId,
+                navn: lesPasientnavnFraRadGeneric(r) || args.resId,
+                dato: lesAvgangsdatoFraRad(r)
+            });
+        });
+        return liste;
+    }
+
+    function visTrekkTilbakeMeny(turer, x, y) {
         trygtFjern(document.getElementById('vkt-ctx-meny'));
+        // Splitt etter om dato er fremtidig
+        const fremtidige = turer.filter(t => !erIDagEllerTidligere(t.dato));
+        const idagEllerFør = turer.filter(t => erIDagEllerTidligere(t.dato));
+
         const meny = document.createElement('div');
         meny.id = 'vkt-ctx-meny';
         meny.style.cssText = [
             'position:fixed', `left:${x}px`, `top:${y}px`, 'z-index:2147483647',
             'background:#1e293b', 'border:1px solid #334155', 'border-radius:8px',
-            'padding:4px', 'min-width:240px',
+            'padding:4px', 'min-width:260px',
             'box-shadow:0 10px 30px rgba(0,0,0,0.5)',
             'font-family:-apple-system,BlinkMacSystemFont,sans-serif', 'font-size:13px'
         ].join(';');
 
-        const navn = lesPasientnavnFraRadGeneric(rad) || args.resId;
         const tittel = document.createElement('div');
-        tittel.textContent = navn;
-        tittel.style.cssText = 'padding:6px 12px;font-size:11px;color:#94a3b8;border-bottom:1px solid #334155;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        tittel.textContent = `${turer.length} tur${turer.length > 1 ? 'er' : ''} valgt`;
+        tittel.style.cssText = 'padding:6px 12px;font-size:11px;color:#94a3b8;border-bottom:1px solid #334155;margin-bottom:4px;';
         if (ER_DEV) {
             const devTag = document.createElement('span');
             devTag.textContent = ' DEV';
@@ -371,25 +399,35 @@
 
         const a = document.createElement('div');
         a.style.cssText = 'padding:8px 12px;border-radius:4px;font-size:13px;' +
-            (erFremtidig ? 'color:#e2e8f0;cursor:pointer;' : 'color:#475569;cursor:not-allowed;');
-        if (erFremtidig) {
-            a.textContent = '🔙 Trekk tilbake';
+            (fremtidige.length ? 'color:#e2e8f0;cursor:pointer;' : 'color:#475569;cursor:not-allowed;');
+        if (fremtidige.length) {
+            const teller = fremtidige.length;
+            const skipText = idagEllerFør.length
+                ? ` <span style="font-size:10px;color:#fbbf24;">(${idagEllerFør.length} i dag/tidligere hoppes over)</span>`
+                : '';
+            a.innerHTML = `🔙 Trekk tilbake ${teller} tur${teller > 1 ? 'er' : ''}${skipText}`;
             a.onmouseover = () => a.style.background = '#334155';
             a.onmouseout = () => a.style.background = '';
             a.onclick = () => {
                 trygtFjern(meny);
-                if (!confirm(`Trekke tilbake "${navn}" fra pågående?`)) return;
-                try {
-                    if (typeof window.removePaagaaendeOppdrag !== 'function') {
-                        alert('Fant ikke removePaagaaendeOppdrag — er du på Planlegger-siden?');
-                        return;
-                    }
-                    window.removePaagaaendeOppdrag(args.resId, args.reqId);
-                    console.log(`[${NAVN}] trekk tilbake kalt for resId=${args.resId} reqId=${args.reqId}`);
-                } catch (e) {
-                    console.warn(`[${NAVN}] trekk tilbake feilet:`, e);
-                    alert('Trekk tilbake feilet — se konsollen for detaljer');
+                const navnliste = fremtidige.slice(0, 5).map(t => t.navn).join(', ') +
+                    (fremtidige.length > 5 ? ` … (+${fremtidige.length - 5} til)` : '');
+                if (!confirm(`Trekke tilbake ${teller} tur${teller > 1 ? 'er' : ''} fra pågående?\n\n${navnliste}`)) return;
+                if (typeof window.removePaagaaendeOppdrag !== 'function') {
+                    alert('Fant ikke removePaagaaendeOppdrag — er du på Planlegger-siden?');
+                    return;
                 }
+                let ok = 0, fail = 0;
+                fremtidige.forEach(t => {
+                    try {
+                        window.removePaagaaendeOppdrag(t.resId, t.reqId);
+                        ok++;
+                    } catch (e) {
+                        console.warn(`[${NAVN}] trekk tilbake feilet for resId=${t.resId}`, e);
+                        fail++;
+                    }
+                });
+                console.log(`[${NAVN}] trekk tilbake: ${ok} ok, ${fail} feilet`);
             };
         } else {
             a.innerHTML = '🔙 Trekk tilbake <span style="font-size:10px;font-style:italic;">(kun fremtidig dato)</span>';
@@ -414,13 +452,6 @@
         }, 0);
     }
 
-    function lesPasientnavnFraRadGeneric(rad) {
-        if (!rad) return null;
-        const tds = rad.querySelectorAll('td');
-        if (tds.length < 2) return null;
-        return tds[1].textContent.trim() || null;
-    }
-
     function kontekstmenyHandler(e) {
         const rad = e.target.closest && e.target.closest('tr[id^="V-"], tr[id^="P-"]');
         if (!rad) return;
@@ -439,12 +470,23 @@
             e.preventDefault();
             visKontekstmeny(resIds, e.clientX, e.clientY);
         } else if (rad.id.startsWith('P-')) {
-            const args = lesPaagaaendeArgs(rad);
-            if (!args) return;
-            const dato = lesAvgangsdatoFraRad(rad);
-            const erFremtidig = !erIDagEllerTidligere(dato);
+            const erMarkert = rad.style.backgroundColor === NISSY_BLAA;
+            const markerte = lesMarkertePaagaaende();
+            let turer;
+            if (erMarkert && markerte.length > 0) {
+                turer = markerte;
+            } else {
+                const args = lesPaagaaendeArgs(rad);
+                if (!args) return;
+                turer = [{
+                    resId: args.resId,
+                    reqId: args.reqId,
+                    navn: lesPasientnavnFraRadGeneric(rad) || args.resId,
+                    dato: lesAvgangsdatoFraRad(rad)
+                }];
+            }
             e.preventDefault();
-            visTrekkTilbakeMeny(rad, args, erFremtidig, e.clientX, e.clientY);
+            visTrekkTilbakeMeny(turer, e.clientX, e.clientY);
         }
     }
 
