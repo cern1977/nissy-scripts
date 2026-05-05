@@ -1,16 +1,17 @@
-// === BASIC TOOLS v1.5-dev ===
+// === BASIC TOOLS v1.6-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
 //       Bruker NISSYs egen window.removePaagaaendeOppdrag(resId, reqId) som transport.
 // v1.4: 400ms delay mellom hver trekk-tilbake — NISSY rate-limiter ved batch (max 3 ble prosessert)
 // v1.5: 800ms delay (400 var fortsatt for fort på batch >5) + progress-toast under kjøring
+// v1.6: vent til P-rad faktisk forsvinner fra DOM før neste kall (adaptivt vs fast delay)
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.5-dev';
+    const VERSJON = '1.6-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -433,19 +434,30 @@
                 document.body.appendChild(toast);
 
                 let ok = 0, fail = 0;
-                // NISSY rate-limiter — kalles raskt etter hverandre blir bare en del prosessert.
-                // 800ms mellom hver så batchen ikke kollapses.
+                // NISSY rate-limiter ved batch — venter til hver P-rad er borte fra DOM
+                // før vi sender neste kall. Tilpasser seg server-fart i stedet for fast delay.
+                async function ventTilBorte(resId, maks = 5000) {
+                    const start = Date.now();
+                    while (Date.now() - start < maks) {
+                        if (!document.getElementById('P-' + resId)) return true;
+                        await new Promise(r => setTimeout(r, 100));
+                    }
+                    return false;
+                }
                 for (let i = 0; i < fremtidige.length; i++) {
                     const t = fremtidige[i];
                     toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
                     try {
                         window.removePaagaaendeOppdrag(t.resId, t.reqId);
-                        ok++;
+                        const borte = await ventTilBorte(t.resId);
+                        if (borte) ok++;
+                        else { fail++; console.warn(`[${NAVN}] timeout: P-${t.resId} forsvant ikke innen 5 sek`); }
                     } catch (e) {
                         console.warn(`[${NAVN}] trekk tilbake feilet for resId=${t.resId}`, e);
                         fail++;
                     }
-                    await new Promise(r => setTimeout(r, 800));
+                    // Liten ekstra pause så NISSY får oppdatert seg fullt før neste kall
+                    await new Promise(r => setTimeout(r, 200));
                 }
                 toast.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
                 toast.style.color = fail ? '#fbbf24' : '#10b981';
