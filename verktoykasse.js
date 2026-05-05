@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v1.34 ===
+// === WESTBYS VERKTØYKASSE v1.35 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
@@ -33,8 +33,9 @@
 // v1.32: fjern filter-endring på hover (kun skalering nå) — glow konstant
 // v1.33: fiks toggle — mousedown lukket meny før hver klikk, så klikk alltid åpnet
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
+// v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '1.34';
+    const VERSJON = '1.35';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -798,7 +799,12 @@
         return m[1];
     }
 
-    async function endreTidPaaResId(resId, nyTid) {
+    function tidTilMin(t) {
+        const m = String(t || '').match(/^(\d{1,2}):(\d{2})$/);
+        return m ? +m[1] * 60 + +m[2] : null;
+    }
+
+    async function endreTidPaaResId(resId, nyTid, gammelTid) {
         const userid = await hentRekUserid();
         if (!userid) return { ok: false, feil: 'fant ikke userid' };
         const token = await dwrEncryptResId(resId);
@@ -809,6 +815,22 @@
         const fd = new FormData(form);
         fd.set('departureTime', nyTid);
         fd.set('trip.startDateManuallySet', 'true');
+
+        // Auto-logg tidsendring til "Annen merknad til pasientreiser" (trip.comment) som delta i min, f.eks. "-15" eller "+22".
+        // Append til eksisterende verdi med mellomrom så historikk akkumuleres. Maks 255 tegn (server-grense).
+        const gMin = tidTilMin(gammelTid);
+        const nMin = tidTilMin(nyTid);
+        if (gMin !== null && nMin !== null) {
+            const delta = nMin - gMin;
+            if (delta !== 0) {
+                const merket = (delta > 0 ? '+' : '') + delta;
+                const eksisterende = (fd.get('trip.comment') || '').trim();
+                // Delta-merket skal stå helt foran så det er lett å se ved en rask titt
+                const ny = merket + (eksisterende ? ' ' + eksisterende : '');
+                fd.set('trip.comment', ny.slice(0, 255));
+            }
+        }
+
         const res = await fetch(confirmUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -962,7 +984,7 @@
                 const norm = parseTid(raa);
                 if (!norm) { inp.style.borderColor = '#ef4444'; valideringFeil = true; return; }
                 const idx = +inp.dataset.idx;
-                oppgaver.push({ resId: turer[idx].resId, tid: norm });
+                oppgaver.push({ resId: turer[idx].resId, tid: norm, gammelTid: turer[idx].tidNaa });
             });
             if (valideringFeil) return;
             if (!oppgaver.length) {
@@ -980,7 +1002,7 @@
                 const o = oppgaver[i];
                 progressEl.textContent = `${i + 1}/${oppgaver.length} — endrer ${o.resId}…`;
                 try {
-                    const r = await endreTidPaaResId(o.resId, o.tid);
+                    const r = await endreTidPaaResId(o.resId, o.tid, o.gammelTid);
                     if (r.ok) ok++; else { fail++; console.warn('[VERKTØYKASSE] feil for', o.resId, r); }
                 } catch (e) {
                     console.warn('[VERKTØYKASSE] endreTid kastet for', o.resId, e);
