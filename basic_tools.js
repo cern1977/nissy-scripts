@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.11 ===
+// === BASIC TOOLS v1.12 ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -11,12 +11,13 @@
 // v1.9: klikk X-img direkte i DOM (mimicker manuell flyt) + "Trekk tilbake alle uten ERS/RB/A/TK"
 // v1.10: finn X-img via onclick-attribute (img[src=...] feilet 13/13 i v1.9 — ukjent variasjon)
 // v1.11: søk X-img globalt i document via onclick-attribute (rad-lookup feilet etter re-render)
+// v1.12: ventTilBorte 5s → 10s + delay 500ms → 1000ms (7/13 i v1.11 — noen rakk ikke fjernes)
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.11';
+    const VERSJON = '1.12';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -479,7 +480,7 @@
                 toast.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:10px 14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.5);min-width:200px;';
                 document.body.appendChild(toast);
 
-                async function ventTilBorte(resId, maks = 5000) {
+                async function ventTilBorte(resId, maks = 10000) {
                     const start = Date.now();
                     while (Date.now() - start < maks) {
                         if (!document.getElementById('P-' + resId)) return true;
@@ -504,12 +505,12 @@
                         xImg.click();
                         const borte = await ventTilBorte(t.resId);
                         if (borte) ok++;
-                        else { fail++; console.warn(`[${NAVN}] P-${t.resId} forsvant ikke innen 5 sek`); }
+                        else { fail++; console.warn(`[${NAVN}] P-${t.resId} forsvant ikke innen 10 sek`); }
                     } catch (e) {
                         console.warn(`[${NAVN}] klikk feilet for resId=${t.resId}`, e);
                         fail++;
                     }
-                    await new Promise(r => setTimeout(r, 500));
+                    await new Promise(r => setTimeout(r, 1000));
                 }
                 toast.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
                 toast.style.color = fail ? '#fbbf24' : '#10b981';
@@ -550,7 +551,7 @@
                 t2.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:10px 14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.5);min-width:200px;';
                 document.body.appendChild(t2);
 
-                async function ventTilBorte2(resId, maks = 5000) {
+                async function ventTilBorte2(resId, maks = 10000) {
                     const start = Date.now();
                     while (Date.now() - start < maks) {
                         if (!document.getElementById('P-' + resId)) return true;
@@ -579,12 +580,12 @@
                         xImg.click();
                         const borte = await ventTilBorte2(o.args.resId);
                         if (borte) ok++;
-                        else { fail++; console.warn(`[${NAVN}] P-${o.args.resId} forsvant ikke innen 5 sek`); }
+                        else { fail++; console.warn(`[${NAVN}] P-${o.args.resId} forsvant ikke innen 10 sek`); }
                     } catch (e) {
                         console.warn(`[${NAVN}] klikk feilet for ${o.args.resId}`, e);
                         fail++;
                     }
-                    await new Promise(r => setTimeout(r, 500));
+                    await new Promise(r => setTimeout(r, 1000));
                 }
                 t2.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
                 t2.style.color = fail ? '#fbbf24' : '#10b981';
