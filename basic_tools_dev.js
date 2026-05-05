@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.8-dev ===
+// === BASIC TOOLS v1.9-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -8,12 +8,13 @@
 // v1.6: vent til P-rad faktisk forsvinner fra DOM før neste kall (adaptivt vs fast delay)
 // v1.7: kombinerer DOM-polling med minimum 2 sek mellom kall — DOM alene ga 5/10
 // v1.8: dynamisk kø — re-detekter markerte P-rader fra DOM mellom hvert kall
+// v1.9: klikk X-img direkte i DOM (mimicker manuell flyt) + "Trekk tilbake alle uten ERS/RB/A/TK"
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.8-dev';
+    const VERSJON = '1.9-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -100,6 +101,23 @@
         const onclick = x?.getAttribute('onclick') || '';
         const m = onclick.match(/removePaagaaendeOppdrag\('(\d+)','(\d+)'\)/);
         return m ? { resId: m[1], reqId: m[2] } : null;
+    }
+
+    // Behov-kolonnen er typisk td index 5 (etter actions, navn, reise tid, opp tid, reise måte)
+    function lesBehovFraRad(rad) {
+        if (!rad) return '';
+        const tds = rad.querySelectorAll('td');
+        if (tds.length < 6) return '';
+        return tds[5].textContent.trim().toUpperCase();
+    }
+
+    // True hvis raden har "spesielt" Behov som vi IKKE skal trekke tilbake automatisk
+    const SPESIELLE_BEHOV = ['ERS', 'RB', 'A', 'TK'];
+    function harSpesieltBehov(rad) {
+        const behov = lesBehovFraRad(rad);
+        if (!behov) return false;
+        const koder = behov.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+        return koder.some(k => SPESIELLE_BEHOV.includes(k));
     }
 
     let _rekUserid = null;
@@ -444,43 +462,29 @@
                     return false;
                 }
 
-                // Dynamisk kø: re-detekter markerte fremtidige P-rader hver iterasjon
-                // Stopp hvis ingen flere markerte ELLER hvis samme tur dukker opp 2× på rad (no-op)
-                const totalt = fremtidige.length;
+                // Klikk X-img i DOM i stedet for å kalle funksjonen direkte —
+                // matcher manuell flyt (som alltid funker) og trigger evt. event listeners.
                 let ok = 0, fail = 0;
-                const harBehandlet = new Set();
-                let forrigeResId = null;
-                while (true) {
-                    const markerte = lesMarkertePaagaaende().filter(t =>
-                        !erIDagEllerTidligere(t.dato) && !harBehandlet.has(t.resId)
-                    );
-                    if (markerte.length === 0) break;
-                    const t = markerte[0];
-                    if (t.resId === forrigeResId) {
-                        // Samme tur som sist — ble ikke fjernet, gi opp på den
+                for (let i = 0; i < fremtidige.length; i++) {
+                    const t = fremtidige[i];
+                    toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
+                    const rad = document.getElementById('P-' + t.resId);
+                    const xImg = rad?.querySelector('img[src$="remove.gif"]');
+                    if (!xImg) {
+                        console.warn(`[${NAVN}] fant ikke X-knapp for P-${t.resId}`);
                         fail++;
-                        harBehandlet.add(t.resId);
-                        forrigeResId = null;
                         continue;
                     }
-                    forrigeResId = t.resId;
-                    toast.textContent = `Trekker tilbake ${ok + fail + 1}/${totalt}: ${t.navn}`;
                     try {
-                        window.removePaagaaendeOppdrag(t.resId, t.reqId);
+                        xImg.click();
                         const borte = await ventTilBorte(t.resId);
-                        if (borte) {
-                            ok++;
-                            harBehandlet.add(t.resId);
-                            forrigeResId = null;
-                        } else {
-                            console.warn(`[${NAVN}] P-${t.resId} forsvant ikke — prøver igjen neste runde`);
-                        }
+                        if (borte) ok++;
+                        else { fail++; console.warn(`[${NAVN}] P-${t.resId} forsvant ikke innen 5 sek`); }
                     } catch (e) {
-                        console.warn(`[${NAVN}] trekk tilbake kastet for resId=${t.resId}`, e);
+                        console.warn(`[${NAVN}] klikk feilet for resId=${t.resId}`, e);
                         fail++;
-                        harBehandlet.add(t.resId);
                     }
-                    await new Promise(r => setTimeout(r, 800));
+                    await new Promise(r => setTimeout(r, 500));
                 }
                 toast.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
                 toast.style.color = fail ? '#fbbf24' : '#10b981';
@@ -491,6 +495,72 @@
             a.innerHTML = '🔙 Trekk tilbake <span style="font-size:10px;font-style:italic;">(kun fremtidig dato)</span>';
         }
         meny.appendChild(a);
+
+        // Ekstra valg: trekk tilbake ALLE pågående uten ERS/RB/A/TK (uavhengig av markering)
+        // Tellingen gjøres på åpningstidspunkt — viser hvor mange som er i kandidat-listen
+        const alle = Array.from(document.querySelectorAll('tr[id^="P-"]')).filter(r => {
+            const args = lesPaagaaendeArgs(r);
+            if (!args) return false;
+            if (erIDagEllerTidligere(lesAvgangsdatoFraRad(r))) return false;
+            if (harSpesieltBehov(r)) return false;
+            return true;
+        });
+        const alleSep = document.createElement('div');
+        alleSep.style.cssText = 'border-top:1px solid #334155;margin:2px 0;';
+        meny.appendChild(alleSep);
+
+        const alleA = document.createElement('div');
+        alleA.style.cssText = 'padding:8px 12px;border-radius:4px;font-size:13px;' +
+            (alle.length ? 'color:#e2e8f0;cursor:pointer;' : 'color:#475569;cursor:not-allowed;');
+        if (alle.length) {
+            alleA.innerHTML = `🌐 Trekk tilbake alle ${alle.length} <span style="font-size:10px;color:#94a3b8;">(uten ERS/RB/A/TK)</span>`;
+            alleA.onmouseover = () => alleA.style.background = '#334155';
+            alleA.onmouseout = () => alleA.style.background = '';
+            alleA.onclick = async () => {
+                trygtFjern(meny);
+                if (!confirm(`Trekke tilbake alle ${alle.length} fremtidige pågående-turer uten ERS/RB/A/TK?`)) return;
+                trygtFjern(document.getElementById('vkt-tt-progress'));
+                const t2 = document.createElement('div');
+                t2.id = 'vkt-tt-progress';
+                t2.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;padding:10px 14px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,0.5);min-width:200px;';
+                document.body.appendChild(t2);
+
+                async function ventTilBorte2(resId, maks = 5000) {
+                    const start = Date.now();
+                    while (Date.now() - start < maks) {
+                        if (!document.getElementById('P-' + resId)) return true;
+                        await new Promise(r => setTimeout(r, 100));
+                    }
+                    return false;
+                }
+
+                let ok = 0, fail = 0;
+                for (let i = 0; i < alle.length; i++) {
+                    const rad = alle[i];
+                    const args = lesPaagaaendeArgs(rad);
+                    const navn = lesPasientnavnFraRadGeneric(rad) || args?.resId;
+                    t2.textContent = `Trekker tilbake ${i + 1}/${alle.length}: ${navn}`;
+                    const xImg = rad.querySelector('img[src$="remove.gif"]');
+                    if (!xImg || !args) { fail++; continue; }
+                    try {
+                        xImg.click();
+                        const borte = await ventTilBorte2(args.resId);
+                        if (borte) ok++;
+                        else { fail++; console.warn(`[${NAVN}] P-${args.resId} forsvant ikke innen 5 sek`); }
+                    } catch (e) {
+                        console.warn(`[${NAVN}] klikk feilet for ${args.resId}`, e);
+                        fail++;
+                    }
+                    await new Promise(r => setTimeout(r, 500));
+                }
+                t2.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
+                t2.style.color = fail ? '#fbbf24' : '#10b981';
+                setTimeout(() => trygtFjern(t2), fail ? 4000 : 2000);
+            };
+        } else {
+            alleA.innerHTML = '🌐 Trekk tilbake alle <span style="font-size:10px;font-style:italic;">(ingen kandidater)</span>';
+        }
+        meny.appendChild(alleA);
 
         document.body.appendChild(meny);
         const r = meny.getBoundingClientRect();
