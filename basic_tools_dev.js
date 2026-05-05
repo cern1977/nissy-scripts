@@ -1,11 +1,12 @@
-// === BASIC TOOLS v1.1 ===
+// === BASIC TOOLS v1.2 ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
+// v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.1';
+    const VERSJON = '1.2';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -104,18 +105,25 @@
         fd.set('departureTime', nyTid);
         fd.set('trip.startDateManuallySet', 'true');
 
-        // Auto-logg tids-delta i trip.comment ("Annen merknad til pasientreiser")
-        // Format: "+15" eller "-43" foran eksisterende melding
+        // Auto-logg total tids-forskyvning i trip.comment.
+        // Eksempel: opprinnelig 14:00 → 13:45 (-15), så 13:45 → 13:35 (-10) gir total -25.
+        // Hvis comment starter med "+N" eller "-N", legges denne nye endringen til.
+        // Hvis total blir 0, fjernes delta-markøren helt (men bevarer evt. resten av meldingen).
         const gMin = tidTilMin(gammelTid);
         const nMin = tidTilMin(nyTid);
         if (gMin !== null && nMin !== null) {
-            const delta = nMin - gMin;
-            if (delta !== 0) {
-                const merket = (delta > 0 ? '+' : '') + delta;
-                const eksisterende = (fd.get('trip.comment') || '').trim();
-                const ny = merket + (eksisterende ? ' ' + eksisterende : '');
-                fd.set('trip.comment', ny.slice(0, 255));
-            }
+            const denneDelta = nMin - gMin;
+            const eksisterende = (fd.get('trip.comment') || '').trim();
+            // Plukk ut evt. eksisterende delta foran (f.eks. "-15" eller "+22")
+            const m = eksisterende.match(/^([+-]\d+)(?:\s+(.*))?$/);
+            const eksisterendeDelta = m ? parseInt(m[1], 10) : 0;
+            const resten = m ? (m[2] || '') : eksisterende;
+            const total = eksisterendeDelta + denneDelta;
+            const merketTotal = total === 0 ? '' : (total > 0 ? '+' : '') + total;
+            const deler = [];
+            if (merketTotal) deler.push(merketTotal);
+            if (resten) deler.push(resten);
+            fd.set('trip.comment', deler.join(' ').slice(0, 255));
         }
 
         const res = await fetch(confirmUrl, {
