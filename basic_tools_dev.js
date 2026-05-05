@@ -1,12 +1,13 @@
-// === BASIC TOOLS v1.2 ===
+// === BASIC TOOLS v1.3-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
+// v1.3-dev: høyreklikk på P-rader (pågående) → "Trekk tilbake" (kun fremtidig dato)
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.2';
+    const VERSJON = '1.3-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -57,6 +58,37 @@
         if (tds.length < 2) return null;
         const tekst = tds[1].textContent.trim();
         return tekst || null;
+    }
+
+    // Plukk ut "DD.MM" eller "DD-MM" fra blå Reise tid-kolonne — gir Date for AVGANG (lokal dag)
+    function lesAvgangsdatoFraRad(rad) {
+        const blaa = rad?.querySelector('font[color="#0000FF"]');
+        if (!blaa) return null;
+        const m = blaa.textContent.match(/(\d{1,2})[.\-](\d{1,2})/);
+        if (!m) return null;
+        const idag = new Date();
+        const d = new Date(idag.getFullYear(), +m[2] - 1, +m[1]);
+        // Hvis dato er tidligere enn i dag, anta neste år (krasj over årsskiftet)
+        if (d < new Date(idag.getFullYear(), idag.getMonth(), idag.getDate())) {
+            d.setFullYear(idag.getFullYear() + 1);
+        }
+        return d;
+    }
+
+    function erIDagEllerTidligere(dato) {
+        if (!dato) return true;  // ukjent dato → vær konservativ, behandle som "i dag"
+        const idag = new Date();
+        const idagMidn = new Date(idag.getFullYear(), idag.getMonth(), idag.getDate());
+        return dato.getTime() <= idagMidn.getTime();
+    }
+
+    // Plukk ut (resId, reqId) fra remove.gif-knappens onclick i en P-rad
+    // Format: onclick="removePaagaaendeOppdrag('80400090','66961981')"
+    function lesPaagaaendeArgs(rad) {
+        const x = rad?.querySelector('img[src$="remove.gif"]');
+        const onclick = x?.getAttribute('onclick') || '';
+        const m = onclick.match(/removePaagaaendeOppdrag\('(\d+)','(\d+)'\)/);
+        return m ? { resId: m[1], reqId: m[2] } : null;
     }
 
     let _rekUserid = null;
@@ -313,23 +345,109 @@
         });
     }
 
-    function kontekstmenyHandler(e) {
-        const rad = e.target.closest && e.target.closest('tr[id^="V-"]');
-        if (!rad) return;
-        const erMarkert = rad.style.backgroundColor === NISSY_BLAA;
-        const markerte = lesMarkerteResIds();
-        let resIds;
-        if (erMarkert && markerte.length > 0) {
-            resIds = markerte;
-        } else {
-            const id = rad.id.replace(/^V-/, '');
-            if (!/^\d+$/.test(id)) return;
-            resIds = [id];
+    function visTrekkTilbakeMeny(rad, args, erFremtidig, x, y) {
+        trygtFjern(document.getElementById('vkt-ctx-meny'));
+        const meny = document.createElement('div');
+        meny.id = 'vkt-ctx-meny';
+        meny.style.cssText = [
+            'position:fixed', `left:${x}px`, `top:${y}px`, 'z-index:2147483647',
+            'background:#1e293b', 'border:1px solid #334155', 'border-radius:8px',
+            'padding:4px', 'min-width:240px',
+            'box-shadow:0 10px 30px rgba(0,0,0,0.5)',
+            'font-family:-apple-system,BlinkMacSystemFont,sans-serif', 'font-size:13px'
+        ].join(';');
+
+        const navn = lesPasientnavnFraRadGeneric(rad) || args.resId;
+        const tittel = document.createElement('div');
+        tittel.textContent = navn;
+        tittel.style.cssText = 'padding:6px 12px;font-size:11px;color:#94a3b8;border-bottom:1px solid #334155;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        if (ER_DEV) {
+            const devTag = document.createElement('span');
+            devTag.textContent = ' DEV';
+            devTag.style.cssText = 'color:#fbbf24;font-weight:700;letter-spacing:0.5px;';
+            tittel.appendChild(devTag);
         }
-        e.preventDefault();
-        visKontekstmeny(resIds, e.clientX, e.clientY);
+        meny.appendChild(tittel);
+
+        const a = document.createElement('div');
+        a.style.cssText = 'padding:8px 12px;border-radius:4px;font-size:13px;' +
+            (erFremtidig ? 'color:#e2e8f0;cursor:pointer;' : 'color:#475569;cursor:not-allowed;');
+        if (erFremtidig) {
+            a.textContent = '🔙 Trekk tilbake';
+            a.onmouseover = () => a.style.background = '#334155';
+            a.onmouseout = () => a.style.background = '';
+            a.onclick = () => {
+                trygtFjern(meny);
+                if (!confirm(`Trekke tilbake "${navn}" fra pågående?`)) return;
+                try {
+                    if (typeof window.removePaagaaendeOppdrag !== 'function') {
+                        alert('Fant ikke removePaagaaendeOppdrag — er du på Planlegger-siden?');
+                        return;
+                    }
+                    window.removePaagaaendeOppdrag(args.resId, args.reqId);
+                    console.log(`[${NAVN}] trekk tilbake kalt for resId=${args.resId} reqId=${args.reqId}`);
+                } catch (e) {
+                    console.warn(`[${NAVN}] trekk tilbake feilet:`, e);
+                    alert('Trekk tilbake feilet — se konsollen for detaljer');
+                }
+            };
+        } else {
+            a.innerHTML = '🔙 Trekk tilbake <span style="font-size:10px;font-style:italic;">(kun fremtidig dato)</span>';
+        }
+        meny.appendChild(a);
+
+        document.body.appendChild(meny);
+        const r = meny.getBoundingClientRect();
+        if (r.right > window.innerWidth) meny.style.left = (window.innerWidth - r.width - 8) + 'px';
+        if (r.bottom > window.innerHeight) meny.style.top = (window.innerHeight - r.height - 8) + 'px';
+
+        setTimeout(() => {
+            const lukk = (ev) => {
+                if (!meny.contains(ev.target)) {
+                    trygtFjern(meny);
+                    document.removeEventListener('click', lukk, true);
+                    document.removeEventListener('contextmenu', lukk, true);
+                }
+            };
+            document.addEventListener('click', lukk, true);
+            document.addEventListener('contextmenu', lukk, true);
+        }, 0);
+    }
+
+    function lesPasientnavnFraRadGeneric(rad) {
+        if (!rad) return null;
+        const tds = rad.querySelectorAll('td');
+        if (tds.length < 2) return null;
+        return tds[1].textContent.trim() || null;
+    }
+
+    function kontekstmenyHandler(e) {
+        const rad = e.target.closest && e.target.closest('tr[id^="V-"], tr[id^="P-"]');
+        if (!rad) return;
+
+        if (rad.id.startsWith('V-')) {
+            const erMarkert = rad.style.backgroundColor === NISSY_BLAA;
+            const markerte = lesMarkerteResIds();
+            let resIds;
+            if (erMarkert && markerte.length > 0) {
+                resIds = markerte;
+            } else {
+                const id = rad.id.replace(/^V-/, '');
+                if (!/^\d+$/.test(id)) return;
+                resIds = [id];
+            }
+            e.preventDefault();
+            visKontekstmeny(resIds, e.clientX, e.clientY);
+        } else if (rad.id.startsWith('P-')) {
+            const args = lesPaagaaendeArgs(rad);
+            if (!args) return;
+            const dato = lesAvgangsdatoFraRad(rad);
+            const erFremtidig = !erIDagEllerTidligere(dato);
+            e.preventDefault();
+            visTrekkTilbakeMeny(rad, args, erFremtidig, e.clientX, e.clientY);
+        }
     }
 
     document.addEventListener('contextmenu', kontekstmenyHandler, true);
-    console.log(`[${NAVN} v${VERSJON}] aktiv — høyreklikk-meny på V-rader`);
+    console.log(`[${NAVN} v${VERSJON}] aktiv — høyreklikk-meny på V-rader (endre tid) og P-rader (trekk tilbake)`);
 })();
