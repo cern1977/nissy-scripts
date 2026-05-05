@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.6-dev ===
+// === BASIC TOOLS v1.7-dev ===
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -6,12 +6,13 @@
 // v1.4: 400ms delay mellom hver trekk-tilbake — NISSY rate-limiter ved batch (max 3 ble prosessert)
 // v1.5: 800ms delay (400 var fortsatt for fort på batch >5) + progress-toast under kjøring
 // v1.6: vent til P-rad faktisk forsvinner fra DOM før neste kall (adaptivt vs fast delay)
+// v1.7: kombinerer DOM-polling med minimum 2 sek mellom kall — DOM alene ga 5/10
 // Inline-handlinger på NISSY-rader (høyreklikk-meny, endre hentetid, etc).
 // Lastes inn av verktoykasse.js som host. Forventer at verktoykasse har satt:
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.6-dev';
+    const VERSJON = '1.7-dev';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -444,9 +445,11 @@
                     }
                     return false;
                 }
+                const MIN_TID_PER_KALL = 2000; // 2 sek minimum
                 for (let i = 0; i < fremtidige.length; i++) {
                     const t = fremtidige[i];
                     toast.textContent = `Trekker tilbake ${i + 1}/${fremtidige.length}: ${t.navn}`;
+                    const start = Date.now();
                     try {
                         window.removePaagaaendeOppdrag(t.resId, t.reqId);
                         const borte = await ventTilBorte(t.resId);
@@ -456,8 +459,11 @@
                         console.warn(`[${NAVN}] trekk tilbake feilet for resId=${t.resId}`, e);
                         fail++;
                     }
-                    // Liten ekstra pause så NISSY får oppdatert seg fullt før neste kall
-                    await new Promise(r => setTimeout(r, 200));
+                    // Sikre minimum 2 sek totalt mellom kall (DOM kan svare raskere enn server kan håndtere flere)
+                    const brukt = Date.now() - start;
+                    if (brukt < MIN_TID_PER_KALL && i < fremtidige.length - 1) {
+                        await new Promise(r => setTimeout(r, MIN_TID_PER_KALL - brukt));
+                    }
                 }
                 toast.textContent = `Ferdig: ${ok} trukket tilbake${fail ? ', ' + fail + ' feilet' : ''}`;
                 toast.style.color = fail ? '#fbbf24' : '#10b981';
