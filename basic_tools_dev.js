@@ -2,6 +2,7 @@
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.19-dev: V-rader har Fra+Til i én celle (br-separert) + sett TURER via window-prop, ikke inline JSON
+// v1.20-dev: BR-detection før header-lookup — V-rad kan ha "Fra"-header som peker på kombinert celle
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -26,7 +27,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.19-dev';
+    const VERSJON = '1.20-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -209,13 +210,11 @@
         return tds[idx].textContent.trim();
     }
 
-    // Plukk Fra/Til. P-rader har separate kolonner; V-rader har dem i samme celle med <br>
+    // Plukk Fra/Til. To formater i NISSY:
+    //  • V-rader: kombinert i én TD med <br>-separator (selv om "Fra"-header eksisterer som peker på den TD-en)
+    //  • P-rader: separate "Fra" og "Til"-kolonner
+    // Strategi: BR-detection FØRST (cellen vinner over header-navn), fall back til header-lookup.
     function lesFraTilFraRad(rad) {
-        let fra = lesKolonneFraRad(rad, 'fra');
-        let til = lesKolonneFraRad(rad, 'til');
-        if (fra || til) return { fra, til };
-
-        // Fall back: finn TD som har <br> og parse første/andre del
         const tds = rad.querySelectorAll(':scope > td');
         for (const td of tds) {
             const html = td.innerHTML || '';
@@ -225,9 +224,15 @@
                 tmp.innerHTML = del;
                 return tmp.textContent.trim();
             }).filter(Boolean);
-            if (deler.length >= 2) return { fra: deler[0], til: deler[1] };
+            // Krev at begge delene ser ut som adresse (har komma + postnr-lignende 4-sifret tall)
+            if (deler.length >= 2 && /\d{4}/.test(deler[0]) && /\d{4}/.test(deler[1])) {
+                return { fra: deler[0], til: deler[1] };
+            }
         }
-        return { fra: '', til: '' };
+        // Ingen BR-celle med 2 adresser → prøv separate Fra/Til kolonner (P-rader)
+        const fra = lesKolonneFraRad(rad, 'fra');
+        const til = lesKolonneFraRad(rad, 'til');
+        return { fra, til };
     }
 
     // Plukk ut tur-data for kart-visning (Pnavn, Start/tid, Fra, Til)
