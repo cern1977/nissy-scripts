@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.6 ===
+// === WESTBYS VERKTØYKASSE v2.7 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
@@ -9,6 +9,7 @@
 // v2.4: nissy_naviger — generisk modul-navigering (rekvisisjon først, designet for å plugge inn flere)
 // v2.5: window.__verktoykasse = { utforNissyNaviger, sjekkNavigerEtterLoad, pollNissyNaviger } for debug
 // v2.6: nissy_naviger åpner i navngitt vindu (window.open) i stedet for å overstyre admin-tab
+// v2.7: auto-submit form i den nye taben — verktøykasse kjører ikke på rekvisisjons-sider
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -44,7 +45,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.6';
+    const VERSJON = '2.7';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -849,13 +850,29 @@
     function utforNissyNaviger(parametre) {
         switch (parametre.modul) {
             case 'rekvisisjon': {
-                // Lagre autofyll-instruks i localStorage (cross-tab, same-origin)
-                // så ny verktøykasse-instans i rekvisisjons-fanen plukker den opp.
-                try { localStorage.setItem(NAVIGER_PENDING_KEY, JSON.stringify(parametre)); } catch (_) {}
-                // Åpne i navngitt vindu — samme navn ⇒ gjenbruker tab ved gjentatte klikk
+                // Verktøykasse kjører ikke på /rekvisisjon/-sider (kun admin via Pinger.js).
+                // Bruker derfor en bootstrap-side med auto-submitting form for å trigge søket.
                 const url = 'https://pastrans-sorost.mq.nhn.no/rekvisisjon/requisition/confirmGetRequisition';
-                const w = window.open(url, 'nissy-rekvisisjon');
-                if (w) try { w.focus(); } catch (_) {}
+                const w = window.open('about:blank', 'nissy-rekvisisjon');
+                if (!w) throw new Error('popup blokkert');
+                if (parametre.ssn) {
+                    // Liten HTML-side som auto-submitter form til confirmGetRequisition med ssn
+                    w.document.open();
+                    w.document.write(
+                        '<!doctype html><html><head><meta charset="utf-8"><title>Åpner rekvisisjon…</title>'
+                        + '<style>body{font-family:sans-serif;padding:30px;background:#0f172a;color:#e2e8f0;}</style></head>'
+                        + '<body>Åpner rekvisisjon for ' + parametre.ssn + '…'
+                        + '<form id="f" method="POST" action="' + url + '" style="display:none;">'
+                        + '<input name="ssn" value="' + parametre.ssn + '">'
+                        + '</form>'
+                        + '<script>document.getElementById("f").submit();<\/script>'
+                        + '</body></html>'
+                    );
+                    w.document.close();
+                } else {
+                    w.location.href = url;
+                }
+                try { w.focus(); } catch (_) {}
                 return;
             }
             case 'planlegging':
