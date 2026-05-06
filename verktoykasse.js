@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.4 ===
+// === WESTBYS VERKTØYKASSE v2.5 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
@@ -7,6 +7,7 @@
 // v2.2: vis Basic Tools-versjon i bunn av menyen (med DEV-tag hvis dev-modus)
 // v2.3: tlf-oppslag (findPatient) — speiler pnr-flyten, lagres i nissy_oppslag med type='tlf'
 // v2.4: nissy_naviger — generisk modul-navigering (rekvisisjon først, designet for å plugge inn flere)
+// v2.5: window.__verktoykasse = { utforNissyNaviger, sjekkNavigerEtterLoad, pollNissyNaviger } for debug
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -42,7 +43,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.4';
+    const VERSJON = '2.5';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -965,6 +966,16 @@
         }
     }
 
+
+    // Eksponert API for konsoll-debug og manuell testing
+    window.__verktoykasse = {
+        versjon: VERSJON,
+        utforNissyNaviger,
+        sjekkNavigerEtterLoad,
+        pollNissyNaviger: pollNissyNavigerVentende,
+        sokTlfINissy,
+        sokPnrINissy
+    };
 
     function lastBasicTools(tilgang) {
         // Eksponerer brukernavn så basic_tools.js kan bruke det som userid mot rekvisisjons-API
