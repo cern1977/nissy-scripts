@@ -1,4 +1,5 @@
-// === BASIC TOOLS v1.16-dev ===
+// === BASIC TOOLS v1.17-dev ===
+// v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -23,7 +24,8 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.16-dev';
+    const VERSJON = '1.17-dev';
+    const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
 
@@ -176,6 +178,56 @@
     // Finn kolonne-index for "Behov" ved å søke gjennom alle th i tabellen
     // (NISSYs header-rad bruker tr.tbh, ikke ekte <thead>-wrapper).
     // Ingen caching — bruker kan endre kolonner dynamisk under bruk.
+    // Generisk: finn kolonne-index der th-teksten matcher (case-insensitive, exact eller startsWith)
+    function finnKolonneIdx(rad, kolonneNavn) {
+        const tabell = rad?.closest('table');
+        if (!tabell) return -1;
+        const ønsket = kolonneNavn.trim().toLowerCase();
+        const allTh = tabell.querySelectorAll('th');
+        for (const th of allTh) {
+            const tekst = (th.textContent || '').trim().toLowerCase();
+            if (tekst === ønsket || tekst.startsWith(ønsket)) {
+                const cells = th.parentElement?.children;
+                if (cells) {
+                    for (let i = 0; i < cells.length; i++) {
+                        if (cells[i] === th) return i;
+                    }
+                }
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    function lesKolonneFraRad(rad, kolonneNavn) {
+        const idx = finnKolonneIdx(rad, kolonneNavn);
+        if (idx < 0) return '';
+        const tds = rad.querySelectorAll(':scope > td');
+        if (idx >= tds.length) return '';
+        return tds[idx].textContent.trim();
+    }
+
+    // Plukk ut tur-data for kart-visning (Pnavn, Start/tid, Fra, Til)
+    function lesTurDataFraRad(rad) {
+        if (!rad) return null;
+        const id = rad.id || '';
+        const erV = id.startsWith('V-');
+        const erP = id.startsWith('P-');
+        if (!erV && !erP) return null;
+        const resId = id.replace(/^[VP]-/, '');
+        // V-rader bruker "Reise tid" eller "Start", P-rader bruker "Start"
+        const tid = lesKolonneFraRad(rad, 'start') || lesKolonneFraRad(rad, 'reise tid');
+        return {
+            type: erV ? 'V' : 'P',
+            resId,
+            navn: lesKolonneFraRad(rad, 'pnavn') || resId,
+            tid: tid || '',
+            fra: lesKolonneFraRad(rad, 'fra'),
+            til: lesKolonneFraRad(rad, 'til'),
+            behov: lesKolonneFraRad(rad, 'behov')
+        };
+    }
+
     function finnBehovKolonneIdx(rad) {
         const tabell = rad?.closest('table');
         if (!tabell) return -1;
@@ -316,6 +368,7 @@
 
         const valg = [
             { tekst: '⏰ Endre hentetid…', handler: () => visEndreTidModal(resIds, x, y) },
+            { tekst: '🗺️ Sjekk samkjøring…', handler: () => aapneSamkjoring() },
         ];
         valg.forEach(v => {
             const a = document.createElement('div');
@@ -706,6 +759,18 @@
         }
         meny.appendChild(alleA);
 
+        // Samkjøring-valg (V- + P-markerte)
+        const samkjorSep = document.createElement('div');
+        samkjorSep.style.cssText = 'border-top:1px solid #334155;margin:2px 0;';
+        meny.appendChild(samkjorSep);
+        const samkjorA = document.createElement('div');
+        samkjorA.style.cssText = 'padding:8px 12px;color:#e2e8f0;cursor:pointer;border-radius:4px;font-size:13px;';
+        samkjorA.textContent = '🗺️ Sjekk samkjøring…';
+        samkjorA.onmouseover = () => samkjorA.style.background = '#334155';
+        samkjorA.onmouseout = () => samkjorA.style.background = '';
+        samkjorA.onclick = () => { trygtFjern(meny); aapneSamkjoring(); };
+        meny.appendChild(samkjorA);
+
         document.body.appendChild(meny);
         const r = meny.getBoundingClientRect();
         if (r.right > window.innerWidth) meny.style.left = (window.innerWidth - r.width - 8) + 'px';
@@ -722,6 +787,120 @@
             document.addEventListener('click', lukk, true);
             document.addEventListener('contextmenu', lukk, true);
         }, 0);
+    }
+
+    // Samkjøring: samle alle markerte V- og P-rader, åpne popup med Google Maps
+    // som viser fra/til-pins og pasientnavn + tider, så bruker kan visuelt vurdere
+    // om turene passer å samkjøres.
+    function lesAlleMarkerte() {
+        const turer = [];
+        document.querySelectorAll('tr[id^="V-"], tr[id^="P-"]').forEach(r => {
+            if (r.style.backgroundColor !== NISSY_BLAA) return;
+            const data = lesTurDataFraRad(r);
+            if (data && (data.fra || data.til)) turer.push(data);
+        });
+        return turer;
+    }
+
+    function aapneSamkjoring() {
+        const turer = lesAlleMarkerte();
+        if (turer.length === 0) {
+            alert('Ingen markerte turer (klikk rader så de blir blå først).');
+            return;
+        }
+        const popup = window.open('', 'vkt-samkjoring-' + Date.now(), 'width=1100,height=750,resizable=yes,scrollbars=yes');
+        if (!popup) {
+            alert('Popup blokkert — tillat popups for denne siden.');
+            return;
+        }
+        const turerJson = JSON.stringify(turer).replace(/</g, '\\u003c');
+        const html = byggSamkjorHTML(turerJson);
+        popup.document.open();
+        popup.document.write(html);
+        popup.document.close();
+    }
+
+    function byggSamkjorHTML(turerJson) {
+        return '<!doctype html><html lang="no"><head><meta charset="utf-8"><title>Sjekk samkjøring</title>'
+            + '<style>'
+            + '*{box-sizing:border-box;margin:0;padding:0;}'
+            + 'body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;height:100vh;background:#0f172a;color:#e2e8f0;}'
+            + '#liste{width:340px;flex-shrink:0;overflow-y:auto;border-right:1px solid #334155;background:#1e293b;}'
+            + '#kart{flex:1;}'
+            + '.tur{padding:10px 14px;border-bottom:1px solid #334155;cursor:pointer;font-size:13px;}'
+            + '.tur:hover{background:#334155;}'
+            + '.tur.aktiv{background:#1d4ed8;color:#fff;}'
+            + '.tur .navn{font-weight:600;margin-bottom:2px;}'
+            + '.tur .meta{font-size:11px;color:#94a3b8;line-height:1.4;}'
+            + '.tur.aktiv .meta{color:#bfdbfe;}'
+            + '.tag{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.3px;margin-right:4px;}'
+            + '.tag-V{background:#10b981;color:#022c22;}'
+            + '.tag-P{background:#f59e0b;color:#451a03;}'
+            + 'h2{padding:12px 14px;font-size:13px;border-bottom:1px solid #334155;background:#0f172a;}'
+            + '</style></head><body>'
+            + '<div id="liste"><h2>Markerte turer</h2><div id="liste-inner"></div></div>'
+            + '<div id="kart"></div>'
+            + '<script>'
+            + 'const TURER = ' + turerJson + ';'
+            + 'const FARGER = ["#3b82f6","#ef4444","#10b981","#f59e0b","#a855f7","#ec4899","#06b6d4","#84cc16","#f97316","#6366f1"];'
+            + 'let map, geocoder, markører = [], polylinjer = [];'
+            + 'function esc(s){const d=document.createElement("div");d.textContent=s||"";return d.innerHTML;}'
+            + 'function byggListe(){'
+            + '  const el = document.getElementById("liste-inner");'
+            + '  el.innerHTML = TURER.map((t,i)=>'
+            + '    "<div class=\\"tur\\" id=\\"tur-"+i+"\\" onclick=\\"vis(" + i + ")\\">"'
+            + '    + "<div class=\\"navn\\"><span class=\\"tag tag-"+t.type+"\\" style=\\"background:"+FARGER[i%FARGER.length]+"\\">●</span> " + esc(t.navn) + "</div>"'
+            + '    + "<div class=\\"meta\\">" + esc(t.tid) + (t.behov ? " · "+esc(t.behov) : "") + "<br>"'
+            + '    + "<b>Fra:</b> " + esc(t.fra) + "<br>"'
+            + '    + "<b>Til:</b> " + esc(t.til) + "</div>"'
+            + '    + "</div>"'
+            + '  ).join("");'
+            + '}'
+            + 'async function geo(adresse){'
+            + '  return new Promise((resolve)=>{'
+            + '    geocoder.geocode({address: adresse + ", Norge"}, (res, status)=>{'
+            + '      if (status === "OK" && res[0]) resolve(res[0].geometry.location);'
+            + '      else resolve(null);'
+            + '    });'
+            + '  });'
+            + '}'
+            + 'async function tegnAlle(){'
+            + '  const bounds = new google.maps.LatLngBounds();'
+            + '  for (let i = 0; i < TURER.length; i++) {'
+            + '    const t = TURER[i];'
+            + '    const farge = FARGER[i % FARGER.length];'
+            + '    const fraPos = await geo(t.fra);'
+            + '    const tilPos = await geo(t.til);'
+            + '    if (fraPos) {'
+            + '      const m = new google.maps.Marker({position: fraPos, map: map, label: {text: "F", color: "#fff", fontSize: "12px", fontWeight: "700"}, title: t.navn + " — Fra: " + t.fra + " kl " + t.tid, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: farge, fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2}});'
+            + '      markører.push(m); bounds.extend(fraPos);'
+            + '    }'
+            + '    if (tilPos) {'
+            + '      const m = new google.maps.Marker({position: tilPos, map: map, label: {text: "T", color: "#fff", fontSize: "12px", fontWeight: "700"}, title: t.navn + " — Til: " + t.til, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: farge, fillOpacity: 0.5, strokeColor: farge, strokeWeight: 2}});'
+            + '      markører.push(m); bounds.extend(tilPos);'
+            + '    }'
+            + '    if (fraPos && tilPos) {'
+            + '      polylinjer.push(new google.maps.Polyline({path: [fraPos, tilPos], geodesic: true, strokeColor: farge, strokeOpacity: 0.6, strokeWeight: 3, map: map}));'
+            + '    }'
+            + '  }'
+            + '  if (!bounds.isEmpty()) map.fitBounds(bounds);'
+            + '}'
+            + 'function vis(i){'
+            + '  document.querySelectorAll(".tur").forEach(el => el.classList.remove("aktiv"));'
+            + '  document.getElementById("tur-"+i).classList.add("aktiv");'
+            + '  if (markører[i*2]) map.panTo(markører[i*2].getPosition());'
+            + '}'
+            + 'function initMap(){'
+            + '  map = new google.maps.Map(document.getElementById("kart"), {center: {lat: 59.92, lng: 10.75}, zoom: 11, mapTypeControl: false, streetViewControl: false});'
+            + '  geocoder = new google.maps.Geocoder();'
+            + '  byggListe();'
+            + '  tegnAlle();'
+            + '}'
+            + 'const s = document.createElement("script");'
+            + 's.src = "https://maps.googleapis.com/maps/api/js?key=' + GMAPS_KEY + '&callback=initMap&loading=async";'
+            + 's.async = true; s.defer = true;'
+            + 'document.head.appendChild(s);'
+            + '</script></body></html>';
     }
 
     function kontekstmenyHandler(e) {
