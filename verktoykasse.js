@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.7 ===
+// === WESTBYS VERKTØYKASSE v2.8 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
@@ -10,6 +10,7 @@
 // v2.5: window.__verktoykasse = { utforNissyNaviger, sjekkNavigerEtterLoad, pollNissyNaviger } for debug
 // v2.6: nissy_naviger åpner i navngitt vindu (window.open) i stedet for å overstyre admin-tab
 // v2.7: auto-submit form i den nye taben — verktøykasse kjører ikke på rekvisisjons-sider
+// v2.8: same-origin DOM-tilgang i ny tab — fyll ssn og klikk søk-knapp i den faktiske form-siden
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -45,7 +46,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.7';
+    const VERSJON = '2.8';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -850,29 +851,53 @@
     function utforNissyNaviger(parametre) {
         switch (parametre.modul) {
             case 'rekvisisjon': {
-                // Verktøykasse kjører ikke på /rekvisisjon/-sider (kun admin via Pinger.js).
-                // Bruker derfor en bootstrap-side med auto-submitting form for å trigge søket.
+                // Same-origin: vi kan gripe DOM-en i den nye taben og fylle/klikke direkte
                 const url = 'https://pastrans-sorost.mq.nhn.no/rekvisisjon/requisition/confirmGetRequisition';
-                const w = window.open('about:blank', 'nissy-rekvisisjon');
+                const w = window.open(url, 'nissy-rekvisisjon');
                 if (!w) throw new Error('popup blokkert');
-                if (parametre.ssn) {
-                    // Liten HTML-side som auto-submitter form til confirmGetRequisition med ssn
-                    w.document.open();
-                    w.document.write(
-                        '<!doctype html><html><head><meta charset="utf-8"><title>Åpner rekvisisjon…</title>'
-                        + '<style>body{font-family:sans-serif;padding:30px;background:#0f172a;color:#e2e8f0;}</style></head>'
-                        + '<body>Åpner rekvisisjon for ' + parametre.ssn + '…'
-                        + '<form id="f" method="POST" action="' + url + '" style="display:none;">'
-                        + '<input name="ssn" value="' + parametre.ssn + '">'
-                        + '</form>'
-                        + '<script>document.getElementById("f").submit();<\/script>'
-                        + '</body></html>'
-                    );
-                    w.document.close();
-                } else {
-                    w.location.href = url;
-                }
                 try { w.focus(); } catch (_) {}
+                if (!parametre.ssn) return;
+
+                // Poll til #ssn-feltet finnes i den nye taben, fyll inn, klikk søk-knapp
+                const start = Date.now();
+                const iv = setInterval(() => {
+                    if (Date.now() - start > 15000) { clearInterval(iv); console.warn('[VERKTØYKASSE] timeout: ssn-felt aldri klart'); return; }
+                    try {
+                        if (w.closed) { clearInterval(iv); return; }
+                        const doc = w.document;
+                        if (!doc) return;
+                        const el = doc.getElementById('ssn');
+                        if (!el) return;
+                        clearInterval(iv);
+                        el.value = parametre.ssn;
+                        // Trigger input/change events for evt. validering
+                        el.dispatchEvent(new w.Event('input', { bubbles: true }));
+                        el.dispatchEvent(new w.Event('change', { bubbles: true }));
+                        // Søk-skjemaet har 4 seksjoner. Vi vil ha knappen for fødselsnummer-søk
+                        // som har id="query_by_ssn" (bekreftet i NISSY-DOM).
+                        const form = el.closest('form');
+                        let btn = doc.getElementById('query_by_ssn');
+                        if (!btn) {
+                            // Fall back: søk i samme fieldset
+                            const fieldset = el.closest('fieldset');
+                            const finnSøk = (rot) => {
+                                if (!rot) return null;
+                                const alle = rot.querySelectorAll('button, input[type="submit"]');
+                                for (const k of alle) {
+                                    const tekst = (k.textContent || k.value || '').trim().toLowerCase();
+                                    if (/^søk\b/.test(tekst)) return k;
+                                }
+                                return null;
+                            };
+                            btn = finnSøk(fieldset) || finnSøk(form);
+                        }
+                        if (btn) btn.click();
+                        else if (form) form.submit();
+                        console.log(`[VERKTØYKASSE] rekvisisjon fylt: ssn=${parametre.ssn} søkknapp="${btn ? (btn.textContent || btn.value || btn.name).trim() : 'ingen — brukte form.submit()'}"`);
+                    } catch (e) {
+                        // Same-origin men kanskje ikke ferdig lastet; prøv igjen
+                    }
+                }, 200);
                 return;
             }
             case 'planlegging':
