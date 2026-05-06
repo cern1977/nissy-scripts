@@ -1,5 +1,6 @@
-// === BASIC TOOLS v1.17-dev ===
+// === BASIC TOOLS v1.18-dev ===
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
+// v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -24,7 +25,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.17-dev';
+    const VERSJON = '1.18-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -797,8 +798,9 @@
         document.querySelectorAll('tr[id^="V-"], tr[id^="P-"]').forEach(r => {
             if (r.style.backgroundColor !== NISSY_BLAA) return;
             const data = lesTurDataFraRad(r);
-            if (data && (data.fra || data.til)) turer.push(data);
+            if (data) turer.push(data);
         });
+        console.log(`[${NAVN}] markerte turer:`, turer);
         return turer;
     }
 
