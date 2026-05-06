@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.3 ===
+// === WESTBYS VERKTØYKASSE v2.4 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
@@ -6,6 +6,7 @@
 // v2.1: kompakt meny + Admin/Rekvisisjon-snarveier i header med statusprikker
 // v2.2: vis Basic Tools-versjon i bunn av menyen (med DEV-tag hvis dev-modus)
 // v2.3: tlf-oppslag (findPatient) — speiler pnr-flyten, lagres i nissy_oppslag med type='tlf'
+// v2.4: nissy_naviger — generisk modul-navigering (rekvisisjon først, designet for å plugge inn flere)
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -41,7 +42,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.3';
+    const VERSJON = '2.4';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -823,6 +824,94 @@
         }
     }
 
+    // === NISSY_NAVIGER — generisk modul-navigering ===
+    // Flyt: poll → marker ferdig på server FØR navigering (script dør på nav) →
+    // legg autofyll-instruks i sessionStorage → location.href = ny URL →
+    // ny side laster verktøykasse via Pinger.js → init plukker opp sessionStorage
+    // og fyller ut + submitter skjema.
+    const NAVIGER_PENDING_KEY = 'vkt_naviger_pending';
+
+    function ventPaaElement(selector, timeout = 5000) {
+        return new Promise((resolve, reject) => {
+            const start = Date.now();
+            const tick = () => {
+                const el = document.querySelector(selector);
+                if (el) return resolve(el);
+                if (Date.now() - start > timeout) return reject(new Error('timeout: ' + selector));
+                setTimeout(tick, 100);
+            };
+            tick();
+        });
+    }
+
+    async function utforNissyNaviger(parametre) {
+        switch (parametre.modul) {
+            case 'rekvisisjon': {
+                location.href = '/rekvisisjon/requisition/confirmGetRequisition';
+                // Script dør her — autofyll fortsetter i sjekkNavigerEtterLoad() etter ny side laster
+                break;
+            }
+            case 'planlegging':
+                throw new Error('planlegging-modul ikke implementert ennå');
+            case 'attestasjon':
+                throw new Error('attestasjon-modul ikke implementert ennå');
+            default:
+                throw new Error('Ukjent modul: ' + parametre.modul);
+        }
+    }
+
+    // Fortsetter navigerings-flyten på den nye siden — fyller felt og submitter skjema
+    async function sjekkNavigerEtterLoad() {
+        let raa;
+        try { raa = sessionStorage.getItem(NAVIGER_PENDING_KEY); } catch (_) { return; }
+        if (!raa) return;
+        let parametre;
+        try { parametre = JSON.parse(raa); } catch (_) { return; }
+        // Fjern flagget med en gang så vi ikke prøver igjen ved feil
+        try { sessionStorage.removeItem(NAVIGER_PENDING_KEY); } catch (_) {}
+        try {
+            if (parametre.modul === 'rekvisisjon' && parametre.ssn) {
+                const el = await ventPaaElement('#ssn', 5000);
+                el.value = parametre.ssn;
+                const form = el.closest('form') || document.querySelector('form');
+                if (form) form.submit();
+                console.log(`[VERKTØYKASSE] navigering ferdig: ssn=${parametre.ssn} fylt inn og submittet`);
+            }
+        } catch (e) {
+            console.warn('[VERKTØYKASSE] post-navigering feil:', e.message);
+        }
+    }
+
+    async function pollNissyNavigerVentende() {
+        if (adminStatus !== 'ok') return;
+        try {
+            const r = await fetch(`${JOBS_URL}?handling=nissy_naviger_pending`);
+            const d = await r.json();
+            if (!d.ok || !Array.isArray(d.oppslag) || d.oppslag.length === 0) return;
+            // Bare prosesser ÉN navigering om gangen — den endrer URL og dreper scriptet
+            const o = d.oppslag[0];
+            const parametre = o.parametre || {};
+            console.log(`[VERKTØYKASSE] nissy_naviger ${o.id}:`, parametre);
+            try {
+                // Marker ferdig FØR navigering så vi ikke får uendelig løkke ved page-reload
+                const fd = new FormData();
+                fd.append('id', o.id);
+                await fetch(`${JOBS_URL}?handling=nissy_naviger_svar`, { method: 'POST', body: fd });
+                // Lagre autofyll-instruks så ny side-instans kan plukke den opp
+                try { sessionStorage.setItem(NAVIGER_PENDING_KEY, JSON.stringify(parametre)); } catch (_) {}
+                await utforNissyNaviger(parametre);
+            } catch (e) {
+                const fd = new FormData();
+                fd.append('id', o.id);
+                fd.append('feil', e.message);
+                await fetch(`${JOBS_URL}?handling=nissy_naviger_svar`, { method: 'POST', body: fd });
+                console.warn('[VERKTØYKASSE] nissy_naviger feilet:', e.message);
+            }
+        } catch (e) {
+            console.warn('[VERKTØYKASSE] nissy_naviger-poll feil:', e.message);
+        }
+    }
+
     async function sendSvarTilServer(anropId, data) {
         try {
             const fd = new FormData();
@@ -920,10 +1009,13 @@
         pollVentende();                    // Første turid-poll
         pollPnrVentende();                 // Første pnr-poll
         pollTlfVentende();                 // Første tlf-poll
+        sjekkNavigerEtterLoad();           // Fortsett evt. navigering fra forrige side
+        pollNissyNavigerVentende();        // Første nissy_naviger-poll
         setInterval(oppdaterAdminStatus, ADMIN_PING_MS);
         setInterval(oppdaterRekvisisjonStatus, ADMIN_PING_MS);
         setInterval(pollVentende, TURID_POLL_MS);
         setInterval(pollPnrVentende, TURID_POLL_MS);
         setInterval(pollTlfVentende, TURID_POLL_MS);
+        setInterval(pollNissyNavigerVentende, TURID_POLL_MS);
     });
 })();
