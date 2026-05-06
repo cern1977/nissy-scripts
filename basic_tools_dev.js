@@ -1,10 +1,11 @@
-// === BASIC TOOLS v1.22-dev ===
+// === BASIC TOOLS v1.23-dev ===
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.19-dev: V-rader har Fra+Til i én celle (br-separert) + sett TURER via window-prop, ikke inline JSON
 // v1.20-dev: BR-detection før header-lookup — V-rad kan ha "Fra"-header som peker på kombinert celle
 // v1.21-dev: samkjøring-algoritme — geocode + grupper på fra-nærhet, vis info i popup
 // v1.22-dev: blå-font fallback for henteTid + A/B/C-sekvens på kartet for samkjøring-grupper
+// v1.23-dev: detekter retur/ut via tid (Hent≥Opp = retur), vis kun riktig forslag-retning
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -29,7 +30,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.22-dev';
+    const VERSJON = '1.23-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -974,15 +975,30 @@
             + '        + "<div class=\\"meta\\">" + esc(t.fra) + " → " + esc(t.til) + "</div>"'
             + '        + "</div>";'
             + '    });'
-            // Forslag for samkjøring-grupper: tidligst og senest henting
+            // Forslag for samkjøring-grupper: kun den retningen som er gyldig basert på Hent vs Opp
             + '    if (g.felles) {'
             + '      const tider = g.turer.map(t => parseHHMM(t.henteTid)).filter(t => t !== null);'
             + '      if (tider.length >= 2) {'
             + '        const min = Math.min(...tider), max = Math.max(...tider);'
             + '        const fmtTid = m => String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");'
+            // Retur: Hent ≥ Opp for ALLE turene → kan kun forsinke (Senest)
+            // Ut-tur: Hent < Opp for ALLE → kan kun fremskynde (Tidligst)
+            + '        const direksjoner = g.turer.map(t => {'
+            + '          const h = parseHHMM(t.henteTid), o = parseHHMM(t.oppTid);'
+            + '          if (h === null || o === null) return "ukjent";'
+            + '          return h >= o ? "retur" : "ut";'
+            + '        });'
+            + '        const alleRetur = direksjoner.every(d => d === "retur");'
+            + '        const alleUt = direksjoner.every(d => d === "ut");'
+            + '        let visAlternativer = [];'
+            + '        if (alleRetur) visAlternativer = ["Senest (retur — kun forsinkelse OK)"];'
+            + '        else if (alleUt) visAlternativer = ["Tidligst (ut-tur — kun fremskyndelse OK)"];'
+            + '        else visAlternativer = ["Senest", "Tidligst"];'
             + '        html += "<div class=\\"forslag\\"><div class=\\"tittel\\">Felles henting — forslag</div>";'
-            + '        ["Senest (retur)", "Tidligst (ut-tur)"].forEach((label, opt) => {'
-            + '          const felles = opt === 0 ? max : min;'
+            + '        if (!alleRetur && !alleUt) html += "<div style=\\"font-size:10px;color:#fbbf24;margin-bottom:4px;\\">⚠ Blandet retning — sjekk hver tur</div>";'
+            + '        visAlternativer.forEach((label, opt) => {'
+            + '          const erSenest = label.startsWith("Senest");'
+            + '          const felles = erSenest ? max : min;'
             + '          html += "<div style=\\"margin-top:6px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.05);\\"><b>"+label+":</b> kl " + fmtTid(felles) + "</div>";'
             + '          g.turer.forEach(t => {'
             + '            const m = parseHHMM(t.henteTid);'
