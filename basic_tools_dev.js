@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.24-dev ===
+// === BASIC TOOLS v1.25-dev ===
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.19-dev: V-rader har Fra+Til i én celle (br-separert) + sett TURER via window-prop, ikke inline JSON
@@ -7,6 +7,7 @@
 // v1.22-dev: blå-font fallback for henteTid + A/B/C-sekvens på kartet for samkjøring-grupper
 // v1.23-dev: detekter retur/ut via tid (Hent≥Opp = retur), vis kun riktig forslag-retning
 // v1.24-dev: cluster også på TIL-nærhet (felles destinasjon — ut-tur-samkjøring)
+// v1.25-dev: fix grupperings-bug + Tur/Retur-merke per tur så bruker ser at skriptet forstår retning
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -31,7 +32,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.24-dev';
+    const VERSJON = '1.25-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -892,6 +893,9 @@
             + '.tag{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:0.3px;margin-right:4px;}'
             + '.tag-V{background:#10b981;color:#022c22;}'
             + '.tag-P{background:#f59e0b;color:#451a03;}'
+            + '.tag-tur{background:#3b82f6;color:#fff;}'
+            + '.tag-retur{background:#a855f7;color:#fff;}'
+            + '.tag-ukjent{background:#475569;color:#cbd5e1;}'
             + '.tider-rad{display:flex;gap:8px;font-size:11px;color:#cbd5e1;margin-top:2px;}'
             + '.tider-rad b{color:#fff;}'
             + '.forslag{margin-top:8px;padding:8px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:5px;font-size:11px;}'
@@ -940,12 +944,12 @@
             + 'function lagGrupper(){'
             + '  const TURER = window.TURER_DATA || [];'
             + '  const grupper = [];'
-            // Steg 1: cluster på fra-nærhet
+            // Steg 1: cluster på fra-nærhet (kun proximity, ikke felles-flagg som settes etterpå)
             + '  TURER.forEach(t => {'
             + '    if (!t.fraGeo) { grupper.push({turer: [t], felles: false}); return; }'
-            + '    const eks = grupper.find(g => g.felles === "fra" && g.turer[0].fraGeo && haversineKm(g.turer[0].fraGeo, t.fraGeo) < NAERHET_KM);'
+            + '    const eks = grupper.find(g => g.turer[0].fraGeo && haversineKm(g.turer[0].fraGeo, t.fraGeo) < NAERHET_KM);'
             + '    if (eks) eks.turer.push(t);'
-            + '    else grupper.push({turer: [t], felles: false});'  // start som singleton — kan oppgraderes til "fra" senere
+            + '    else grupper.push({turer: [t], felles: false});'
             + '  });'
             // Re-merk: hvis ≥2 turer i samme gruppe, det var felles-fra
             + '  grupper.forEach(g => { if (g.turer.length > 1) g.felles = "fra"; });'
@@ -956,7 +960,7 @@
             + '    singletons.forEach(g => {'
             + '      const t = g.turer[0];'
             + '      if (!t.tilGeo) { tilGrupper.push(g); return; }'
-            + '      const eks = tilGrupper.find(tg => tg.felles === "til" && tg.turer[0].tilGeo && haversineKm(tg.turer[0].tilGeo, t.tilGeo) < NAERHET_KM);'
+            + '      const eks = tilGrupper.find(tg => tg.turer[0].tilGeo && haversineKm(tg.turer[0].tilGeo, t.tilGeo) < NAERHET_KM);'
             + '      if (eks) eks.turer.push(t);'
             + '      else tilGrupper.push({turer: [t], felles: false});'
             + '    });'
@@ -1001,8 +1005,13 @@
             + '      if (g.felles === "fra") bokstav = String.fromCharCode(66 + ti);'  // B, C, D
             + '      else if (g.felles === "til") bokstav = String.fromCharCode(65 + ti);'  // A, B, C
             + '      const prefix = g.felles ? "<span style=\\"display:inline-block;width:18px;height:18px;background:"+farge+";color:#fff;border-radius:50%;font-size:11px;font-weight:700;text-align:center;line-height:18px;margin-right:6px;\\">"+bokstav+"</span>" : "";'
+            // Bestem retning per tur: Hent ≥ Opp = Retur, Hent < Opp = Tur
+            + '      const hH = parseHHMM(t.henteTid), hO = parseHHMM(t.oppTid);'
+            + '      const retning = (hH === null || hO === null) ? "ukjent" : (hH >= hO ? "retur" : "tur");'
+            + '      const retLabel = retning === "ukjent" ? "?" : (retning === "retur" ? "Retur" : "Tur");'
+            + '      const retTag = "<span class=\\"tag tag-" + retning + "\\" title=\\"" + (retning==="retur"?"Hent ≥ Opp = retur (kan kun forsinke)":"Hent < Opp = tur (kan kun fremskynde)") + "\\">" + retLabel + "</span>";'
             + '      html += "<div class=\\"tur\\" id=\\"tur-"+idx+"\\" onclick=\\"visTur(" + idx + ")\\">"'
-            + '        + "<div class=\\"navn\\">" + prefix + "<span class=\\"tag tag-"+t.type+"\\">"+t.type+"</span> " + esc(t.navn) + (t.behov ? " <span style=\\"color:#94a3b8;font-weight:400;font-size:11px;\\">· " + esc(t.behov) + "</span>" : "") + "</div>"'
+            + '        + "<div class=\\"navn\\">" + prefix + "<span class=\\"tag tag-"+t.type+"\\">"+t.type+"</span>" + retTag + " " + esc(t.navn) + (t.behov ? " <span style=\\"color:#94a3b8;font-weight:400;font-size:11px;\\">· " + esc(t.behov) + "</span>" : "") + "</div>"'
             + '        + "<div class=\\"tider-rad\\"><span><b>Hent:</b> " + esc(t.henteTid) + "</span>" + (t.oppTid ? "<span><b>Opp:</b> " + esc(t.oppTid) + "</span>" : "") + "</div>"'
             + '        + "<div class=\\"meta\\">" + esc(t.fra) + " → " + esc(t.til) + "</div>"'
             + '        + "</div>";'
