@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.10 ===
+// === WESTBYS VERKTØYKASSE v2.11 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
@@ -13,6 +13,7 @@
 // v2.8: same-origin DOM-tilgang i ny tab — fyll ssn og klikk søk-knapp i den faktiske form-siden
 // v2.9: filtrer naviger-kø på operatørens nissy-brukernavn så hver bruker kun får sine jobber
 // v2.10: nissy_naviger støtter modul='planlegging' (åpner /planlegging/ og fyller søk=ssn:<pnr>)
+// v2.11: fjern form.submit()-fallback for planlegging — refreshet siden før søket trigget
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -48,7 +49,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.10';
+    const VERSJON = '2.11';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -930,16 +931,14 @@
                         el.value = sokeStreng;
                         el.dispatchEvent(new w.Event('input', { bubbles: true }));
                         el.dispatchEvent(new w.Event('change', { bubbles: true }));
-                        // Trigger Enter — mange søke-inputs lytter på keyup/keydown
+                        // Trigger Enter — mange søke-inputs lytter på keyup/keydown for AJAX-søk
                         ['keydown', 'keypress', 'keyup'].forEach(type => {
                             try {
                                 el.dispatchEvent(new w.KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
                             } catch (_) {}
                         });
-                        // Fall-back: submit form hvis Enter ikke triggers selve søket
-                        const form = el.closest('form');
-                        if (form) try { form.submit(); } catch (_) {}
-                        console.log(`[VERKTØYKASSE] planlegging fylt: search="${sokeStreng}"`);
+                        // Ikke kall form.submit() — det reloader siden og spiser søket
+                        console.log(`[VERKTØYKASSE] planlegging fylt: search="${sokeStreng}" (Enter dispatched)`);
                     } catch (_) {
                         // Same-origin men kanskje ikke ferdig lastet; prøv igjen
                     }
