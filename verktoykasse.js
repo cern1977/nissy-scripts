@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.9 ===
+// === WESTBYS VERKTØYKASSE v2.10 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
@@ -12,6 +12,7 @@
 // v2.7: auto-submit form i den nye taben — verktøykasse kjører ikke på rekvisisjons-sider
 // v2.8: same-origin DOM-tilgang i ny tab — fyll ssn og klikk søk-knapp i den faktiske form-siden
 // v2.9: filtrer naviger-kø på operatørens nissy-brukernavn så hver bruker kun får sine jobber
+// v2.10: nissy_naviger støtter modul='planlegging' (åpner /planlegging/ og fyller søk=ssn:<pnr>)
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -47,7 +48,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.9';
+    const VERSJON = '2.10';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -901,8 +902,50 @@
                 }, 200);
                 return;
             }
-            case 'planlegging':
-                throw new Error('planlegging-modul ikke implementert ennå');
+            case 'planlegging': {
+                const url = 'https://pastrans-sorost.mq.nhn.no/planlegging/';
+                const w = window.open(url, 'nissy-planlegging');
+                if (!w) throw new Error('popup blokkert');
+                try { w.focus(); } catch (_) {}
+                if (!parametre.ssn) return;
+
+                const sokeStreng = 'ssn:' + parametre.ssn;
+                // Poll til søke-input finnes, fyll inn, trigger Enter + form-submit
+                const start = Date.now();
+                const iv = setInterval(() => {
+                    if (Date.now() - start > 15000) { clearInterval(iv); console.warn('[VERKTØYKASSE] timeout: planlegging søke-input ikke funnet'); return; }
+                    try {
+                        if (w.closed) { clearInterval(iv); return; }
+                        const doc = w.document;
+                        if (!doc) return;
+                        // Prøv flere kandidater for søke-input — vi kjenner ikke eksakt selector ennå
+                        const el = doc.querySelector('input[name="search"]')
+                                || doc.getElementById('search')
+                                || doc.querySelector('input[type="search"]')
+                                || doc.querySelector('input.search')
+                                || doc.querySelector('form input[type="text"]');
+                        if (!el) return;
+                        clearInterval(iv);
+                        el.focus();
+                        el.value = sokeStreng;
+                        el.dispatchEvent(new w.Event('input', { bubbles: true }));
+                        el.dispatchEvent(new w.Event('change', { bubbles: true }));
+                        // Trigger Enter — mange søke-inputs lytter på keyup/keydown
+                        ['keydown', 'keypress', 'keyup'].forEach(type => {
+                            try {
+                                el.dispatchEvent(new w.KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+                            } catch (_) {}
+                        });
+                        // Fall-back: submit form hvis Enter ikke triggers selve søket
+                        const form = el.closest('form');
+                        if (form) try { form.submit(); } catch (_) {}
+                        console.log(`[VERKTØYKASSE] planlegging fylt: search="${sokeStreng}"`);
+                    } catch (_) {
+                        // Same-origin men kanskje ikke ferdig lastet; prøv igjen
+                    }
+                }, 200);
+                return;
+            }
             case 'attestasjon':
                 throw new Error('attestasjon-modul ikke implementert ennå');
             default:
