@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.28-dev ===
+// === BASIC TOOLS v1.29-dev ===
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.19-dev: V-rader har Fra+Til i én celle (br-separert) + sett TURER via window-prop, ikke inline JSON
@@ -11,6 +11,7 @@
 // v1.26-dev: rute-rekkefølge for felles-til = sorter pickups på avstand fra drop (fjernest først)
 // v1.27-dev: delta vises på selve tur-kortet (Hent: 10:11 → 10:12 (+1)), ikke i egen forslag-boks
 // v1.28-dev: +5 min per stopp ved felles-til + tydeligere farge på endrede kort
+// v1.29-dev: tur: anker siste pickup på hans Hent, bakover med −5/stopp (aldri plusse)
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -35,7 +36,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.28-dev';
+    const VERSJON = '1.29-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -1009,6 +1010,8 @@
             + '    const fmtTid = m => String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");'
             // Sorter turer
             + '    let sorterte = g.turer;'
+            // scheduledTimes[i] = foreslått tid for sorterte[i]. Beregnes etter sortering.
+            + '    let scheduledTimes = null;'
             + '    if (g.felles === "fra" && g.turer[0].fraGeo) {'
             + '      const fraPos = g.turer[0].fraGeo;'
             + '      sorterte = g.turer.slice().sort((a,b) => (a.tilGeo && b.tilGeo) ? (haversineKm(fraPos, a.tilGeo) - haversineKm(fraPos, b.tilGeo)) : 0);'
@@ -1019,6 +1022,23 @@
             + '        if (!dropPos || !a.fraGeo || !b.fraGeo) return 0;'
             + '        return haversineKm(b.fraGeo, dropPos) - haversineKm(a.fraGeo, dropPos);'
             + '      });'
+            + '    }'
+            // Beregn scheduledTimes for felles-til (tur: anker bakerst, jobb bakover med -5/stopp)
+            // og felles-fra (retur: alle ved samme fellesTid)
+            + '    if (g.felles === "til" && fellesTid !== null) {'
+            + '      scheduledTimes = new Array(sorterte.length);'
+            + '      const sistI = sorterte.length - 1;'
+            + '      const sistHent = parseHHMM(sorterte[sistI].henteTid);'
+            + '      if (sistHent !== null) {'
+            + '        scheduledTimes[sistI] = sistHent;'
+            + '        for (let p = sistI - 1; p >= 0; p--) {'
+            + '          const desired = scheduledTimes[p+1] - 5;'
+            + '          const maxAllowed = parseHHMM(sorterte[p].henteTid);'
+            + '          scheduledTimes[p] = (maxAllowed !== null) ? Math.min(desired, maxAllowed) : desired;'
+            + '        }'
+            + '      }'
+            + '    } else if (g.felles === "fra" && fellesTid !== null) {'
+            + '      scheduledTimes = new Array(sorterte.length).fill(fellesTid);'
             + '    }'
             + '    sorterte.forEach((t, ti) => {'
             + '      const idx = TURER.indexOf(t);'
@@ -1038,9 +1058,8 @@
             //  • Felles-til (tur): første pickup ved fellesTid, +5 min per stopp etter
             + '      const tH = parseHHMM(t.henteTid);'
             + '      let foreslaattTid = null, delta = null, klasseEndret = "";'
-            + '      if (fellesTid !== null && tH !== null) {'
-            + '        if (g.felles === "til") foreslaattTid = fellesTid + ti * 5;'
-            + '        else foreslaattTid = fellesTid;'
+            + '      if (scheduledTimes && tH !== null) {'
+            + '        foreslaattTid = scheduledTimes[ti];'
             + '        delta = foreslaattTid - tH;'
             + '        if (delta > 0) klasseEndret = " changed";'
             + '        else if (delta < 0) klasseEndret = " changed changed-down";'
@@ -1058,9 +1077,10 @@
             + '    });'
             // Liten oppsummering: detaljerte deltaer er på selve kortene
             + '    if (g.felles && fellesTid !== null) {'
-            + '      const startStopp = g.felles === "til" ? "Sekvens fra " : "Felles henting: ";'
-            + '      const dirLabel = direksjon === "retur" ? "Retur — kun forsinkelse OK" : (g.felles === "til" ? "Tur — +5 min per stopp" : "Tur — kun fremskyndelse OK");'
-            + '      html += "<div style=\\"margin-top:6px;padding:5px 10px;background:rgba(59,130,246,0.08);border-radius:4px;font-size:10px;color:#94a3b8;\\">" + startStopp + "<b style=\\"color:#bfdbfe;\\">" + fmtTid(fellesTid) + "</b> · " + dirLabel + "</div>";'
+            + '      let label;'
+            + '      if (g.felles === "fra") label = "Felles henting kl <b style=\\"color:#bfdbfe;\\">" + fmtTid(fellesTid) + "</b> — Retur, kun forsinkelse OK";'
+            + '      else label = "Sekvensiell pickup, −5 min per stopp — Tur, kun fremskyndelse OK";'
+            + '      html += "<div style=\\"margin-top:6px;padding:5px 10px;background:rgba(59,130,246,0.08);border-radius:4px;font-size:10px;color:#94a3b8;\\">" + label + "</div>";'
             + '    } else if (g.felles && fellesTid === null) {'
             + '      html += "<div style=\\"margin-top:6px;padding:5px 10px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:4px;font-size:10px;color:#fbbf24;\\">⚠ Blandet retning — kan ikke foreslå felles tid</div>";'
             + '    }'
