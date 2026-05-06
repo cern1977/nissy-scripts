@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.25-dev ===
+// === BASIC TOOLS v1.26-dev ===
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.19-dev: V-rader har Fra+Til i én celle (br-separert) + sett TURER via window-prop, ikke inline JSON
@@ -8,6 +8,7 @@
 // v1.23-dev: detekter retur/ut via tid (Hent≥Opp = retur), vis kun riktig forslag-retning
 // v1.24-dev: cluster også på TIL-nærhet (felles destinasjon — ut-tur-samkjøring)
 // v1.25-dev: fix grupperings-bug + Tur/Retur-merke per tur så bruker ser at skriptet forstår retning
+// v1.26-dev: rute-rekkefølge for felles-til = sorter pickups på avstand fra drop (fjernest først)
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -32,7 +33,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.25-dev';
+    const VERSJON = '1.26-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -991,10 +992,11 @@
             + '      const fraPos = g.turer[0].fraGeo;'
             + '      sorterte = g.turer.slice().sort((a,b) => (a.tilGeo && b.tilGeo) ? (haversineKm(fraPos, a.tilGeo) - haversineKm(fraPos, b.tilGeo)) : 0);'
             + '    } else if (g.felles === "til") {'
+            // Sorter pickups fjernest-fra-drop først så ruten ikke slalåmer
+            + '      const dropPos = g.turer[0].tilGeo;'
             + '      sorterte = g.turer.slice().sort((a,b) => {'
-            + '        const ta = parseHHMM(a.henteTid), tb = parseHHMM(b.henteTid);'
-            + '        if (ta === null || tb === null) return 0;'
-            + '        return ta - tb;'
+            + '        if (!dropPos || !a.fraGeo || !b.fraGeo) return 0;'
+            + '        return haversineKm(b.fraGeo, dropPos) - haversineKm(a.fraGeo, dropPos);'
             + '      });'
             + '    }'
             + '    sorterte.forEach((t, ti) => {'
@@ -1080,11 +1082,11 @@
             + '        polylinjer.push(new google.maps.Polyline({path: ruteSekvens, geodesic: true, strokeColor: farge, strokeOpacity: 0.8, strokeWeight: 4, map: map, icons: [{icon: {path: google.maps.SymbolPath.FORWARD_OPEN_ARROW, scale: 3}, offset: "50%", repeat: "100px"}]}));'
             + '      }'
             + '    } else if (g.felles === "til") {'
-            // Felles destinasjon: A/B/C... = pickups (sortert etter Hent-tid), siste bokstav = felles drop
+            // Felles destinasjon: A/B/C = pickups sortert fjernest-fra-drop først (unngår slalåm)
+            + '      const dropPos2 = g.turer[0].tilGeo;'
             + '      const pickups = g.turer.filter(t => t.fraGeo).slice().sort((a,b) => {'
-            + '        const ta = parseHHMM(a.henteTid), tb = parseHHMM(b.henteTid);'
-            + '        if (ta === null || tb === null) return 0;'
-            + '        return ta - tb;'
+            + '        if (!dropPos2) return 0;'
+            + '        return haversineKm(b.fraGeo, dropPos2) - haversineKm(a.fraGeo, dropPos2);'
             + '      });'
             + '      const ruteSekvens = [];'
             + '      pickups.forEach((t, pi) => {'
