@@ -1,10 +1,11 @@
-// === WESTBYS VERKTØYKASSE v2.2 ===
+// === WESTBYS VERKTØYKASSE v2.3 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
 //       Basic Tools auto-lastes etter tilgang er hentet. Toggle for dev-versjon i menyen (superadmin).
 // v2.1: kompakt meny + Admin/Rekvisisjon-snarveier i header med statusprikker
 // v2.2: vis Basic Tools-versjon i bunn av menyen (med DEV-tag hvis dev-modus)
+// v2.3: tlf-oppslag (findPatient) — speiler pnr-flyten, lagres i nissy_oppslag med type='tlf'
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -40,7 +41,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.2';
+    const VERSJON = '2.3';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -770,6 +771,58 @@
         }
     }
 
+    // === TLF-OPPSLAG — findPatient i admin, returnerer pasienter med matchende telefon ===
+    async function sokTlfINissy(tlf) {
+        try {
+            const fd = new FormData();
+            fd.append('Phone', tlf);
+            fd.append('submitButton', 'Søk pasient');
+            const r = await fetch(`${ADMIN_BASE}/findPatient`, {
+                method: 'POST', body: fd, credentials: 'same-origin'
+            });
+            if (!r.ok) return { feil: `findPatient HTTP ${r.status}` };
+            const html = await r.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const pasienter = [];
+            for (const row of doc.querySelectorAll('table.wizard_list tbody tr')) {
+                const tds = row.querySelectorAll('td');
+                const pnr = tds[0]?.textContent.trim();
+                if (!/^\d{11}$/.test(pnr)) continue;
+                pasienter.push({
+                    pnr,
+                    navn: tds[1]?.textContent.trim() || '',
+                    rediger_url: tds[2]?.querySelector('a')?.href || ''
+                });
+            }
+            console.log(`[VERKTØYKASSE] tlf ${tlf}: ${pasienter.length} pasient(er) funnet`);
+            return { tlf, hentet: new Date().toISOString(), pasienter };
+        } catch(e) {
+            console.warn('[VERKTØYKASSE] sokTlfINissy:', e.message);
+            return { feil: e.message };
+        }
+    }
+
+    async function pollTlfVentende() {
+        if (adminStatus !== 'ok') return;
+        try {
+            const r = await fetch(`${JOBS_URL}?handling=tlf_pending`);
+            const d = await r.json();
+            if (!d.ok || !Array.isArray(d.oppslag) || d.oppslag.length === 0) return;
+            console.log(`[VERKTØYKASSE] ${d.oppslag.length} ventende tlf-oppslag`);
+            for (const o of d.oppslag) {
+                const res = await sokTlfINissy(o.tlf);
+                const fd = new FormData();
+                fd.append('id', o.id);
+                if (res && !res.feil) fd.append('resultat', JSON.stringify(res));
+                if (res && res.feil) fd.append('feil', res.feil);
+                await fetch(`${JOBS_URL}?handling=tlf_svar`, { method: 'POST', body: fd });
+                console.log(`[VERKTØYKASSE] ✓ tlf-oppslag ${o.id}: ${res.pasienter?.length || 0} pasienter`);
+            }
+        } catch(e) {
+            console.warn('[VERKTØYKASSE] tlf-poll feil:', e.message);
+        }
+    }
+
     async function sendSvarTilServer(anropId, data) {
         try {
             const fd = new FormData();
@@ -866,9 +919,11 @@
         lastBasicTools(t);                 // Last inline-handlinger (endre tid, etc)
         pollVentende();                    // Første turid-poll
         pollPnrVentende();                 // Første pnr-poll
+        pollTlfVentende();                 // Første tlf-poll
         setInterval(oppdaterAdminStatus, ADMIN_PING_MS);
         setInterval(oppdaterRekvisisjonStatus, ADMIN_PING_MS);
         setInterval(pollVentende, TURID_POLL_MS);
-        setInterval(pollPnrVentende, TURID_POLL_MS);  // samme intervall
+        setInterval(pollPnrVentende, TURID_POLL_MS);
+        setInterval(pollTlfVentende, TURID_POLL_MS);
     });
 })();
