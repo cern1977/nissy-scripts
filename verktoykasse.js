@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.5 ===
+// === WESTBYS VERKTØYKASSE v2.6 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
@@ -8,6 +8,7 @@
 // v2.3: tlf-oppslag (findPatient) — speiler pnr-flyten, lagres i nissy_oppslag med type='tlf'
 // v2.4: nissy_naviger — generisk modul-navigering (rekvisisjon først, designet for å plugge inn flere)
 // v2.5: window.__verktoykasse = { utforNissyNaviger, sjekkNavigerEtterLoad, pollNissyNaviger } for debug
+// v2.6: nissy_naviger åpner i navngitt vindu (window.open) i stedet for å overstyre admin-tab
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -43,7 +44,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.5';
+    const VERSJON = '2.6';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -845,12 +846,17 @@
         });
     }
 
-    async function utforNissyNaviger(parametre) {
+    function utforNissyNaviger(parametre) {
         switch (parametre.modul) {
             case 'rekvisisjon': {
-                location.href = '/rekvisisjon/requisition/confirmGetRequisition';
-                // Script dør her — autofyll fortsetter i sjekkNavigerEtterLoad() etter ny side laster
-                break;
+                // Lagre autofyll-instruks i localStorage (cross-tab, same-origin)
+                // så ny verktøykasse-instans i rekvisisjons-fanen plukker den opp.
+                try { localStorage.setItem(NAVIGER_PENDING_KEY, JSON.stringify(parametre)); } catch (_) {}
+                // Åpne i navngitt vindu — samme navn ⇒ gjenbruker tab ved gjentatte klikk
+                const url = 'https://pastrans-sorost.mq.nhn.no/rekvisisjon/requisition/confirmGetRequisition';
+                const w = window.open(url, 'nissy-rekvisisjon');
+                if (w) try { w.focus(); } catch (_) {}
+                return;
             }
             case 'planlegging':
                 throw new Error('planlegging-modul ikke implementert ennå');
@@ -861,15 +867,17 @@
         }
     }
 
-    // Fortsetter navigerings-flyten på den nye siden — fyller felt og submitter skjema
+    // Fortsetter navigerings-flyten på den nye siden — fyller felt og submitter skjema.
+    // Leser fra localStorage (cross-tab), bare hvis vi er på rekvisisjons-domenet.
     async function sjekkNavigerEtterLoad() {
+        // Bare relevant hvis vi er på en rekvisisjons-side
+        if (!/\/rekvisisjon\//.test(location.pathname)) return;
         let raa;
-        try { raa = sessionStorage.getItem(NAVIGER_PENDING_KEY); } catch (_) { return; }
+        try { raa = localStorage.getItem(NAVIGER_PENDING_KEY); } catch (_) { return; }
         if (!raa) return;
         let parametre;
         try { parametre = JSON.parse(raa); } catch (_) { return; }
-        // Fjern flagget med en gang så vi ikke prøver igjen ved feil
-        try { sessionStorage.removeItem(NAVIGER_PENDING_KEY); } catch (_) {}
+        try { localStorage.removeItem(NAVIGER_PENDING_KEY); } catch (_) {}
         try {
             if (parametre.modul === 'rekvisisjon' && parametre.ssn) {
                 const el = await ventPaaElement('#ssn', 5000);
@@ -894,13 +902,12 @@
             const parametre = o.parametre || {};
             console.log(`[VERKTØYKASSE] nissy_naviger ${o.id}:`, parametre);
             try {
-                // Marker ferdig FØR navigering så vi ikke får uendelig løkke ved page-reload
+                // Marker ferdig FØR navigering så jobben ikke plukkes opp på nytt
                 const fd = new FormData();
                 fd.append('id', o.id);
                 await fetch(`${JOBS_URL}?handling=nissy_naviger_svar`, { method: 'POST', body: fd });
-                // Lagre autofyll-instruks så ny side-instans kan plukke den opp
-                try { sessionStorage.setItem(NAVIGER_PENDING_KEY, JSON.stringify(parametre)); } catch (_) {}
-                await utforNissyNaviger(parametre);
+                // utforNissyNaviger setter localStorage og åpner navngitt vindu
+                utforNissyNaviger(parametre);
             } catch (e) {
                 const fd = new FormData();
                 fd.append('id', o.id);
