@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.23-dev ===
+// === BASIC TOOLS v1.24-dev ===
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.19-dev: V-rader har Fra+Til i én celle (br-separert) + sett TURER via window-prop, ikke inline JSON
@@ -6,6 +6,7 @@
 // v1.21-dev: samkjøring-algoritme — geocode + grupper på fra-nærhet, vis info i popup
 // v1.22-dev: blå-font fallback for henteTid + A/B/C-sekvens på kartet for samkjøring-grupper
 // v1.23-dev: detekter retur/ut via tid (Hent≥Opp = retur), vis kun riktig forslag-retning
+// v1.24-dev: cluster også på TIL-nærhet (felles destinasjon — ut-tur-samkjøring)
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -30,7 +31,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.23-dev';
+    const VERSJON = '1.24-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -934,17 +935,36 @@
             + '  }'
             + '  status.style.display = "none";'
             + '}'
-            // Cluster turer på fra-nærhet (greedy: første tur danner gruppe, neste joiner hvis < NAERHET_KM)
+            // Cluster turer: prøv felles fra-adresse først, så felles til-adresse for resten.
+            // Resultat: grupper merket med felles="fra" | "til" | false (singleton)
             + 'function lagGrupper(){'
             + '  const TURER = window.TURER_DATA || [];'
             + '  const grupper = [];'
+            // Steg 1: cluster på fra-nærhet
             + '  TURER.forEach(t => {'
             + '    if (!t.fraGeo) { grupper.push({turer: [t], felles: false}); return; }'
-            + '    const eksisterende = grupper.find(g => g.turer[0].fraGeo && haversineKm(g.turer[0].fraGeo, t.fraGeo) < NAERHET_KM);'
-            + '    if (eksisterende) eksisterende.turer.push(t);'
-            + '    else grupper.push({turer: [t], felles: false});'
+            + '    const eks = grupper.find(g => g.felles === "fra" && g.turer[0].fraGeo && haversineKm(g.turer[0].fraGeo, t.fraGeo) < NAERHET_KM);'
+            + '    if (eks) eks.turer.push(t);'
+            + '    else grupper.push({turer: [t], felles: false});'  // start som singleton — kan oppgraderes til "fra" senere
             + '  });'
-            + '  grupper.forEach(g => { g.felles = g.turer.length > 1; });'
+            // Re-merk: hvis ≥2 turer i samme gruppe, det var felles-fra
+            + '  grupper.forEach(g => { if (g.turer.length > 1) g.felles = "fra"; });'
+            // Steg 2: for singletons, cluster på til-nærhet
+            + '  const singletons = grupper.filter(g => g.felles === false);'
+            + '  if (singletons.length > 1) {'
+            + '    const tilGrupper = [];'
+            + '    singletons.forEach(g => {'
+            + '      const t = g.turer[0];'
+            + '      if (!t.tilGeo) { tilGrupper.push(g); return; }'
+            + '      const eks = tilGrupper.find(tg => tg.felles === "til" && tg.turer[0].tilGeo && haversineKm(tg.turer[0].tilGeo, t.tilGeo) < NAERHET_KM);'
+            + '      if (eks) eks.turer.push(t);'
+            + '      else tilGrupper.push({turer: [t], felles: false});'
+            + '    });'
+            + '    tilGrupper.forEach(tg => { if (tg.turer.length > 1) tg.felles = "til"; });'
+            // Sett sammen: behold fra-grupper, erstatt singletons med til-grupperingen
+            + '    const resultat = grupper.filter(g => g.felles === "fra").concat(tilGrupper);'
+            + '    return resultat;'
+            + '  }'
             + '  return grupper;'
             + '}'
             + 'function byggListe(){'
@@ -956,18 +976,30 @@
             + '  GRUPPER.forEach((g, gi) => {'
             + '    const farge = FARGER[gi % FARGER.length];'
             + '    const klasse = g.felles ? "gruppe kandidat" : "gruppe";'
-            + '    const overskrift = g.felles ? "🔄 SAMKJØRING-KANDIDAT (" + g.turer.length + ")" : "ENKELTUR";'
+            + '    const overskrift = g.felles === "fra" ? "🔄 FELLES HENTING (" + g.turer.length + ")" : (g.felles === "til" ? "🎯 FELLES DESTINASJON (" + g.turer.length + ")" : "ENKELTUR");'
             + '    html += "<div class=\\"" + klasse + "\\">"'
             + '      + "<div class=\\"gruppe-header\\"><span class=\\"farge-dot\\" style=\\"background:" + farge + "\\"></span>" + overskrift + "</div>";'
-            // Sorter turer i gruppe så listen matcher ABC-rekkefølgen på kartet
+            // Sorter turer så listen matcher ABC-rekkefølgen på kartet
+            //  • Felles fra: A=fra, B/C/D=drops sortert etter avstand fra A
+            //  • Felles til: A/B/C=pickups sortert etter Hent-tid (tidligst først), siste bokstav=drop
             + '    let sorterte = g.turer;'
-            + '    if (g.felles && g.turer[0].fraGeo) {'
+            + '    if (g.felles === "fra" && g.turer[0].fraGeo) {'
             + '      const fraPos = g.turer[0].fraGeo;'
             + '      sorterte = g.turer.slice().sort((a,b) => (a.tilGeo && b.tilGeo) ? (haversineKm(fraPos, a.tilGeo) - haversineKm(fraPos, b.tilGeo)) : 0);'
+            + '    } else if (g.felles === "til") {'
+            + '      sorterte = g.turer.slice().sort((a,b) => {'
+            + '        const ta = parseHHMM(a.henteTid), tb = parseHHMM(b.henteTid);'
+            + '        if (ta === null || tb === null) return 0;'
+            + '        return ta - tb;'
+            + '      });'
             + '    }'
             + '    sorterte.forEach((t, ti) => {'
             + '      const idx = TURER.indexOf(t);'
-            + '      const bokstav = g.felles ? String.fromCharCode(66 + ti) : "";'  // B, C, D for drop-offs
+            // Felles-fra: A er pickup (ikke en tur), så turer er B,C,D...
+            // Felles-til: turer er pickups A,B,C..., siste er drop (ikke en tur)
+            + '      let bokstav = "";'
+            + '      if (g.felles === "fra") bokstav = String.fromCharCode(66 + ti);'  // B, C, D
+            + '      else if (g.felles === "til") bokstav = String.fromCharCode(65 + ti);'  // A, B, C
             + '      const prefix = g.felles ? "<span style=\\"display:inline-block;width:18px;height:18px;background:"+farge+";color:#fff;border-radius:50%;font-size:11px;font-weight:700;text-align:center;line-height:18px;margin-right:6px;\\">"+bokstav+"</span>" : "";'
             + '      html += "<div class=\\"tur\\" id=\\"tur-"+idx+"\\" onclick=\\"visTur(" + idx + ")\\">"'
             + '        + "<div class=\\"navn\\">" + prefix + "<span class=\\"tag tag-"+t.type+"\\">"+t.type+"</span> " + esc(t.navn) + (t.behov ? " <span style=\\"color:#94a3b8;font-weight:400;font-size:11px;\\">· " + esc(t.behov) + "</span>" : "") + "</div>"'
@@ -981,6 +1013,7 @@
             + '      if (tider.length >= 2) {'
             + '        const min = Math.min(...tider), max = Math.max(...tider);'
             + '        const fmtTid = m => String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");'
+            + '        const tittelTekst = g.felles === "til" ? "Sekvens — pickups → felles destinasjon" : "Felles henting — forslag";'
             // Retur: Hent ≥ Opp for ALLE turene → kan kun forsinke (Senest)
             // Ut-tur: Hent < Opp for ALLE → kan kun fremskynde (Tidligst)
             + '        const direksjoner = g.turer.map(t => {'
@@ -994,7 +1027,7 @@
             + '        if (alleRetur) visAlternativer = ["Senest (retur — kun forsinkelse OK)"];'
             + '        else if (alleUt) visAlternativer = ["Tidligst (ut-tur — kun fremskyndelse OK)"];'
             + '        else visAlternativer = ["Senest", "Tidligst"];'
-            + '        html += "<div class=\\"forslag\\"><div class=\\"tittel\\">Felles henting — forslag</div>";'
+            + '        html += "<div class=\\"forslag\\"><div class=\\"tittel\\">"+tittelTekst+"</div>";'
             + '        if (!alleRetur && !alleUt) html += "<div style=\\"font-size:10px;color:#fbbf24;margin-bottom:4px;\\">⚠ Blandet retning — sjekk hver tur</div>";'
             + '        visAlternativer.forEach((label, opt) => {'
             + '          const erSenest = label.startsWith("Senest");'
@@ -1018,7 +1051,7 @@
             + '  const bounds = new google.maps.LatLngBounds();'
             + '  GRUPPER.forEach((g, gi) => {'
             + '    const farge = FARGER[gi % FARGER.length];'
-            + '    if (g.felles) {'
+            + '    if (g.felles === "fra") {'
             // Felles henting: A = pickup, B/C/D... = drop-offs i rekkefølge
             + '      const fraPos = g.turer[0].fraGeo;'
             + '      if (fraPos) {'
@@ -1026,19 +1059,40 @@
             + '        markører.push(new google.maps.Marker({position: fraPos, map: map, label: {text: "A", color: "#fff", fontSize: "13px", fontWeight: "700"}, title: "A — Felles pickup: " + g.turer[0].fra + "\\n" + navnliste, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: farge, fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2}}));'
             + '        bounds.extend(fraPos);'
             + '      }'
-            // Sorter drop-offs etter avstand fra pickup (nærmeste først → ABC-rekkefølge)
-            + '      const drops = g.turer.filter(t => t.tilGeo).slice().sort((a,b) => {'
-            + '        if (!fraPos) return 0;'
-            + '        return haversineKm(fraPos, a.tilGeo) - haversineKm(fraPos, b.tilGeo);'
-            + '      });'
+            + '      const drops = g.turer.filter(t => t.tilGeo).slice().sort((a,b) => fraPos ? (haversineKm(fraPos, a.tilGeo) - haversineKm(fraPos, b.tilGeo)) : 0);'
             + '      const ruteSekvens = fraPos ? [fraPos] : [];'
             + '      drops.forEach((t, di) => {'
-            + '        const bokstav = String.fromCharCode(66 + di);'  // B, C, D, ...
+            + '        const bokstav = String.fromCharCode(66 + di);'
             + '        markører.push(new google.maps.Marker({position: t.tilGeo, map: map, label: {text: bokstav, color: "#fff", fontSize: "12px", fontWeight: "700"}, title: bokstav + " — Drop: " + t.navn + " (" + t.til + ")", icon: {path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: farge, fillOpacity: 0.7, strokeColor: "#fff", strokeWeight: 2}}));'
             + '        bounds.extend(t.tilGeo);'
             + '        ruteSekvens.push(t.tilGeo);'
             + '      });'
-            // Tegn rute som forbinder A→B→C→...
+            + '      if (ruteSekvens.length >= 2) {'
+            + '        polylinjer.push(new google.maps.Polyline({path: ruteSekvens, geodesic: true, strokeColor: farge, strokeOpacity: 0.8, strokeWeight: 4, map: map, icons: [{icon: {path: google.maps.SymbolPath.FORWARD_OPEN_ARROW, scale: 3}, offset: "50%", repeat: "100px"}]}));'
+            + '      }'
+            + '    } else if (g.felles === "til") {'
+            // Felles destinasjon: A/B/C... = pickups (sortert etter Hent-tid), siste bokstav = felles drop
+            + '      const pickups = g.turer.filter(t => t.fraGeo).slice().sort((a,b) => {'
+            + '        const ta = parseHHMM(a.henteTid), tb = parseHHMM(b.henteTid);'
+            + '        if (ta === null || tb === null) return 0;'
+            + '        return ta - tb;'
+            + '      });'
+            + '      const ruteSekvens = [];'
+            + '      pickups.forEach((t, pi) => {'
+            + '        const bokstav = String.fromCharCode(65 + pi);'  // A, B, C
+            + '        markører.push(new google.maps.Marker({position: t.fraGeo, map: map, label: {text: bokstav, color: "#fff", fontSize: "12px", fontWeight: "700"}, title: bokstav + " — Pickup: " + t.navn + " kl " + t.henteTid + " (" + t.fra + ")", icon: {path: google.maps.SymbolPath.CIRCLE, scale: 13, fillColor: farge, fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2}}));'
+            + '        bounds.extend(t.fraGeo);'
+            + '        ruteSekvens.push(t.fraGeo);'
+            + '      });'
+            // Felles drop = siste bokstav etter pickups
+            + '      const tilPos = g.turer[0].tilGeo;'
+            + '      if (tilPos) {'
+            + '        const dropBokstav = String.fromCharCode(65 + pickups.length);'
+            + '        const navnliste = g.turer.map(t => t.navn).join(", ");'
+            + '        markører.push(new google.maps.Marker({position: tilPos, map: map, label: {text: dropBokstav, color: "#fff", fontSize: "13px", fontWeight: "700"}, title: dropBokstav + " — Felles destinasjon: " + g.turer[0].til + "\\n" + navnliste, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: farge, fillOpacity: 0.7, strokeColor: "#fff", strokeWeight: 2}}));'
+            + '        bounds.extend(tilPos);'
+            + '        ruteSekvens.push(tilPos);'
+            + '      }'
             + '      if (ruteSekvens.length >= 2) {'
             + '        polylinjer.push(new google.maps.Polyline({path: ruteSekvens, geodesic: true, strokeColor: farge, strokeOpacity: 0.8, strokeWeight: 4, map: map, icons: [{icon: {path: google.maps.SymbolPath.FORWARD_OPEN_ARROW, scale: 3}, offset: "50%", repeat: "100px"}]}));'
             + '      }'
