@@ -1,9 +1,10 @@
-// === BASIC TOOLS v1.21-dev ===
+// === BASIC TOOLS v1.22-dev ===
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.19-dev: V-rader har Fra+Til i én celle (br-separert) + sett TURER via window-prop, ikke inline JSON
 // v1.20-dev: BR-detection før header-lookup — V-rad kan ha "Fra"-header som peker på kombinert celle
 // v1.21-dev: samkjøring-algoritme — geocode + grupper på fra-nærhet, vis info i popup
+// v1.22-dev: blå-font fallback for henteTid + A/B/C-sekvens på kartet for samkjøring-grupper
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -28,7 +29,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.21-dev';
+    const VERSJON = '1.22-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -244,8 +245,21 @@
         const erP = id.startsWith('P-');
         if (!erV && !erP) return null;
         const resId = id.replace(/^[VP]-/, '');
-        const henteTid = lesKolonneFraRad(rad, 'start') || lesKolonneFraRad(rad, 'reise tid');
-        const oppTid = lesKolonneFraRad(rad, 'opp tid') || lesKolonneFraRad(rad, 'opptid') || lesKolonneFraRad(rad, 'oppmtid');
+        // Hent tider — prøv kolonne-lookup først, fall tilbake til blå/lilla font (V-rad-mønster)
+        let henteTid = lesKolonneFraRad(rad, 'start') || lesKolonneFraRad(rad, 'reise tid') || lesKolonneFraRad(rad, 'rtid');
+        let oppTid = lesKolonneFraRad(rad, 'opp tid') || lesKolonneFraRad(rad, 'opptid') || lesKolonneFraRad(rad, 'oppmtid');
+        if (!henteTid) {
+            const blaa = rad.querySelector('font[color="#0000FF"]');
+            if (blaa) henteTid = blaa.textContent.trim();
+        }
+        if (!oppTid) {
+            const lilla = rad.querySelector('font[color="#330066"]');
+            if (lilla) oppTid = lilla.textContent.trim();
+        }
+        // Trekk ut bare HH:MM hvis det er prefiks med dato
+        const klokkeMatch = (s) => { const m = String(s||'').match(/(\d{1,2}:\d{2})/); return m ? m[1] : s; };
+        henteTid = klokkeMatch(henteTid);
+        oppTid = klokkeMatch(oppTid);
         const ft = lesFraTilFraRad(rad);
         return {
             type: erV ? 'V' : 'P',
@@ -944,10 +958,18 @@
             + '    const overskrift = g.felles ? "🔄 SAMKJØRING-KANDIDAT (" + g.turer.length + ")" : "ENKELTUR";'
             + '    html += "<div class=\\"" + klasse + "\\">"'
             + '      + "<div class=\\"gruppe-header\\"><span class=\\"farge-dot\\" style=\\"background:" + farge + "\\"></span>" + overskrift + "</div>";'
-            + '    g.turer.forEach((t, ti) => {'
+            // Sorter turer i gruppe så listen matcher ABC-rekkefølgen på kartet
+            + '    let sorterte = g.turer;'
+            + '    if (g.felles && g.turer[0].fraGeo) {'
+            + '      const fraPos = g.turer[0].fraGeo;'
+            + '      sorterte = g.turer.slice().sort((a,b) => (a.tilGeo && b.tilGeo) ? (haversineKm(fraPos, a.tilGeo) - haversineKm(fraPos, b.tilGeo)) : 0);'
+            + '    }'
+            + '    sorterte.forEach((t, ti) => {'
             + '      const idx = TURER.indexOf(t);'
+            + '      const bokstav = g.felles ? String.fromCharCode(66 + ti) : "";'  // B, C, D for drop-offs
+            + '      const prefix = g.felles ? "<span style=\\"display:inline-block;width:18px;height:18px;background:"+farge+";color:#fff;border-radius:50%;font-size:11px;font-weight:700;text-align:center;line-height:18px;margin-right:6px;\\">"+bokstav+"</span>" : "";'
             + '      html += "<div class=\\"tur\\" id=\\"tur-"+idx+"\\" onclick=\\"visTur(" + idx + ")\\">"'
-            + '        + "<div class=\\"navn\\"><span class=\\"tag tag-"+t.type+"\\">"+t.type+"</span> " + esc(t.navn) + (t.behov ? " <span style=\\"color:#94a3b8;font-weight:400;font-size:11px;\\">· " + esc(t.behov) + "</span>" : "") + "</div>"'
+            + '        + "<div class=\\"navn\\">" + prefix + "<span class=\\"tag tag-"+t.type+"\\">"+t.type+"</span> " + esc(t.navn) + (t.behov ? " <span style=\\"color:#94a3b8;font-weight:400;font-size:11px;\\">· " + esc(t.behov) + "</span>" : "") + "</div>"'
             + '        + "<div class=\\"tider-rad\\"><span><b>Hent:</b> " + esc(t.henteTid) + "</span>" + (t.oppTid ? "<span><b>Opp:</b> " + esc(t.oppTid) + "</span>" : "") + "</div>"'
             + '        + "<div class=\\"meta\\">" + esc(t.fra) + " → " + esc(t.til) + "</div>"'
             + '        + "</div>";'
@@ -980,19 +1002,45 @@
             + '  const bounds = new google.maps.LatLngBounds();'
             + '  GRUPPER.forEach((g, gi) => {'
             + '    const farge = FARGER[gi % FARGER.length];'
-            + '    g.turer.forEach(t => {'
+            + '    if (g.felles) {'
+            // Felles henting: A = pickup, B/C/D... = drop-offs i rekkefølge
+            + '      const fraPos = g.turer[0].fraGeo;'
+            + '      if (fraPos) {'
+            + '        const navnliste = g.turer.map(t => t.navn).join(", ");'
+            + '        markører.push(new google.maps.Marker({position: fraPos, map: map, label: {text: "A", color: "#fff", fontSize: "13px", fontWeight: "700"}, title: "A — Felles pickup: " + g.turer[0].fra + "\\n" + navnliste, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: farge, fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2}}));'
+            + '        bounds.extend(fraPos);'
+            + '      }'
+            // Sorter drop-offs etter avstand fra pickup (nærmeste først → ABC-rekkefølge)
+            + '      const drops = g.turer.filter(t => t.tilGeo).slice().sort((a,b) => {'
+            + '        if (!fraPos) return 0;'
+            + '        return haversineKm(fraPos, a.tilGeo) - haversineKm(fraPos, b.tilGeo);'
+            + '      });'
+            + '      const ruteSekvens = fraPos ? [fraPos] : [];'
+            + '      drops.forEach((t, di) => {'
+            + '        const bokstav = String.fromCharCode(66 + di);'  // B, C, D, ...
+            + '        markører.push(new google.maps.Marker({position: t.tilGeo, map: map, label: {text: bokstav, color: "#fff", fontSize: "12px", fontWeight: "700"}, title: bokstav + " — Drop: " + t.navn + " (" + t.til + ")", icon: {path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: farge, fillOpacity: 0.7, strokeColor: "#fff", strokeWeight: 2}}));'
+            + '        bounds.extend(t.tilGeo);'
+            + '        ruteSekvens.push(t.tilGeo);'
+            + '      });'
+            // Tegn rute som forbinder A→B→C→...
+            + '      if (ruteSekvens.length >= 2) {'
+            + '        polylinjer.push(new google.maps.Polyline({path: ruteSekvens, geodesic: true, strokeColor: farge, strokeOpacity: 0.8, strokeWeight: 4, map: map, icons: [{icon: {path: google.maps.SymbolPath.FORWARD_OPEN_ARROW, scale: 3}, offset: "50%", repeat: "100px"}]}));'
+            + '      }'
+            + '    } else {'
+            // Singletons: F + T som før
+            + '      const t = g.turer[0];'
             + '      if (t.fraGeo) {'
-            + '        const m = new google.maps.Marker({position: t.fraGeo, map: map, label: {text: "F", color: "#fff", fontSize: "12px", fontWeight: "700"}, title: t.navn + " — Fra: " + t.fra + " kl " + t.henteTid, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: farge, fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2}});'
-            + '        markører.push(m); bounds.extend(t.fraGeo);'
+            + '        markører.push(new google.maps.Marker({position: t.fraGeo, map: map, label: {text: "F", color: "#fff", fontSize: "12px", fontWeight: "700"}, title: t.navn + " — Fra: " + t.fra + " kl " + t.henteTid, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: farge, fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2}}));'
+            + '        bounds.extend(t.fraGeo);'
             + '      }'
             + '      if (t.tilGeo) {'
-            + '        const m = new google.maps.Marker({position: t.tilGeo, map: map, label: {text: "T", color: "#fff", fontSize: "12px", fontWeight: "700"}, title: t.navn + " — Til: " + t.til, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: farge, fillOpacity: 0.5, strokeColor: farge, strokeWeight: 2}});'
-            + '        markører.push(m); bounds.extend(t.tilGeo);'
+            + '        markører.push(new google.maps.Marker({position: t.tilGeo, map: map, label: {text: "T", color: "#fff", fontSize: "12px", fontWeight: "700"}, title: t.navn + " — Til: " + t.til, icon: {path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: farge, fillOpacity: 0.5, strokeColor: farge, strokeWeight: 2}}));'
+            + '        bounds.extend(t.tilGeo);'
             + '      }'
             + '      if (t.fraGeo && t.tilGeo) {'
             + '        polylinjer.push(new google.maps.Polyline({path: [t.fraGeo, t.tilGeo], geodesic: true, strokeColor: farge, strokeOpacity: 0.6, strokeWeight: 3, map: map}));'
             + '      }'
-            + '    });'
+            + '    }'
             + '  });'
             + '  if (!bounds.isEmpty()) map.fitBounds(bounds);'
             + '}'
