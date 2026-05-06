@@ -1,4 +1,4 @@
-// === BASIC TOOLS v1.27-dev ===
+// === BASIC TOOLS v1.28-dev ===
 // v1.17-dev: "Sjekk samkjøring" — marker turer (V- eller P-), høyreklikk → kart med pasienter, tider, ruter
 // v1.18-dev: ikke filtrer turer uten Fra/Til (kolonner kan være skjult); fall back på live admin-API
 // v1.19-dev: V-rader har Fra+Til i én celle (br-separert) + sett TURER via window-prop, ikke inline JSON
@@ -10,6 +10,7 @@
 // v1.25-dev: fix grupperings-bug + Tur/Retur-merke per tur så bruker ser at skriptet forstår retning
 // v1.26-dev: rute-rekkefølge for felles-til = sorter pickups på avstand fra drop (fjernest først)
 // v1.27-dev: delta vises på selve tur-kortet (Hent: 10:11 → 10:12 (+1)), ikke i egen forslag-boks
+// v1.28-dev: +5 min per stopp ved felles-til + tydeligere farge på endrede kort
 // v1.1: tid-input auto-formaterer "1300" → "13:00" når 4 sifre er skrevet
 // v1.2: trip.comment-delta er nå TOTAL forskyvning fra opprinnelig tid, ikke akkumulert liste
 // v1.3: høyreklikk på P-rader (pågående) → "Trekk tilbake" (batch, kun fremtidig dato).
@@ -34,7 +35,7 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
-    const VERSJON = '1.27-dev';
+    const VERSJON = '1.28-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -889,6 +890,10 @@
             + '.tur{padding:6px 0;cursor:pointer;font-size:12px;border-top:1px solid rgba(255,255,255,0.05);}'
             + '.tur:first-child{border-top:none;}'
             + '.tur:hover{background:rgba(255,255,255,0.04);}'
+            + '.tur.changed{background:rgba(251,191,36,0.08);border-left:3px solid #fbbf24;padding-left:8px;margin-left:-11px;}'
+            + '.tur .ny-tid{font-weight:700;color:#fbbf24;}'
+            + '.tur.changed-down .ny-tid{color:#3b82f6;}'
+            + '.tur.changed-down{border-left-color:#3b82f6;background:rgba(59,130,246,0.08);}'
             + '.tur.aktiv .navn{color:#fbbf24;}'
             + '.tur .navn{font-weight:600;margin-bottom:2px;font-size:13px;}'
             + '.tur .meta{font-size:11px;color:#94a3b8;line-height:1.4;}'
@@ -1028,25 +1033,34 @@
             + '      const retning = (hH === null || hO === null) ? "ukjent" : (hH >= hO ? "retur" : "tur");'
             + '      const retLabel = retning === "ukjent" ? "?" : (retning === "retur" ? "Retur" : "Tur");'
             + '      const retTag = "<span class=\\"tag tag-" + retning + "\\" title=\\"" + (retning==="retur"?"Hent ≥ Opp = retur (kan kun forsinke)":"Hent < Opp = tur (kan kun fremskynde)") + "\\">" + retLabel + "</span>";'
-            + '      let deltaTekst = "";'
-            + '      if (fellesTid !== null) {'
-            + '        const tH = parseHHMM(t.henteTid);'
-            + '        if (tH !== null) {'
-            + '          const d = fellesTid - tH;'
-            + '          if (d === 0) deltaTekst = " <span class=\\"delta-null\\">(±0)</span>";'
-            + '          else { const klasse = d > 0 ? "delta-pos" : "delta-neg"; deltaTekst = " → <b>" + fmtTid(fellesTid) + "</b> <span class=\\"" + klasse + "\\">(" + (d>0?"+":"") + d + " min)</span>"; }'
-            + '        }'
+            // Per-tur foreslått tid:
+            //  • Felles-fra (retur): alle får samme fellesTid
+            //  • Felles-til (tur): første pickup ved fellesTid, +5 min per stopp etter
+            + '      const tH = parseHHMM(t.henteTid);'
+            + '      let foreslaattTid = null, delta = null, klasseEndret = "";'
+            + '      if (fellesTid !== null && tH !== null) {'
+            + '        if (g.felles === "til") foreslaattTid = fellesTid + ti * 5;'
+            + '        else foreslaattTid = fellesTid;'
+            + '        delta = foreslaattTid - tH;'
+            + '        if (delta > 0) klasseEndret = " changed";'
+            + '        else if (delta < 0) klasseEndret = " changed changed-down";'
             + '      }'
-            + '      html += "<div class=\\"tur\\" id=\\"tur-"+idx+"\\" onclick=\\"visTur(" + idx + ")\\">"'
+            + '      let deltaTekst = "";'
+            + '      if (foreslaattTid !== null && tH !== null) {'
+            + '        if (delta === 0) deltaTekst = " <span class=\\"delta-null\\">(±0)</span>";'
+            + '        else { const dKlasse = delta > 0 ? "delta-pos" : "delta-neg"; deltaTekst = " → <span class=\\"ny-tid\\">" + fmtTid(foreslaattTid) + "</span> <span class=\\"" + dKlasse + "\\">(" + (delta>0?"+":"") + delta + " min)</span>"; }'
+            + '      }'
+            + '      html += "<div class=\\"tur" + klasseEndret + "\\" id=\\"tur-"+idx+"\\" onclick=\\"visTur(" + idx + ")\\">"'
             + '        + "<div class=\\"navn\\">" + prefix + "<span class=\\"tag tag-"+t.type+"\\">"+t.type+"</span>" + retTag + " " + esc(t.navn) + (t.behov ? " <span style=\\"color:#94a3b8;font-weight:400;font-size:11px;\\">· " + esc(t.behov) + "</span>" : "") + "</div>"'
             + '        + "<div class=\\"tider-rad\\"><span><b>Hent:</b> " + esc(t.henteTid) + deltaTekst + "</span>" + (t.oppTid ? "<span><b>Opp:</b> " + esc(t.oppTid) + "</span>" : "") + "</div>"'
             + '        + "<div class=\\"meta\\">" + esc(t.fra) + " → " + esc(t.til) + "</div>"'
             + '        + "</div>";'
             + '    });'
-            // Liten oppsummering: felles tid + retning. Detaljerte deltaer er på selve kortene.
+            // Liten oppsummering: detaljerte deltaer er på selve kortene
             + '    if (g.felles && fellesTid !== null) {'
-            + '      const dirLabel = direksjon === "retur" ? "Retur — kun forsinkelse OK" : "Tur — kun fremskyndelse OK";'
-            + '      html += "<div style=\\"margin-top:6px;padding:5px 10px;background:rgba(59,130,246,0.08);border-radius:4px;font-size:10px;color:#94a3b8;\\">Felles henting: <b style=\\"color:#bfdbfe;\\">" + fmtTid(fellesTid) + "</b> · " + dirLabel + "</div>";'
+            + '      const startStopp = g.felles === "til" ? "Sekvens fra " : "Felles henting: ";'
+            + '      const dirLabel = direksjon === "retur" ? "Retur — kun forsinkelse OK" : (g.felles === "til" ? "Tur — +5 min per stopp" : "Tur — kun fremskyndelse OK");'
+            + '      html += "<div style=\\"margin-top:6px;padding:5px 10px;background:rgba(59,130,246,0.08);border-radius:4px;font-size:10px;color:#94a3b8;\\">" + startStopp + "<b style=\\"color:#bfdbfe;\\">" + fmtTid(fellesTid) + "</b> · " + dirLabel + "</div>";'
             + '    } else if (g.felles && fellesTid === null) {'
             + '      html += "<div style=\\"margin-top:6px;padding:5px 10px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:4px;font-size:10px;color:#fbbf24;\\">⚠ Blandet retning — kan ikke foreslå felles tid</div>";'
             + '    }'
