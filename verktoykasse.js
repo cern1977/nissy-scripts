@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.8 ===
+// === WESTBYS VERKTØYKASSE v2.9 ===
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.0: ekstrahert "Endre hentetid" + høyreklikk-meny til basic_tools.js (egen prod/dev-fil).
 //       Verktoykasse er nå ren shell — status-glow, drag, dropdown, polling, tilgang-loading.
@@ -11,6 +11,7 @@
 // v2.6: nissy_naviger åpner i navngitt vindu (window.open) i stedet for å overstyre admin-tab
 // v2.7: auto-submit form i den nye taben — verktøykasse kjører ikke på rekvisisjons-sider
 // v2.8: same-origin DOM-tilgang i ny tab — fyll ssn og klikk søk-knapp i den faktiske form-siden
+// v2.9: filtrer naviger-kø på operatørens nissy-brukernavn så hver bruker kun får sine jobber
 // v1.2: turid-polling + badge på 🧰
 // v1.3: admin-session-sjekk + keep-alive ping
 // v1.4: faktisk henting av turdetaljer fra admin (ajax_reqdetails)
@@ -46,7 +47,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.8';
+    const VERSJON = '2.9';
     function trygtFjern(el) {
         if (el && el.parentNode) {
             try { el.parentNode.removeChild(el); } catch (_) {}
@@ -935,8 +936,10 @@
 
     async function pollNissyNavigerVentende() {
         if (adminStatus !== 'ok') return;
+        const nissy = hentNissyBrukernavn();
+        if (!nissy) return;
         try {
-            const r = await fetch(`${JOBS_URL}?handling=nissy_naviger_pending`);
+            const r = await fetch(`${JOBS_URL}?handling=nissy_naviger_pending&nissy=${encodeURIComponent(nissy)}`);
             const d = await r.json();
             if (!d.ok || !Array.isArray(d.oppslag) || d.oppslag.length === 0) return;
             // Bare prosesser ÉN navigering om gangen — den endrer URL og dreper scriptet
