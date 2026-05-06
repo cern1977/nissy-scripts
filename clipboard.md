@@ -14,6 +14,12 @@ javascript:(function(){fetch('https://api.github.com/repos/cern1977/nissy-script
 javascript:(function(){fetch('https://api.github.com/repos/cern1977/nissy-scripts/contents/overvaaker_live.js',{headers:{'Accept':'application/vnd.github.raw'}}).then(r=>r.text()).then(t=>eval(t));})();
 ```
 
+### Verktøykasse DEV
+Aktiveres manuelt på NISSY admin-fane når du vil teste utviklingsversjonen ved siden av prod. Plasseres som ekstra knapp (gul "DEV"-tag) under prod-skjoldet. F5 fjerner den.
+```
+javascript:(function(){var s=document.createElement('script');s.src='https://thomaswestby.no/skript/skript.php?fil=verktoykasse_dev.js&_='+Date.now();document.head.appendChild(s);})();
+```
+
 ---
 
 ## Rollback - Overvaker Avvik (v38.0.68 - fast versjon, jsDelivr)
