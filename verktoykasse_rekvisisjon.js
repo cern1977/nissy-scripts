@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT v1.3 ===
+// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT v1.4 ===
 // Headless agent som lastes inn på /rekvisisjon/-modulen.
 // Injiseres automatisk av planlegger-verktøykassen når en rekvisisjon-tab åpnes,
 // eller manuelt via bookmarklet.
@@ -9,7 +9,7 @@
 //  • Mutual keeper: re-injiserer verktoykasse.js i window.opener (planlegger) hvis
 //    planlegger F5'er og mister hovedverktøykassen
 (function () {
-    const VERSJON = '1.3';
+    const VERSJON = '1.4';
     const NAVN = 'VKT-REKVISISJON';
     const MODUL = 'rekvisisjon';
     const JOBS_URL = 'https://thomaswestby.no/skript/nissy_jobs.php';
@@ -103,13 +103,15 @@
     }
 
     // Mutual keeper: hvis planlegger (window.opener) har F5'et og mister
-    // verktøykassen, re-injiserer vi den derfra
+    // verktøykassen, re-injiserer vi den derfra. Sjekker BÅDE prod og dev så vi
+    // ikke ender med to skjold når dev allerede kjører.
     function holdOpenerLevende() {
         try {
             const opener = window.opener;
             if (!opener || opener.closed) return;
             if (!/\/planlegging\//.test(opener.location.pathname)) return;
-            if (opener.__westbyVerktoykasse) return;  // allerede lastet
+            // Hvis enten prod ELLER dev kjører — ikke gjør noe
+            if (opener.__westbyVerktoykasse || opener.__westbyVerktoykasse_dev) return;
             const s = opener.document.createElement('script');
             s.src = 'https://thomaswestby.no/skript/skript.php?fil=verktoykasse.js&_=' + Date.now();
             opener.document.head.appendChild(s);
