@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.33-dev';
+    const VERSION = '38.4.34-dev';
     const TITTEL = 'Overvåker Avvik v' + VERSION;
     // Testvisning av vedtak-godkjente turer — kun i dev-bygg
     const VIS_VEDTAK_KOLONNE = VERSION.endsWith('-dev');
@@ -144,8 +144,9 @@
             if (j.tid) _sistGodkjentTid = j.tid;
             for (const rad of (j.nye || [])) {
                 if (rad.nissy_id === NISSY_BRUKERNAVN) continue; // skip egne
-                // Synk med lokalt minne så neste skann filtrerer bort
+                // Synk med lokalt minne så neste skann filtrerer bort — både rek_nr og tur_id
                 if (rad.rek_nr) godkjentIMinne.add(rad.rek_nr);
+                if (rad.tur_id) godkjentIMinne.add(rad.tur_id);
                 // Varsle popup — fade kort + toast
                 avvikChannel.postMessage({
                     type: 'GODKJENT_AV_ANNEN',
