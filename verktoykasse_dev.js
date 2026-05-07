@@ -1,4 +1,5 @@
-// === WESTBYS VERKTØYKASSE v2.12-dev ===
+// === WESTBYS VERKTØYKASSE v2.13-dev ===
+// HARDKODET DEV: filen brukes kun via dev-keeper-popup (bookmarklet), ikke via Pinger.
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.11: dev/prod-split via filnavn-detektering (verktoykasse_dev.js har eget flagg så
 //        prod og dev kan kjøre i parallell — egen bookmarklet aktiverer dev manuelt)
@@ -51,9 +52,9 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.12-dev';
-    // Filnavn-detektering: verktoykasse_dev.js har eget global-flagg og border-farge
-    const ER_DEV = /\bverktoykasse_dev\b/.test((document.currentScript && document.currentScript.src) || '');
+    const VERSJON = '2.13-dev';
+    // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
+    const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
     function trygtFjern(el) {
         if (el && el.parentNode) {
