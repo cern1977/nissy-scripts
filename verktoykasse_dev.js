@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.18-dev ===
+// === WESTBYS VERKTØYKASSE v2.19-dev ===
 // HARDKODET DEV: filen brukes kun via dev-keeper-popup (bookmarklet), ikke via Pinger.
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.11: dev/prod-split via filnavn-detektering (verktoykasse_dev.js har eget flagg så
@@ -52,7 +52,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.18-dev';
+    const VERSJON = '2.19-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -274,8 +274,8 @@
                     const w = window.open(url, agent.tabName);
                     if (!w) { alert('Popup blokkert'); return; }
                     try { w.focus(); } catch (_) {}
-                    injiserAgentNårKlar(w, agent.fil, agent.flag);
-                    holdTabLevende(w, agent.tabName, url, agent.fil, agent.flag);
+                    injiserAgentNårKlar(w, agent.fil, agent.flag, agent.pathPrefix);
+                    holdTabLevende(w, agent.tabName, url, agent.fil, agent.flag, agent.pathPrefix);
                 };
             }
             return a;
@@ -286,7 +286,8 @@
         snarveier.appendChild(lagSnarvei('Rekvisisjon', REK_URL, 'rek', {
             tabName: 'nissy-rekvisisjon',
             fil: 'verktoykasse_rekvisisjon.js',
-            flag: '__vkt_rekvisisjon_agent'
+            flag: '__vkt_rekvisisjon_agent',
+            pathPrefix: '/rekvisisjon/'
         }));
         meny.appendChild(snarveier);
 
@@ -882,17 +883,19 @@
     }
 
     // Injiser et agent-skript i et åpent (same-origin) vindu.
-    // Venter til document.head finnes (gjentatte forsøk over inntil 20 sek)
-    // siden tab kan åpnes asynkront. Sjekker w[flagName] for å unngå dobbel-load.
-    function injiserAgent(w, filnavn, flagName) {
+    // KRITISK: vent til pathname matcher pathPrefix — ellers injiserer vi i about:blank
+    // før navigeringen er ferdig, og agenten kjører med null-origin → CORS-feil.
+    function injiserAgent(w, filnavn, flagName, pathPrefix) {
         if (!w || w.closed) return false;
         try {
             if (w[flagName]) return true;  // allerede lastet
             if (!w.document || !w.document.head) return false;  // ikke klar ennå
+            const path = (w.location && w.location.pathname) || '';
+            if (pathPrefix && !path.startsWith(pathPrefix)) return false;  // about:blank eller feil path
             const s = w.document.createElement('script');
             s.src = 'https://thomaswestby.no/skript/skript.php?fil=' + filnavn + '&_=' + Date.now();
             w.document.head.appendChild(s);
-            console.log(`[VERKTØYKASSE] injiserte ${filnavn} i ${w.location.pathname || '(ukjent path)'}`);
+            console.log(`[VERKTØYKASSE] injiserte ${filnavn} i ${path}`);
             return true;
         } catch (e) {
             console.warn(`[VERKTØYKASSE] kunne ikke injisere ${filnavn}:`, e.message);
@@ -900,12 +903,12 @@
         }
     }
 
-    // Vent til tab er klar, så injiser. Brukes ved første åpning siden tab er asynkron.
-    async function injiserAgentNårKlar(w, filnavn, flagName, maks = 20000) {
+    // Vent til tab er klar (pathPrefix matcher), så injiser. Polling hver 300ms.
+    async function injiserAgentNårKlar(w, filnavn, flagName, pathPrefix, maks = 20000) {
         const start = Date.now();
         while (Date.now() - start < maks) {
             if (!w || w.closed) return false;
-            if (injiserAgent(w, filnavn, flagName)) return true;
+            if (injiserAgent(w, filnavn, flagName, pathPrefix)) return true;
             await new Promise(r => setTimeout(r, 300));
         }
         console.warn(`[VERKTØYKASSE] injiserAgent timeout for ${filnavn}`);
@@ -914,10 +917,9 @@
 
     // Periodisk keeper — re-injiser agent hvis tab F5'er og mister flag.
     // Bruker LAGRET window-referanse (overlever F5 i target-tab).
-    // window.open('', name) i setInterval blokkeres av browser uten user-activation.
-    const overvåkedeTaber = new Map();  // name → {w, url, filnavn, flagName}
-    function holdTabLevende(w, name, url, filnavn, flagName) {
-        overvåkedeTaber.set(name, { w, url, filnavn, flagName });
+    const overvåkedeTaber = new Map();  // name → {w, url, filnavn, flagName, pathPrefix}
+    function holdTabLevende(w, name, url, filnavn, flagName, pathPrefix) {
+        overvåkedeTaber.set(name, { w, url, filnavn, flagName, pathPrefix });
     }
     setInterval(() => {
         for (const [name, info] of overvåkedeTaber) {
@@ -932,7 +934,7 @@
                 try { flagSet = info.w[info.flagName] ? 'satt' : 'mangler'; } catch (e) { flagSet = 'krasj: ' + e.message; }
                 try { headOK = (info.w.document && info.w.document.head) ? 'klar' : 'mangler'; } catch (e) { headOK = 'krasj: ' + e.message; }
                 console.log(`[VERKTØYKASSE keeper] ${name}: path=${pathname} flag=${flagSet} head=${headOK}`);
-                injiserAgent(info.w, info.filnavn, info.flagName);
+                injiserAgent(info.w, info.filnavn, info.flagName, info.pathPrefix);
             } catch (e) {
                 console.warn(`[VERKTØYKASSE keeper] ${name}: feil`, e);
             }
@@ -948,8 +950,8 @@
                 const w = window.open(url, 'nissy-rekvisisjon');
                 if (!w) throw new Error('popup blokkert');
                 try { w.focus(); } catch (_) {}
-                injiserAgentNårKlar(w, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent');
-                holdTabLevende(w, 'nissy-rekvisisjon', url, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent');
+                injiserAgentNårKlar(w, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent', '/rekvisisjon/');
+                holdTabLevende(w, 'nissy-rekvisisjon', url, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent', '/rekvisisjon/');
                 return;
             }
             case 'planlegging': {
