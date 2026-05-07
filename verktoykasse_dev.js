@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.17-dev ===
+// === WESTBYS VERKTØYKASSE v2.18-dev ===
 // HARDKODET DEV: filen brukes kun via dev-keeper-popup (bookmarklet), ikke via Pinger.
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.11: dev/prod-split via filnavn-detektering (verktoykasse_dev.js har eget flagg så
@@ -52,7 +52,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.17-dev';
+    const VERSJON = '2.18-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -922,9 +922,20 @@
     setInterval(() => {
         for (const [name, info] of overvåkedeTaber) {
             try {
-                if (!info.w || info.w.closed) { overvåkedeTaber.delete(name); continue; }
+                if (!info.w || info.w.closed) {
+                    console.log(`[VERKTØYKASSE keeper] ${name}: lukket, fjerner`);
+                    overvåkedeTaber.delete(name);
+                    continue;
+                }
+                let pathname = '?', flagSet = '?', headOK = '?';
+                try { pathname = info.w.location.pathname; } catch (e) { pathname = 'krasj: ' + e.message; }
+                try { flagSet = info.w[info.flagName] ? 'satt' : 'mangler'; } catch (e) { flagSet = 'krasj: ' + e.message; }
+                try { headOK = (info.w.document && info.w.document.head) ? 'klar' : 'mangler'; } catch (e) { headOK = 'krasj: ' + e.message; }
+                console.log(`[VERKTØYKASSE keeper] ${name}: path=${pathname} flag=${flagSet} head=${headOK}`);
                 injiserAgent(info.w, info.filnavn, info.flagName);
-            } catch (_) {}
+            } catch (e) {
+                console.warn(`[VERKTØYKASSE keeper] ${name}: feil`, e);
+            }
         }
     }, 5000);
 
