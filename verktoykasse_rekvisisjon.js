@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT v1.1 ===
+// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT v1.2 ===
 // Headless agent som lastes inn på /rekvisisjon/-modulen.
 // Injiseres automatisk av planlegger-verktøykassen når en rekvisisjon-tab åpnes,
 // eller manuelt via bookmarklet.
@@ -9,7 +9,7 @@
 //  • Mutual keeper: re-injiserer verktoykasse.js i window.opener (planlegger) hvis
 //    planlegger F5'er og mister hovedverktøykassen
 (function () {
-    const VERSJON = '1.1';
+    const VERSJON = '1.2';
     const NAVN = 'VKT-REKVISISJON';
     const MODUL = 'rekvisisjon';
     const JOBS_URL = 'https://thomaswestby.no/skript/nissy_jobs.php';
@@ -119,5 +119,21 @@
     holdOpenerLevende();
     setInterval(poll, POLL_MS);
     setInterval(holdOpenerLevende, POLL_MS);
-    console.log(`[${NAVN} v${VERSJON}] aktiv — poller jobber + holder opener levende hvert ${POLL_MS / 1000}. sek`);
+
+    // Tydelig oppstarts-banner så det er åpenbart at agenten er lastet
+    console.log(
+        `%c[${NAVN} v${VERSJON}]%c aktiv på ${location.pathname}\n` +
+        `Poller nissy_jobs.php hvert ${POLL_MS / 1000}. sek for modul=${MODUL}\n` +
+        `Holder opener (planlegger) levende. Klar for jobber.`,
+        'background:#fbbf24;color:#451a03;font-weight:700;padding:2px 6px;border-radius:3px;',
+        'color:inherit;'
+    );
+
+    // Heartbeat hvert 30. sek så det er lett å se at agenten fortsatt lever
+    let heartbeatTeller = 0;
+    setInterval(() => {
+        heartbeatTeller++;
+        console.log(`%c[${NAVN}]%c heartbeat #${heartbeatTeller} — opener=${window.opener && !window.opener.closed ? 'levende' : 'borte'}`,
+            'color:#fbbf24;font-weight:600;', 'color:#94a3b8;');
+    }, 30000);
 })();
