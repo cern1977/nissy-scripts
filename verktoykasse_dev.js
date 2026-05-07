@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.15-dev ===
+// === WESTBYS VERKTØYKASSE v2.16-dev ===
 // HARDKODET DEV: filen brukes kun via dev-keeper-popup (bookmarklet), ikke via Pinger.
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.11: dev/prod-split via filnavn-detektering (verktoykasse_dev.js har eget flagg så
@@ -52,7 +52,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.15-dev';
+    const VERSJON = '2.16-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -252,7 +252,8 @@
         meny.appendChild(h);
 
         // Admin / Rekvisisjon-snarveier med statusprikker
-        const lagSnarvei = (tekst, url, statusKey) => {
+        // For Rekvisisjon: åpne i navngitt tab + injiser agent (mutual keeper-mønster)
+        const lagSnarvei = (tekst, url, statusKey, agent) => {
             const a = document.createElement('a');
             a.href = url;
             a.target = '_blank';
@@ -266,12 +267,27 @@
             t.textContent = tekst;
             a.appendChild(prikk);
             a.appendChild(t);
+            // Hvis agent er gitt: åpne i navngitt tab + injiser agent + holdTabLevende
+            if (agent) {
+                a.onclick = (e) => {
+                    e.preventDefault();
+                    const w = window.open(url, agent.tabName);
+                    if (!w) { alert('Popup blokkert'); return; }
+                    try { w.focus(); } catch (_) {}
+                    injiserAgentNårKlar(w, agent.fil, agent.flag);
+                    holdTabLevende(agent.tabName, url, agent.fil, agent.flag);
+                };
+            }
             return a;
         };
         const snarveier = document.createElement('div');
         snarveier.style.cssText = 'display:flex;gap:4px;padding:0 4px 4px;';
         snarveier.appendChild(lagSnarvei('Admin', ADMIN_URL, 'admin'));
-        snarveier.appendChild(lagSnarvei('Rekvisisjon', REK_URL, 'rek'));
+        snarveier.appendChild(lagSnarvei('Rekvisisjon', REK_URL, 'rek', {
+            tabName: 'nissy-rekvisisjon',
+            fil: 'verktoykasse_rekvisisjon.js',
+            flag: '__vkt_rekvisisjon_agent'
+        }));
         meny.appendChild(snarveier);
 
         const skille = document.createElement('div');
