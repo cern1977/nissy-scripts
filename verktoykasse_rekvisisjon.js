@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT v1.2 ===
+// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT v1.3 ===
 // Headless agent som lastes inn på /rekvisisjon/-modulen.
 // Injiseres automatisk av planlegger-verktøykassen når en rekvisisjon-tab åpnes,
 // eller manuelt via bookmarklet.
@@ -9,7 +9,7 @@
 //  • Mutual keeper: re-injiserer verktoykasse.js i window.opener (planlegger) hvis
 //    planlegger F5'er og mister hovedverktøykassen
 (function () {
-    const VERSJON = '1.2';
+    const VERSJON = '1.3';
     const NAVN = 'VKT-REKVISISJON';
     const MODUL = 'rekvisisjon';
     const JOBS_URL = 'https://thomaswestby.no/skript/nissy_jobs.php';
@@ -25,14 +25,18 @@
         console.warn(`[${NAVN}] kjøres utenfor /rekvisisjon/ — er du i riktig fane?`);
     }
 
-    // NISSY-brukernavn fra cookie-prefix (samme logikk som hovedverktøykasse)
+    // NISSY-brukernavn — først fra opener (planlegger har det riktige), så lokal fallback
     function hentNissyBrukernavn() {
+        try {
+            if (window.opener && !window.opener.closed && window.opener.__vkt_brukernavn) {
+                return window.opener.__vkt_brukernavn;
+            }
+        } catch (_) {}
         try {
             const lagret = localStorage.getItem('ovr_nissy_brukernavn');
             if (lagret) return lagret;
         } catch (_) {}
-        const m = document.cookie.match(/(?:^|;\s*)JSESSIONID[^=]*=([^;]+)/);
-        return m ? m[1].split('.')[0].toLowerCase() : '';
+        return '';  // ingen fallback til JSESSIONID-hash, det er ikke et brukernavn
     }
 
     function ventPaaElement(selector, timeout = 5000) {
@@ -77,9 +81,9 @@
         const nissy = hentNissyBrukernavn();
         if (!nissy) return;
         try {
-            const r = await fetch(`${JOBS_URL}?handling=nissy_naviger_pending&nissy=${encodeURIComponent(nissy)}`, {
-                credentials: 'include'
-            });
+            // Ikke bruk credentials:'include' — server returnerer Access-Control-Allow-Origin:*
+            // som ikke er kompatibelt med credentials. Cookies trengs ikke for nissy_jobs.php.
+            const r = await fetch(`${JOBS_URL}?handling=nissy_naviger_pending&nissy=${encodeURIComponent(nissy)}`);
             const d = await r.json();
             if (!d.ok || !Array.isArray(d.oppslag)) return;
             // Filtrer på modul (server returnerer alle nissy_naviger-jobber for brukeren)
