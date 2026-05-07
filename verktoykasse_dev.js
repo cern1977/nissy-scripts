@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.16-dev ===
+// === WESTBYS VERKTØYKASSE v2.17-dev ===
 // HARDKODET DEV: filen brukes kun via dev-keeper-popup (bookmarklet), ikke via Pinger.
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.11: dev/prod-split via filnavn-detektering (verktoykasse_dev.js har eget flagg så
@@ -52,7 +52,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.16-dev';
+    const VERSJON = '2.17-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -275,7 +275,7 @@
                     if (!w) { alert('Popup blokkert'); return; }
                     try { w.focus(); } catch (_) {}
                     injiserAgentNårKlar(w, agent.fil, agent.flag);
-                    holdTabLevende(agent.tabName, url, agent.fil, agent.flag);
+                    holdTabLevende(w, agent.tabName, url, agent.fil, agent.flag);
                 };
             }
             return a;
@@ -912,17 +912,18 @@
         return false;
     }
 
-    // Periodisk keeper — re-injiser agent hvis tab F5'er og mister flag
-    const overvåkedeTaber = new Map();  // name → {filnavn, flagName}
-    function holdTabLevende(name, url, filnavn, flagName) {
-        overvåkedeTaber.set(name, { filnavn, flagName });
+    // Periodisk keeper — re-injiser agent hvis tab F5'er og mister flag.
+    // Bruker LAGRET window-referanse (overlever F5 i target-tab).
+    // window.open('', name) i setInterval blokkeres av browser uten user-activation.
+    const overvåkedeTaber = new Map();  // name → {w, url, filnavn, flagName}
+    function holdTabLevende(w, name, url, filnavn, flagName) {
+        overvåkedeTaber.set(name, { w, url, filnavn, flagName });
     }
     setInterval(() => {
         for (const [name, info] of overvåkedeTaber) {
             try {
-                const w = window.open('', name);
-                if (!w || w.closed) { overvåkedeTaber.delete(name); continue; }
-                injiserAgent(w, info.filnavn, info.flagName);
+                if (!info.w || info.w.closed) { overvåkedeTaber.delete(name); continue; }
+                injiserAgent(info.w, info.filnavn, info.flagName);
             } catch (_) {}
         }
     }, 5000);
@@ -937,7 +938,7 @@
                 if (!w) throw new Error('popup blokkert');
                 try { w.focus(); } catch (_) {}
                 injiserAgentNårKlar(w, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent');
-                holdTabLevende('nissy-rekvisisjon', url, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent');
+                holdTabLevende(w, 'nissy-rekvisisjon', url, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent');
                 return;
             }
             case 'planlegging': {
