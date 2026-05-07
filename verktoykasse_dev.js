@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.14-dev ===
+// === WESTBYS VERKTØYKASSE v2.15-dev ===
 // HARDKODET DEV: filen brukes kun via dev-keeper-popup (bookmarklet), ikke via Pinger.
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.11: dev/prod-split via filnavn-detektering (verktoykasse_dev.js har eget flagg så
@@ -52,7 +52,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.14-dev';
+    const VERSJON = '2.15-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -865,33 +865,48 @@
         });
     }
 
-    // Injiser et agent-skript i et åpent (same-origin) vindu hvis det ikke allerede er lastet
-    function injiserAgent(w, filnavn, flagName, pathPrefix) {
+    // Injiser et agent-skript i et åpent (same-origin) vindu.
+    // Venter til document.head finnes (gjentatte forsøk over inntil 20 sek)
+    // siden tab kan åpnes asynkront. Sjekker w[flagName] for å unngå dobbel-load.
+    function injiserAgent(w, filnavn, flagName) {
         if (!w || w.closed) return false;
         try {
-            if (pathPrefix && !w.location.pathname.startsWith(pathPrefix)) return false;
             if (w[flagName]) return true;  // allerede lastet
+            if (!w.document || !w.document.head) return false;  // ikke klar ennå
             const s = w.document.createElement('script');
             s.src = 'https://thomaswestby.no/skript/skript.php?fil=' + filnavn + '&_=' + Date.now();
             w.document.head.appendChild(s);
-            console.log(`[VERKTØYKASSE] injiserte ${filnavn} i ${w.location.pathname}`);
+            console.log(`[VERKTØYKASSE] injiserte ${filnavn} i ${w.location.pathname || '(ukjent path)'}`);
             return true;
         } catch (e) {
+            console.warn(`[VERKTØYKASSE] kunne ikke injisere ${filnavn}:`, e.message);
             return false;
         }
     }
 
-    // Periodisk sjekk — hvis tab F5'er eller agent forsvinner, re-injiser
-    const overvåkedeTaber = new Map();  // name → {url, filnavn, flagName, pathPrefix}
-    function holdTabLevende(name, url, filnavn, flagName, pathPrefix) {
-        overvåkedeTaber.set(name, { url, filnavn, flagName, pathPrefix });
+    // Vent til tab er klar, så injiser. Brukes ved første åpning siden tab er asynkron.
+    async function injiserAgentNårKlar(w, filnavn, flagName, maks = 20000) {
+        const start = Date.now();
+        while (Date.now() - start < maks) {
+            if (!w || w.closed) return false;
+            if (injiserAgent(w, filnavn, flagName)) return true;
+            await new Promise(r => setTimeout(r, 300));
+        }
+        console.warn(`[VERKTØYKASSE] injiserAgent timeout for ${filnavn}`);
+        return false;
+    }
+
+    // Periodisk keeper — re-injiser agent hvis tab F5'er og mister flag
+    const overvåkedeTaber = new Map();  // name → {filnavn, flagName}
+    function holdTabLevende(name, url, filnavn, flagName) {
+        overvåkedeTaber.set(name, { filnavn, flagName });
     }
     setInterval(() => {
         for (const [name, info] of overvåkedeTaber) {
             try {
-                const w = window.open('', name);  // henter eksisterende vindu hvis det finnes
+                const w = window.open('', name);
                 if (!w || w.closed) { overvåkedeTaber.delete(name); continue; }
-                injiserAgent(w, info.filnavn, info.flagName, info.pathPrefix);
+                injiserAgent(w, info.filnavn, info.flagName);
             } catch (_) {}
         }
     }, 5000);
@@ -905,8 +920,8 @@
                 const w = window.open(url, 'nissy-rekvisisjon');
                 if (!w) throw new Error('popup blokkert');
                 try { w.focus(); } catch (_) {}
-                injiserAgent(w, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent', '/rekvisisjon/');
-                holdTabLevende('nissy-rekvisisjon', url, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent', '/rekvisisjon/');
+                injiserAgentNårKlar(w, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent');
+                holdTabLevende('nissy-rekvisisjon', url, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent');
                 return;
             }
             case 'planlegging': {
