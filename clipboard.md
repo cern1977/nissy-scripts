@@ -14,6 +14,12 @@ javascript:(function(){fetch('https://api.github.com/repos/cern1977/nissy-script
 javascript:(function(){fetch('https://api.github.com/repos/cern1977/nissy-scripts/contents/overvaaker_live.js',{headers:{'Accept':'application/vnd.github.raw'}}).then(r=>r.text()).then(t=>eval(t));})();
 ```
 
+### Verktøykasse Rekvisisjons-agent
+Aktiveres på `/rekvisisjon/`-fanen. Headless agent (ingen UI) som lytter på navigerings-jobber fra Zisson og auto-fyller ssn + klikker søk i samme fane. Re-aktivering nødvendig etter F5 (ingen keeper).
+```
+javascript:(function(){var s=document.createElement('script');s.src='https://thomaswestby.no/skript/skript.php?fil=verktoykasse_rekvisisjon.js&_='+Date.now();document.head.appendChild(s);})();
+```
+
 ### Verktøykasse DEV (keeper-popup)
 Åpner en liten popup som holder dev-skjoldet aktivt i NISSY admin — re-injiserer automatisk etter F5 (samme keeper-mønster som Verktøyhylle bruker for prod). Lukk popup-en for å avslutte dev-modus. Plasseres som ekstra knapp (gul "DEV"-tag) under prod-skjoldet.
 ```

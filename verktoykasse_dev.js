@@ -1,4 +1,4 @@
-// === WESTBYS VERKTØYKASSE v2.13-dev ===
+// === WESTBYS VERKTØYKASSE v2.14-dev ===
 // HARDKODET DEV: filen brukes kun via dev-keeper-popup (bookmarklet), ikke via Pinger.
 // Launcher-meny som lastes inn i NISSY via Pinger.js-override.
 // v2.11: dev/prod-split via filnavn-detektering (verktoykasse_dev.js har eget flagg så
@@ -52,7 +52,7 @@
 // v1.34: fjern dobbeltklikk-reset (kolliderte med rask toggle)
 // v1.35: auto-logger tidsendring til trip.comment ("gammel→ny av brukernavn")
 (function() {
-    const VERSJON = '2.13-dev';
+    const VERSJON = '2.14-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -865,56 +865,48 @@
         });
     }
 
+    // Injiser et agent-skript i et åpent (same-origin) vindu hvis det ikke allerede er lastet
+    function injiserAgent(w, filnavn, flagName, pathPrefix) {
+        if (!w || w.closed) return false;
+        try {
+            if (pathPrefix && !w.location.pathname.startsWith(pathPrefix)) return false;
+            if (w[flagName]) return true;  // allerede lastet
+            const s = w.document.createElement('script');
+            s.src = 'https://thomaswestby.no/skript/skript.php?fil=' + filnavn + '&_=' + Date.now();
+            w.document.head.appendChild(s);
+            console.log(`[VERKTØYKASSE] injiserte ${filnavn} i ${w.location.pathname}`);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Periodisk sjekk — hvis tab F5'er eller agent forsvinner, re-injiser
+    const overvåkedeTaber = new Map();  // name → {url, filnavn, flagName, pathPrefix}
+    function holdTabLevende(name, url, filnavn, flagName, pathPrefix) {
+        overvåkedeTaber.set(name, { url, filnavn, flagName, pathPrefix });
+    }
+    setInterval(() => {
+        for (const [name, info] of overvåkedeTaber) {
+            try {
+                const w = window.open('', name);  // henter eksisterende vindu hvis det finnes
+                if (!w || w.closed) { overvåkedeTaber.delete(name); continue; }
+                injiserAgent(w, info.filnavn, info.flagName, info.pathPrefix);
+            } catch (_) {}
+        }
+    }, 5000);
+
     function utforNissyNaviger(parametre) {
         switch (parametre.modul) {
             case 'rekvisisjon': {
-                // Same-origin: vi kan gripe DOM-en i den nye taben og fylle/klikke direkte
+                // Åpne tab + injiser headless agent som tar seg av autofyll og fungerer
+                // som mutual keeper for planlegger-verktøykassen.
                 const url = 'https://pastrans-sorost.mq.nhn.no/rekvisisjon/requisition/confirmGetRequisition';
                 const w = window.open(url, 'nissy-rekvisisjon');
                 if (!w) throw new Error('popup blokkert');
                 try { w.focus(); } catch (_) {}
-                if (!parametre.ssn) return;
-
-                // Poll til #ssn-feltet finnes i den nye taben, fyll inn, klikk søk-knapp
-                const start = Date.now();
-                const iv = setInterval(() => {
-                    if (Date.now() - start > 15000) { clearInterval(iv); console.warn('[VERKTØYKASSE] timeout: ssn-felt aldri klart'); return; }
-                    try {
-                        if (w.closed) { clearInterval(iv); return; }
-                        const doc = w.document;
-                        if (!doc) return;
-                        const el = doc.getElementById('ssn');
-                        if (!el) return;
-                        clearInterval(iv);
-                        el.value = parametre.ssn;
-                        // Trigger input/change events for evt. validering
-                        el.dispatchEvent(new w.Event('input', { bubbles: true }));
-                        el.dispatchEvent(new w.Event('change', { bubbles: true }));
-                        // Søk-skjemaet har 4 seksjoner. Vi vil ha knappen for fødselsnummer-søk
-                        // som har id="query_by_ssn" (bekreftet i NISSY-DOM).
-                        const form = el.closest('form');
-                        let btn = doc.getElementById('query_by_ssn');
-                        if (!btn) {
-                            // Fall back: søk i samme fieldset
-                            const fieldset = el.closest('fieldset');
-                            const finnSøk = (rot) => {
-                                if (!rot) return null;
-                                const alle = rot.querySelectorAll('button, input[type="submit"]');
-                                for (const k of alle) {
-                                    const tekst = (k.textContent || k.value || '').trim().toLowerCase();
-                                    if (/^søk\b/.test(tekst)) return k;
-                                }
-                                return null;
-                            };
-                            btn = finnSøk(fieldset) || finnSøk(form);
-                        }
-                        if (btn) btn.click();
-                        else if (form) form.submit();
-                        console.log(`[VERKTØYKASSE] rekvisisjon fylt: ssn=${parametre.ssn} søkknapp="${btn ? (btn.textContent || btn.value || btn.name).trim() : 'ingen — brukte form.submit()'}"`);
-                    } catch (e) {
-                        // Same-origin men kanskje ikke ferdig lastet; prøv igjen
-                    }
-                }, 200);
+                injiserAgent(w, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent', '/rekvisisjon/');
+                holdTabLevende('nissy-rekvisisjon', url, 'verktoykasse_rekvisisjon.js', '__vkt_rekvisisjon_agent', '/rekvisisjon/');
                 return;
             }
             case 'planlegging': {
