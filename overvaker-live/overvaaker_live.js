@@ -8,6 +8,7 @@
 function kjorOvrvaker() {
     if (window._ovrvakerAktiv) { console.log("Overv\u00e5ker Live kj\u00f8rer allerede"); return; }
     window._ovrvakerAktiv = true;
+    window._ovrvakerStoppet = false;   // ny oppstart nullstiller hard-stopp (Avslutt-knappen)
 
     // \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
     // \u2551  OVERV\u00c5KER LIVE                                                    \u2551
@@ -16,7 +17,16 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.21';
+    const VERSJON_FULL = '6.2.29';   // 6.2.29: SMS-maler fra server + Avslutt-knapp (hard-stopp + SPOT-opprydding); beholder 6.2.25 Ukjent-redetect
+    // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
+    //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
+    //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
+    // v6.2.23-dev: live_sesjon.php-start sender kjorekontor
+    // v6.2.22-dev: ovr_filtre sendes med &kontor=<kjorekontor> for kontor-isolering
+    function hentKjorekontorFraTittel() {
+        const m = String(document.title || '').match(/Pasientreisekontor\s+(?:for\s+)?(?:Pasientreiser\s+)?([^\-—|<\n\r]+?)(?:\s*[-—|<\n\r]|\s*$)/i);
+        return m ? m[1].trim() : 'Oslo og Akershus';
+    }
     const TITTEL = `Overvåker Live v${VERSJON_FULL}`;
     console.log(`${TITTEL} startet`);
     const VERSJON = VERSJON_FULL;
@@ -49,6 +59,7 @@ function kjorOvrvaker() {
         // --- Visning ---
         VIS_TUR_FRA_MIN: 0,               // Vis TUR i listen fra passert hentetidspunkt
         VIS_RETUR_FRA_MIN: 0,             // Vis RETUR i listen fra passert hentetidspunkt
+        SKJUL_ANNET_OMRADE: true,         // Skjul turer der HENTEadressen er utenfor OUS (kun Oslo-operatører)
         SPOT_GRENSE_MIN: 25,              // Hvis bestilt <25 min f\u00f8r avreise = SPOT
         REFRESH_INTERVAL_SEC: 60,         // Sekunder mellom hver oppdatering
         DEBUG: true,                      // Vis debug-info i konsollen (skjult panel)
@@ -207,13 +218,40 @@ function kjorOvrvaker() {
     window._ressurskortCache = _ressurskortCache;
     window._sutiXmlCache = _sutiXmlCache;
 
-    // SMS-meldinger (offisielle maler fra NISSY)
+    // SMS-meldinger (offisielle maler fra NISSY).
+    // Standardtekstene under er fallback; faktisk tekst hentes per kj\u00f8rekontor fra
+    // ovr_sms_maler.php (redigeres i admin.php?tab=overvaker) ved oppstart, og
+    // overstyrer SMS_MAL_AKTIV. Holdes i synk med $STANDARD i ovr_sms_maler.php.
+    const SMS_MAL_STD = {
+        TUR: `Vi ser at pasientreisen din til behandling er forsinket utover 15 min. Vi jobber med \u00e5 skaffe bil s\u00e5 fort som mulig. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
+        RETUR: `Vi ser at pasientreisen din fra behandling har lengre ventetid enn 60 min. Du blir hentet s\u00e5 fort som mulig. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
+        RUNDE2: `Pasientreisen din er fortsatt forsinket. Vi beklager ventetiden og jobber med \u00e5 skaffe bil. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`
+    };
+    const SMS_MAL_AKTIV = Object.assign({}, SMS_MAL_STD);
     const SMS_MELDINGER = {
-        TUR: () => `Vi ser at pasientreisen din til behandling er forsinket utover 15 min. Vi jobber med \u00e5 skaffe bil s\u00e5 fort som mulig. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
-        RETUR: () => `Vi ser at pasientreisen din fra behandling har lengre ventetid enn 60 min. Du blir hentet s\u00e5 fort som mulig. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
-        RUNDE2: () => `Pasientreisen din er fortsatt forsinket. Vi beklager ventetiden og jobber med \u00e5 skaffe bil. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
+        TUR: () => SMS_MAL_AKTIV.TUR,
+        RETUR: () => SMS_MAL_AKTIV.RETUR,
+        RUNDE2: () => SMS_MAL_AKTIV.RUNDE2,
         REPETER: () => `Tester repeterende SMS`
     };
+    // Hent kontorets tilpassede maler fra serveren. Stille fallback til standard
+    // ved feil/offline \u2014 SMS-utsending skal aldri blokkeres av at dette feiler.
+    async function lastSmsMalerFraServer() {
+        try {
+            const kontor = hentKjorekontorFraTittel();
+            const r = await fetch('https://thomaswestby.no/skript/ovr_sms_maler.php?action=aktive&kontor=' + encodeURIComponent(kontor));
+            const d = await r.json();
+            if (d && d.ok && d.maler) {
+                Object.keys(SMS_MAL_STD).forEach(k => {
+                    if (typeof d.maler[k] === 'string' && d.maler[k].trim()) SMS_MAL_AKTIV[k] = d.maler[k];
+                });
+            }
+        } catch (e) { /* behold standardtekst */ }
+    }
+    lastSmsMalerFraServer();
+    // Re-hent hvert 5. min s\u00e5 admin-endringer sl\u00e5r inn uten reload av popup.
+    // Spores s\u00e5 Avslutt-knappen (hardStoppOvrvaker) kan rydde den.
+    window._smsMalInterval = setInterval(lastSmsMalerFraServer, 5 * 60 * 1000);
 
     // === Signatur fra NISSY ===
     function hentSignatur() {
@@ -268,7 +306,8 @@ function kjorOvrvaker() {
                 body: JSON.stringify({
                     handling: 'start',
                     nissy_id, signatur: SIGNATUR,
-                    versjon: VERSJON_FULL, skript: 'Live'
+                    versjon: VERSJON_FULL, skript: 'Live',
+                    kjorekontor: hentKjorekontorFraTittel()
                 })
             });
             const j = await res.json();
@@ -280,7 +319,8 @@ function kjorOvrvaker() {
 
         // Heartbeat hvert 60 sek (oppdaterer sist_sett, sjekker popup-close)
         if (sesjonId) {
-            setInterval(async () => {
+            window._sesjonUrl = sesjonUrl;   // eksponer for hardStoppOvrvaker (slutt-beacon)
+            window._sesjonHeartbeat = setInterval(async () => {
                 if (window.smsWin && window.smsWin.closed) {
                     try {
                         navigator.sendBeacon(sesjonUrl, new Blob([JSON.stringify({
@@ -290,16 +330,38 @@ function kjorOvrvaker() {
                     return;
                 }
                 try {
+                    const reSig = hentSignatur();
                     await fetch(sesjonUrl, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
                             handling: 'heartbeat', id: sesjonId,
-                            versjon: VERSJON_FULL
+                            versjon: VERSJON_FULL,
+                            // Re-detekter identitet hver heartbeat: cookies/header dukker ofte opp
+                            // FØRST etter at brukeren har begynt å jobbe. Backend fyller kun tomt.
+                            nissy_id: hentNissyBrukernavn() || '',
+                            signatur: (reSig && reSig !== 'Ukjent') ? reSig : '',
+                            kjorekontor: hentKjorekontorFraTittel()
                         })
                     });
                 } catch(e) {}
             }, 60000);
+
+            // Tidlig re-deteksjon (~8s): retter «Ukjent» raskt uten å vente på første heartbeat.
+            if (!nissy_id || SIGNATUR === 'Ukjent') {
+                setTimeout(() => {
+                    const reSig = hentSignatur();
+                    fetch(sesjonUrl, {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            handling: 'heartbeat', id: sesjonId, versjon: VERSJON_FULL,
+                            nissy_id: hentNissyBrukernavn() || '',
+                            signatur: (reSig && reSig !== 'Ukjent') ? reSig : '',
+                            kjorekontor: hentKjorekontorFraTittel()
+                        })
+                    }).catch(() => {});
+                }, 8000);
+            }
 
             // sendBeacon ved fane-lukking (overlever bedre enn fetch)
             const avsluttSesjon = () => {
@@ -841,7 +903,8 @@ function kjorOvrvaker() {
     let _ovrFiltre = [];
     async function lastOvrFiltre() {
         try {
-            const res = await fetch('https://thomaswestby.no/skript/ovr_filtre.php?action=aktive');
+            const kontor = hentKjorekontorFraTittel();
+            const res = await fetch('https://thomaswestby.no/skript/ovr_filtre.php?action=aktive&kontor=' + encodeURIComponent(kontor) + '&_=' + Date.now(), { cache: 'no-store' });
             if (res.ok) {
                 const data = await res.json();
                 if (data.ok && data.filtre) {
@@ -1461,6 +1524,7 @@ function kjorOvrvaker() {
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
                         <button onclick="window._popupChannel.postMessage({type:'SMS_REFRESH'})" class="btn btn-refresh">&#8635; Oppdater</button>
+                        <button onclick="if(confirm('Avslutte Overvåker Live helt? Hovedløkka stoppes, sesjonen meldes ferdig, og skriptet gjenopplives IKKE ved F5 — du må starte på nytt fra verktøykassen.')) window._popupChannel.postMessage({type:'AVSLUTT'})" class="btn" style="background:#dc2626;" title="Stopp Overvåker Live helt (hard-stopp)">&#9632; Avslutt</button>
                         <div style="position:relative;">
                             <button onclick="event.stopPropagation(); var m=document.getElementById('meny-dropdown'); m.style.display=m.style.display==='block'?'none':'block';" class="btn" style="background:var(--border-input); padding:5px 10px; font-size:16px;" title="Meny">\u22ee</button>
                             <div id="meny-dropdown" style="display:none; position:absolute; right:0; top:calc(100% + 4px); background:#1e293b; border:1px solid #334155; border-radius:6px; box-shadow:0 10px 30px rgba(0,0,0,0.4); padding:4px; z-index:1500; min-width:180px;">
@@ -1606,8 +1670,9 @@ function kjorOvrvaker() {
                             if (opener && !opener.closed && opener.document) {
                                 // Sjekk at NISSY er ferdig lastet
                                 if (opener.document.readyState === 'complete') {
-                                    // Sjekk at skriptet ikke allerede kj\u00f8rer
-                                    if (!opener._ovrvakerAktiv) {
+                                    // Sjekk at skriptet ikke allerede kj\u00f8rer OG ikke er
+                                    // bevisst hard-stoppet via Avslutt-knappen
+                                    if (!opener._ovrvakerAktiv && !opener._ovrvakerStoppet) {
                                         var s = opener.document.createElement('script');
                                         s.src = window._skriptUrl + '&t=' + Date.now();
                                         opener.document.head.appendChild(s);
@@ -2748,7 +2813,7 @@ function kjorOvrvaker() {
             ryddAdminCache(reiserFraTabell.map(r => `${r.reqId}_${r.resId}`));
             const _cyclePre = { ..._cacheStats };
             addDebugLog(`Henter detaljer for ${reiserFraTabell.length} reiser...`);
-            const adminFilterTelling = { rekStartet: 0, rekFramme: 0, rekIkkeMott: 0, overstyrt: 0, bomtur: 0, terskel: 0 };
+            const adminFilterTelling = { rekStartet: 0, rekFramme: 0, rekIkkeMott: 0, overstyrt: 0, bomtur: 0, terskel: 0, annetOmrade: 0 };
 
             for (const reise of reiserFraTabell) {
                 try {
@@ -3066,6 +3131,19 @@ function kjorOvrvaker() {
                         if (ovr.type === 'retning') {
                             erTur = ovr.erTur;
                             addDebugLog(`\u2194 ${pasientNavn} - Overstyrt retning: ${erTur ? 'TUR' : 'RETUR'}`);
+                        }
+                    }
+
+                    // Skjul turer fra andre områder: vis kun hvis HENTEadressen er innenfor OUS.
+                    // (Eks: Drammen→Oslo skjules, Oslo→Kongsberg vises — uansett SMS/etterlysning.)
+                    // Gjelder KUN Oslo-operatører: OUS_POSTNR er Oslo-områder, så andre kontor
+                    // er urørt til vi har deres områder. Ukjent postnr = anta innenfor (erOusPostnr).
+                    if (CONFIG.SKJUL_ANNET_OMRADE && hentestedet && hentKjorekontorFraTittel() === 'Oslo og Akershus') {
+                        const hentePostnr = parsePostnr(hentestedet[3].trim());
+                        if (hentePostnr && !erOusPostnr(hentePostnr)) {
+                            adminFilterTelling.annetOmrade = (adminFilterTelling.annetOmrade || 0) + 1;
+                            addDebugLog(`📍 Skjult (hentes utenfor OUS ${hentePostnr}): ${pasientNavn}`);
+                            continue;
                         }
                     }
 
@@ -3851,7 +3929,7 @@ function kjorOvrvaker() {
 
             // Debug: vis filtreringsoppsummering
             const ft = adminFilterTelling;
-            addDebugLog(`FILTRERT: rekStartet=${ft.rekStartet}, rekFramme=${ft.rekFramme}, rekIkkeMott=${ft.rekIkkeMott}, overstyrt=${ft.overstyrt}, bomtur=${ft.bomtur}, terskel=${ft.terskel} | GJENNOM: ${kandidater.length}`);
+            addDebugLog(`FILTRERT: rekStartet=${ft.rekStartet}, rekFramme=${ft.rekFramme}, rekIkkeMott=${ft.rekIkkeMott}, overstyrt=${ft.overstyrt}, bomtur=${ft.bomtur}, terskel=${ft.terskel}, annetOmrade=${ft.annetOmrade} | GJENNOM: ${kandidater.length}`);
             
             // Lagre ventende reiser (passert visningstidspunkt, venter p\u00e5 SMS-terskel)
             // Inkluder alle som har minTilSms > 0 (ikke n\u00e5dd terskel) og har telefon
@@ -3949,6 +4027,9 @@ function kjorOvrvaker() {
             spotDebounce = setTimeout(_applySpotBadges, 500);
         });
         tabellObs.observe(document.body, { childList: true, subtree: true });
+        // Eksponer så stopp/Avslutt kan koble fra (ellers re-applikeres SPOT-badges
+        // i NISSY for alltid, selv etter at skriptet er stoppet).
+        window._spotObserver = tabellObs;
     })();
 
     function oppdaterVisning(kandidater) {
@@ -5828,6 +5909,10 @@ function kjorOvrvaker() {
             kjorAnalyse();
         }
 
+        if (e.data.type === 'AVSLUTT') {
+            hardStoppOvrvaker();
+        }
+
         if (e.data.type === 'FJERN_SOK') {
             const sokInput = document.querySelector('#freeTextSearch')
                 || document.querySelector('input[name="search"]')
@@ -6916,9 +7001,21 @@ function kjorOvrvaker() {
     setTimeout(kjorAnalyse, 500);
 }
 
+// === RYDD NISSY-DOM ===
+// Fjerner alt skriptet har spr\u00f8ytet inn i planleggeren (SPOT-\u00abS\u00bb-badges + rad-
+// markering) og kobler fra MutationObserveren som ellers re-applikerer badges
+// ved hver NISSY-oppdatering. Kalles fra b\u00e5de vanlig stopp og hard-stopp.
+function ryddNissyDom() {
+    try { if (window._spotObserver) { window._spotObserver.disconnect(); window._spotObserver = null; } } catch (e) {}
+    window._spotResIds = new Set();
+    try { document.querySelectorAll('.ovr-spot-badge,.ovr-spot-prefix').forEach(el => el.remove()); } catch (e) {}
+    try { document.querySelectorAll('tr[id^="P-"]').forEach(tr => { tr.style.outline = ''; }); } catch (e) {}
+}
+
 // === STOPP OVERV\u00c5KER LIVE ===
 function stoppOvrvaker() {
     if (!window._ovrvakerAktiv) return;
+    ryddNissyDom();
 
     // Stopp auto-refresh
     if (window._ovrvakerInterval) {
@@ -6941,6 +7038,40 @@ function stoppOvrvaker() {
     window._ovrvakerAktiv = false;
     console.log("Overv\u00e5ker Live stoppet");
 }
+
+// === HARD-STOPP (Avslutt-knappen) ===
+// Bevisst \u00abjeg er ferdig\u00bb: stopper hovedl\u00f8kka, rydder ALLE parent-timere som
+// ellers lekker (sesjon-heartbeat, SMS-mal-henting), sl\u00e5r av reinject permanent
+// for denne \u00f8kta (_ovrvakerStoppet) s\u00e5 F5 ikke gjenoppliver, melder sesjon-slutt,
+// og lukker popup. M\u00e5 startes p\u00e5 nytt fra verkt\u00f8ykassen.
+function hardStoppOvrvaker() {
+    window._ovrvakerStoppet = true;   // hindrer reinjectSkript i \u00e5 gjenopplive
+
+    // Rydd alt skriptet la inn i NISSY-planleggeren (SPOT-badges + observer)
+    ryddNissyDom();
+
+    // Meld sesjon-slutt til dashboard (sendBeacon overlever vindulukking)
+    try {
+        if (window._sesjonId && window._sesjonUrl) {
+            navigator.sendBeacon(window._sesjonUrl, new Blob([JSON.stringify({
+                handling: 'slutt', id: window._sesjonId
+            })], { type: 'application/json' }));
+        }
+    } catch (e) {}
+
+    // Rydd alle parent-context-timere
+    ['_ovrvakerInterval', '_ovrvakerPopupVakt', '_smsMalInterval', '_sesjonHeartbeat'].forEach(function (n) {
+        if (window[n]) { clearInterval(window[n]); window[n] = null; }
+    });
+
+    // Lukk popup
+    if (window.smsWin && !window.smsWin.closed) { try { window.smsWin.close(); } catch (e) {} }
+    window.smsWin = null;
+
+    window._ovrvakerAktiv = false;
+    console.log("Overv\u00e5ker Live: hard-stoppet av bruker (Avslutt)");
+}
+window.hardStoppOvrvaker = hardStoppOvrvaker;
 
 // Auto-start
 kjorOvrvaker();
