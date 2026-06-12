@@ -8,6 +8,7 @@
 function kjorOvrvaker() {
     if (window._ovrvakerAktiv) { console.log("Overv\u00e5ker Live kj\u00f8rer allerede"); return; }
     window._ovrvakerAktiv = true;
+    window._ovrvakerStoppet = false;   // ny oppstart nullstiller hard-stopp (Avslutt-knappen)
 
     // \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557
     // \u2551  OVERV\u00c5KER LIVE                                                    \u2551
@@ -16,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.25-dev';
+    const VERSJON_FULL = '6.2.26-dev';
     // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
     //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
     //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
@@ -248,8 +249,9 @@ function kjorOvrvaker() {
         } catch (e) { /* behold standardtekst */ }
     }
     lastSmsMalerFraServer();
-    // Re-hent hvert 5. min s\u00e5 admin-endringer sl\u00e5r inn uten reload av popup
-    setInterval(lastSmsMalerFraServer, 5 * 60 * 1000);
+    // Re-hent hvert 5. min s\u00e5 admin-endringer sl\u00e5r inn uten reload av popup.
+    // Spores s\u00e5 Avslutt-knappen (hardStoppOvrvaker) kan rydde den.
+    window._smsMalInterval = setInterval(lastSmsMalerFraServer, 5 * 60 * 1000);
 
     // === Signatur fra NISSY ===
     function hentSignatur() {
@@ -317,7 +319,8 @@ function kjorOvrvaker() {
 
         // Heartbeat hvert 60 sek (oppdaterer sist_sett, sjekker popup-close)
         if (sesjonId) {
-            setInterval(async () => {
+            window._sesjonUrl = sesjonUrl;   // eksponer for hardStoppOvrvaker (slutt-beacon)
+            window._sesjonHeartbeat = setInterval(async () => {
                 if (window.smsWin && window.smsWin.closed) {
                     try {
                         navigator.sendBeacon(sesjonUrl, new Blob([JSON.stringify({
@@ -1500,6 +1503,7 @@ function kjorOvrvaker() {
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
                         <button onclick="window._popupChannel.postMessage({type:'SMS_REFRESH'})" class="btn btn-refresh">&#8635; Oppdater</button>
+                        <button onclick="if(confirm('Avslutte Overvåker Live helt?\n\nHovedløkka stoppes, sesjonen meldes ferdig, og skriptet gjenopplives IKKE ved F5. Du må starte på nytt fra verktøykassen.')) window._popupChannel.postMessage({type:'AVSLUTT'})" class="btn" style="background:#dc2626;" title="Stopp Overvåker Live helt (hard-stopp)">&#9632; Avslutt</button>
                         <div style="position:relative;">
                             <button onclick="event.stopPropagation(); var m=document.getElementById('meny-dropdown'); m.style.display=m.style.display==='block'?'none':'block';" class="btn" style="background:var(--border-input); padding:5px 10px; font-size:16px;" title="Meny">\u22ee</button>
                             <div id="meny-dropdown" style="display:none; position:absolute; right:0; top:calc(100% + 4px); background:#1e293b; border:1px solid #334155; border-radius:6px; box-shadow:0 10px 30px rgba(0,0,0,0.4); padding:4px; z-index:1500; min-width:180px;">
@@ -1645,8 +1649,9 @@ function kjorOvrvaker() {
                             if (opener && !opener.closed && opener.document) {
                                 // Sjekk at NISSY er ferdig lastet
                                 if (opener.document.readyState === 'complete') {
-                                    // Sjekk at skriptet ikke allerede kj\u00f8rer
-                                    if (!opener._ovrvakerAktiv) {
+                                    // Sjekk at skriptet ikke allerede kj\u00f8rer OG ikke er
+                                    // bevisst hard-stoppet via Avslutt-knappen
+                                    if (!opener._ovrvakerAktiv && !opener._ovrvakerStoppet) {
                                         var s = opener.document.createElement('script');
                                         s.src = window._skriptUrl + '&t=' + Date.now();
                                         opener.document.head.appendChild(s);
@@ -5880,6 +5885,10 @@ function kjorOvrvaker() {
             kjorAnalyse();
         }
 
+        if (e.data.type === 'AVSLUTT') {
+            hardStoppOvrvaker();
+        }
+
         if (e.data.type === 'FJERN_SOK') {
             const sokInput = document.querySelector('#freeTextSearch')
                 || document.querySelector('input[name="search"]')
@@ -6993,6 +7002,37 @@ function stoppOvrvaker() {
     window._ovrvakerAktiv = false;
     console.log("Overv\u00e5ker Live stoppet");
 }
+
+// === HARD-STOPP (Avslutt-knappen) ===
+// Bevisst \u00abjeg er ferdig\u00bb: stopper hovedl\u00f8kka, rydder ALLE parent-timere som
+// ellers lekker (sesjon-heartbeat, SMS-mal-henting), sl\u00e5r av reinject permanent
+// for denne \u00f8kta (_ovrvakerStoppet) s\u00e5 F5 ikke gjenoppliver, melder sesjon-slutt,
+// og lukker popup. M\u00e5 startes p\u00e5 nytt fra verkt\u00f8ykassen.
+function hardStoppOvrvaker() {
+    window._ovrvakerStoppet = true;   // hindrer reinjectSkript i \u00e5 gjenopplive
+
+    // Meld sesjon-slutt til dashboard (sendBeacon overlever vindulukking)
+    try {
+        if (window._sesjonId && window._sesjonUrl) {
+            navigator.sendBeacon(window._sesjonUrl, new Blob([JSON.stringify({
+                handling: 'slutt', id: window._sesjonId
+            })], { type: 'application/json' }));
+        }
+    } catch (e) {}
+
+    // Rydd alle parent-context-timere
+    ['_ovrvakerInterval', '_ovrvakerPopupVakt', '_smsMalInterval', '_sesjonHeartbeat'].forEach(function (n) {
+        if (window[n]) { clearInterval(window[n]); window[n] = null; }
+    });
+
+    // Lukk popup
+    if (window.smsWin && !window.smsWin.closed) { try { window.smsWin.close(); } catch (e) {} }
+    window.smsWin = null;
+
+    window._ovrvakerAktiv = false;
+    console.log("Overv\u00e5ker Live: hard-stoppet av bruker (Avslutt)");
+}
+window.hardStoppOvrvaker = hardStoppOvrvaker;
 
 // Auto-start
 kjorOvrvaker();
