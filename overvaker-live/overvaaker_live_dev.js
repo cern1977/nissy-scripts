@@ -16,7 +16,16 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.21-dev';
+    const VERSJON_FULL = '6.2.25-dev';
+    // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
+    //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
+    //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
+    // v6.2.23-dev: live_sesjon.php-start sender kjorekontor
+    // v6.2.22-dev: ovr_filtre sendes med &kontor=<kjorekontor> for kontor-isolering
+    function hentKjorekontorFraTittel() {
+        const m = String(document.title || '').match(/Pasientreisekontor\s+(?:for\s+)?(?:Pasientreiser\s+)?([^\-—|<\n\r]+?)(?:\s*[-—|<\n\r]|\s*$)/i);
+        return m ? m[1].trim() : 'Oslo og Akershus';
+    }
     const TITTEL = `Overvåker Live v${VERSJON_FULL}`;
     console.log(`${TITTEL} startet`);
     const VERSJON = VERSJON_FULL;
@@ -49,6 +58,7 @@ function kjorOvrvaker() {
         // --- Visning ---
         VIS_TUR_FRA_MIN: 0,               // Vis TUR i listen fra passert hentetidspunkt
         VIS_RETUR_FRA_MIN: 0,             // Vis RETUR i listen fra passert hentetidspunkt
+        SKJUL_ANNET_OMRADE: true,         // Skjul turer der HENTEadressen er utenfor OUS (kun Oslo-operatører)
         SPOT_GRENSE_MIN: 25,              // Hvis bestilt <25 min f\u00f8r avreise = SPOT
         REFRESH_INTERVAL_SEC: 60,         // Sekunder mellom hver oppdatering
         DEBUG: true,                      // Vis debug-info i konsollen (skjult panel)
@@ -207,13 +217,39 @@ function kjorOvrvaker() {
     window._ressurskortCache = _ressurskortCache;
     window._sutiXmlCache = _sutiXmlCache;
 
-    // SMS-meldinger (offisielle maler fra NISSY)
+    // SMS-meldinger (offisielle maler fra NISSY).
+    // Standardtekstene under er fallback; faktisk tekst hentes per kj\u00f8rekontor fra
+    // ovr_sms_maler.php (redigeres i admin.php?tab=overvaker) ved oppstart, og
+    // overstyrer SMS_MAL_AKTIV. Holdes i synk med $STANDARD i ovr_sms_maler.php.
+    const SMS_MAL_STD = {
+        TUR: `Vi ser at pasientreisen din til behandling er forsinket utover 15 min. Vi jobber med \u00e5 skaffe bil s\u00e5 fort som mulig. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
+        RETUR: `Vi ser at pasientreisen din fra behandling har lengre ventetid enn 60 min. Du blir hentet s\u00e5 fort som mulig. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
+        RUNDE2: `Pasientreisen din er fortsatt forsinket. Vi beklager ventetiden og jobber med \u00e5 skaffe bil. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`
+    };
+    const SMS_MAL_AKTIV = Object.assign({}, SMS_MAL_STD);
     const SMS_MELDINGER = {
-        TUR: () => `Vi ser at pasientreisen din til behandling er forsinket utover 15 min. Vi jobber med \u00e5 skaffe bil s\u00e5 fort som mulig. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
-        RETUR: () => `Vi ser at pasientreisen din fra behandling har lengre ventetid enn 60 min. Du blir hentet s\u00e5 fort som mulig. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
-        RUNDE2: () => `Pasientreisen din er fortsatt forsinket. Vi beklager ventetiden og jobber med \u00e5 skaffe bil. V\u00e6r tilgjengelig p\u00e5 telefon. Dersom du ikke lenger har behov for reisen m\u00e5 du gi beskjed p\u00e5 05515. Denne SMS kan ikke besvares. Mvh Pasientreiser`,
+        TUR: () => SMS_MAL_AKTIV.TUR,
+        RETUR: () => SMS_MAL_AKTIV.RETUR,
+        RUNDE2: () => SMS_MAL_AKTIV.RUNDE2,
         REPETER: () => `Tester repeterende SMS`
     };
+    // Hent kontorets tilpassede maler fra serveren. Stille fallback til standard
+    // ved feil/offline \u2014 SMS-utsending skal aldri blokkeres av at dette feiler.
+    async function lastSmsMalerFraServer() {
+        try {
+            const kontor = hentKjorekontorFraTittel();
+            const r = await fetch('https://thomaswestby.no/skript/ovr_sms_maler.php?action=aktive&kontor=' + encodeURIComponent(kontor));
+            const d = await r.json();
+            if (d && d.ok && d.maler) {
+                Object.keys(SMS_MAL_STD).forEach(k => {
+                    if (typeof d.maler[k] === 'string' && d.maler[k].trim()) SMS_MAL_AKTIV[k] = d.maler[k];
+                });
+            }
+        } catch (e) { /* behold standardtekst */ }
+    }
+    lastSmsMalerFraServer();
+    // Re-hent hvert 5. min s\u00e5 admin-endringer sl\u00e5r inn uten reload av popup
+    setInterval(lastSmsMalerFraServer, 5 * 60 * 1000);
 
     // === Signatur fra NISSY ===
     function hentSignatur() {
@@ -268,7 +304,8 @@ function kjorOvrvaker() {
                 body: JSON.stringify({
                     handling: 'start',
                     nissy_id, signatur: SIGNATUR,
-                    versjon: VERSJON_FULL, skript: 'Live'
+                    versjon: VERSJON_FULL, skript: 'Live',
+                    kjorekontor: hentKjorekontorFraTittel()
                 })
             });
             const j = await res.json();
@@ -295,7 +332,8 @@ function kjorOvrvaker() {
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
                             handling: 'heartbeat', id: sesjonId,
-                            versjon: VERSJON_FULL
+                            versjon: VERSJON_FULL,
+                            kjorekontor: hentKjorekontorFraTittel()
                         })
                     });
                 } catch(e) {}
@@ -841,7 +879,8 @@ function kjorOvrvaker() {
     let _ovrFiltre = [];
     async function lastOvrFiltre() {
         try {
-            const res = await fetch('https://thomaswestby.no/skript/ovr_filtre.php?action=aktive');
+            const kontor = hentKjorekontorFraTittel();
+            const res = await fetch('https://thomaswestby.no/skript/ovr_filtre.php?action=aktive&kontor=' + encodeURIComponent(kontor) + '&_=' + Date.now(), { cache: 'no-store' });
             if (res.ok) {
                 const data = await res.json();
                 if (data.ok && data.filtre) {
@@ -2748,7 +2787,7 @@ function kjorOvrvaker() {
             ryddAdminCache(reiserFraTabell.map(r => `${r.reqId}_${r.resId}`));
             const _cyclePre = { ..._cacheStats };
             addDebugLog(`Henter detaljer for ${reiserFraTabell.length} reiser...`);
-            const adminFilterTelling = { rekStartet: 0, rekFramme: 0, rekIkkeMott: 0, overstyrt: 0, bomtur: 0, terskel: 0 };
+            const adminFilterTelling = { rekStartet: 0, rekFramme: 0, rekIkkeMott: 0, overstyrt: 0, bomtur: 0, terskel: 0, annetOmrade: 0 };
 
             for (const reise of reiserFraTabell) {
                 try {
@@ -3066,6 +3105,19 @@ function kjorOvrvaker() {
                         if (ovr.type === 'retning') {
                             erTur = ovr.erTur;
                             addDebugLog(`\u2194 ${pasientNavn} - Overstyrt retning: ${erTur ? 'TUR' : 'RETUR'}`);
+                        }
+                    }
+
+                    // Skjul turer fra andre områder: vis kun hvis HENTEadressen er innenfor OUS.
+                    // (Eks: Drammen→Oslo skjules, Oslo→Kongsberg vises — uansett SMS/etterlysning.)
+                    // Gjelder KUN Oslo-operatører: OUS_POSTNR er Oslo-områder, så andre kontor
+                    // er urørt til vi har deres områder. Ukjent postnr = anta innenfor (erOusPostnr).
+                    if (CONFIG.SKJUL_ANNET_OMRADE && hentestedet && hentKjorekontorFraTittel() === 'Oslo og Akershus') {
+                        const hentePostnr = parsePostnr(hentestedet[3].trim());
+                        if (hentePostnr && !erOusPostnr(hentePostnr)) {
+                            adminFilterTelling.annetOmrade = (adminFilterTelling.annetOmrade || 0) + 1;
+                            addDebugLog(`📍 Skjult (hentes utenfor OUS ${hentePostnr}): ${pasientNavn}`);
+                            continue;
                         }
                     }
 
@@ -3851,7 +3903,7 @@ function kjorOvrvaker() {
 
             // Debug: vis filtreringsoppsummering
             const ft = adminFilterTelling;
-            addDebugLog(`FILTRERT: rekStartet=${ft.rekStartet}, rekFramme=${ft.rekFramme}, rekIkkeMott=${ft.rekIkkeMott}, overstyrt=${ft.overstyrt}, bomtur=${ft.bomtur}, terskel=${ft.terskel} | GJENNOM: ${kandidater.length}`);
+            addDebugLog(`FILTRERT: rekStartet=${ft.rekStartet}, rekFramme=${ft.rekFramme}, rekIkkeMott=${ft.rekIkkeMott}, overstyrt=${ft.overstyrt}, bomtur=${ft.bomtur}, terskel=${ft.terskel}, annetOmrade=${ft.annetOmrade} | GJENNOM: ${kandidater.length}`);
             
             // Lagre ventende reiser (passert visningstidspunkt, venter p\u00e5 SMS-terskel)
             // Inkluder alle som har minTilSms > 0 (ikke n\u00e5dd terskel) og har telefon
