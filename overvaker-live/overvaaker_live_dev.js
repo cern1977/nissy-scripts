@@ -17,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.27-dev';
+    const VERSJON_FULL = '6.2.28-dev';
     // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
     //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
     //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
@@ -4006,6 +4006,9 @@ function kjorOvrvaker() {
             spotDebounce = setTimeout(_applySpotBadges, 500);
         });
         tabellObs.observe(document.body, { childList: true, subtree: true });
+        // Eksponer så stopp/Avslutt kan koble fra (ellers re-applikeres SPOT-badges
+        // i NISSY for alltid, selv etter at skriptet er stoppet).
+        window._spotObserver = tabellObs;
     })();
 
     function oppdaterVisning(kandidater) {
@@ -6977,9 +6980,21 @@ function kjorOvrvaker() {
     setTimeout(kjorAnalyse, 500);
 }
 
+// === RYDD NISSY-DOM ===
+// Fjerner alt skriptet har spr\u00f8ytet inn i planleggeren (SPOT-\u00abS\u00bb-badges + rad-
+// markering) og kobler fra MutationObserveren som ellers re-applikerer badges
+// ved hver NISSY-oppdatering. Kalles fra b\u00e5de vanlig stopp og hard-stopp.
+function ryddNissyDom() {
+    try { if (window._spotObserver) { window._spotObserver.disconnect(); window._spotObserver = null; } } catch (e) {}
+    window._spotResIds = new Set();
+    try { document.querySelectorAll('.ovr-spot-badge,.ovr-spot-prefix').forEach(el => el.remove()); } catch (e) {}
+    try { document.querySelectorAll('tr[id^="P-"]').forEach(tr => { tr.style.outline = ''; }); } catch (e) {}
+}
+
 // === STOPP OVERV\u00c5KER LIVE ===
 function stoppOvrvaker() {
     if (!window._ovrvakerAktiv) return;
+    ryddNissyDom();
 
     // Stopp auto-refresh
     if (window._ovrvakerInterval) {
@@ -7010,6 +7025,9 @@ function stoppOvrvaker() {
 // og lukker popup. M\u00e5 startes p\u00e5 nytt fra verkt\u00f8ykassen.
 function hardStoppOvrvaker() {
     window._ovrvakerStoppet = true;   // hindrer reinjectSkript i \u00e5 gjenopplive
+
+    // Rydd alt skriptet la inn i NISSY-planleggeren (SPOT-badges + observer)
+    ryddNissyDom();
 
     // Meld sesjon-slutt til dashboard (sendBeacon overlever vindulukking)
     try {
