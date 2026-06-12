@@ -17,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.26-dev';
+    const VERSJON_FULL = '6.2.27-dev';
     // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
     //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
     //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
@@ -1503,7 +1503,7 @@ function kjorOvrvaker() {
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
                         <button onclick="window._popupChannel.postMessage({type:'SMS_REFRESH'})" class="btn btn-refresh">&#8635; Oppdater</button>
-                        <button onclick="if(confirm('Avslutte Overvåker Live helt?\n\nHovedløkka stoppes, sesjonen meldes ferdig, og skriptet gjenopplives IKKE ved F5. Du må starte på nytt fra verktøykassen.')) window._popupChannel.postMessage({type:'AVSLUTT'})" class="btn" style="background:#dc2626;" title="Stopp Overvåker Live helt (hard-stopp)">&#9632; Avslutt</button>
+                        <button onclick="if(confirm('Avslutte Overvåker Live helt? Hovedløkka stoppes, sesjonen meldes ferdig, og skriptet gjenopplives IKKE ved F5 — du må starte på nytt fra verktøykassen.')) window._popupChannel.postMessage({type:'AVSLUTT'})" class="btn" style="background:#dc2626;" title="Stopp Overvåker Live helt (hard-stopp)">&#9632; Avslutt</button>
                         <div style="position:relative;">
                             <button onclick="event.stopPropagation(); var m=document.getElementById('meny-dropdown'); m.style.display=m.style.display==='block'?'none':'block';" class="btn" style="background:var(--border-input); padding:5px 10px; font-size:16px;" title="Meny">\u22ee</button>
                             <div id="meny-dropdown" style="display:none; position:absolute; right:0; top:calc(100% + 4px); background:#1e293b; border:1px solid #334155; border-radius:6px; box-shadow:0 10px 30px rgba(0,0,0,0.4); padding:4px; z-index:1500; min-width:180px;">
