@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'bestiller.js'
+      - 'bestiller/bestiller.js'
+      - 'bestiller/bestiller_dev.js'
       - '.github/workflows/deploy-bestiller.yml'
   workflow_dispatch:
 
@@ -18,25 +19,72 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
-      - name: Push bestiller.js til server
+      - name: Finn endrede filer
+        id: endret
+        run: |
+          ENDRET=$(git diff --name-only HEAD^ HEAD 2>/dev/null || echo "")
+          DEV=false
+          PROD=false
+          echo "$ENDRET" | grep -q "bestiller/bestiller_dev.js" && DEV=true
+          echo "$ENDRET" | grep -q "bestiller/bestiller.js$" && PROD=true
+          # Manuell trigger → push begge for sikkerhets skyld
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DEV=true
+            PROD=true
+          fi
+          echo "dev=$DEV" >> $GITHUB_OUTPUT
+          echo "prod=$PROD" >> $GITHUB_OUTPUT
+          echo "Dev endret: $DEV, Prod endret: $PROD"
+
+      - name: Push dev til server
+        if: steps.endret.outputs.dev == 'true'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ssh.czvnsicn5.service.one
           username: czvnsicn5_ssh
           password: ${{ secrets.SERVER_SSH_PASSWORD }}
-          source: "bestiller.js"
+          source: "bestiller/bestiller_dev.js"
           target: "~/webroots/by-route/thomaswestby.no_/skript/"
+          strip_components: 1
           overwrite: true
 
-      - name: Verifiser deploy via curl
+      - name: Push prod til server
+        if: steps.endret.outputs.prod == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ssh.czvnsicn5.service.one
+          username: czvnsicn5_ssh
+          password: ${{ secrets.SERVER_SSH_PASSWORD }}
+          source: "bestiller/bestiller.js"
+          target: "~/webroots/by-route/thomaswestby.no_/skript/"
+          strip_components: 1
+          overwrite: true
+
+      - name: Verifiser dev
+        if: steps.endret.outputs.dev == 'true'
+        run: |
+          sleep 3
+          VERSJON=$(curl -s "https://thomaswestby.no/skript/bestiller_dev.js?cb=$(date +%s)" | grep -m 1 "const VERSION")
+          echo "Server (dev): $VERSJON"
+          LOKAL=$(grep -m 1 "const VERSION" bestiller/bestiller_dev.js)
+          if [ "$VERSJON" != "$LOKAL" ]; then
+            echo "⚠️  Dev-versjon mismatch (server: $VERSJON / repo: $LOKAL) — sjekk Varnish-cache"
+            exit 1
+          fi
+          echo "✅ Bestiller dev deployet OK"
+
+      - name: Verifiser prod
+        if: steps.endret.outputs.prod == 'true'
         run: |
           sleep 3
           VERSJON=$(curl -s "https://thomaswestby.no/skript/bestiller.js?cb=$(date +%s)" | grep -m 1 "const VERSION")
-          echo "Server: $VERSJON"
-          LOKAL=$(grep -m 1 "const VERSION" bestiller.js)
+          echo "Server (prod): $VERSJON"
+          LOKAL=$(grep -m 1 "const VERSION" bestiller/bestiller.js)
           if [ "$VERSJON" != "$LOKAL" ]; then
-            echo "⚠️  Versjon mismatch (server: $VERSJON / repo: $LOKAL) — sjekk Varnish-cache"
+            echo "⚠️  Prod-versjon mismatch (server: $VERSJON / repo: $LOKAL) — sjekk Varnish-cache"
             exit 1
           fi
-          echo "✅ Bestiller deployet OK"
+          echo "✅ Bestiller prod deployet OK"
