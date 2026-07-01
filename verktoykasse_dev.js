@@ -1,3 +1,5 @@
+// === WESTBYS VERKTØYKASSE v2.122-dev ===
+// v2.122-dev: toast «ingen kort funnet» → dempet 🪪-symbol m/ tooltip (ikke skremmende tekst som forvirrer operatøren).
 // === WESTBYS VERKTØYKASSE v2.106-dev ===
 // v2.106-dev: DRIFTSMELDING-felt i footeren (per kjørekontor). Til høyre for «🕘 Logg» + «🗗 Vis kart+»
 //             vises en amber melding-pill (📣) når kontoret har en aktiv melding. Styres i admin.php
@@ -229,7 +231,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.121-dev';
+    const VERSJON = '2.122-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1640,8 +1642,15 @@
             : `${ZISSON_OPPSLAG_URL}?tlf=${encodeURIComponent(tlf)}`;
         fetch(oppslagUrl).then(r => r.json()).then(d => {
             if (!d.ok || !d.kort) {
-                kortEl.textContent = d.kort === null ? '(ukjent nummer — ingen kort funnet)' : '(oppslag feilet)';
-                kortEl.style.color = '#fbbf24';
+                if (d.kort === null) {
+                    // Ingen kort lagret på innringeren → IKKE skremmende «ingen kort funnet»-tekst (forvirrer operatøren).
+                    // Bare et lite dempet symbol med tooltip (Thomas 2026-07-01).
+                    kortEl.innerHTML = '<span title="Ingen kontaktkort lagret på dette nummeret" style="cursor:help;color:#64748b;font-size:13px;">🪪</span>';
+                    kortEl.style.color = '';
+                } else {
+                    kortEl.textContent = '(oppslag feilet)';
+                    kortEl.style.color = '#fbbf24';
+                }
                 if (erPasientlinje) autoKlikkPasient('pasientlinje (uten kort)');
                 return;
             }

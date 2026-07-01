@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.34';
+    const VERSION = '38.4.52';  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
     const TITTEL = 'Overvåker Avvik v' + VERSION;
     // Testvisning av vedtak-godkjente turer — kun i dev-bygg
     const VIS_VEDTAK_KOLONNE = VERSION.endsWith('-dev');
@@ -28,7 +28,7 @@
     // Hent brukernavn fra NISSY
     function hentNissyNavn() {
         try {
-            const match = document.body.innerHTML.match(/Pasientreisekontor[^<]*-\s*(?:&nbsp;\s*)*([^<]+)/);
+            const match = document.body.innerHTML.match(/Pasientreisekontor[^<]*(?:\s|&nbsp;)-\s*(?:&nbsp;\s*)*([^<]+)/);
             if (match) {
                 return match[1].trim().replace(/&nbsp;/g, '').trim(); // "Westby, Thomas"
             }
@@ -42,8 +42,23 @@
         if (deler.length === 2) return `${deler[1]} ${deler[0].charAt(0)}.`;
         return fullNavn;
     }
+    // Hent kjørekontor fra NISSY-tittel/body (samme normalisering som verktøykassa):
+    // "Pasientreisekontor (for) (Pasientreiser) Innlandet - ..." → "Innlandet".
+    function hentKjorekontor() {
+        try {
+            const kilder = [document.title,
+                            document.body ? document.body.innerText : '',
+                            document.body ? document.body.innerHTML : ''];
+            for (const s of kilder) {
+                const m = String(s || '').match(/Pasientreisekontor\s+(?:for\s+)?(?:Pasientreiser\s+)?([^\-—|<\n\r]+?)(?:\s*[-—|<\n\r]|\s*$)/i);
+                if (m && m[1].trim()) return m[1].trim();
+            }
+        } catch(e) {}
+        return '';
+    }
     const NISSY_NAVN = hentNissyNavn();
     const SIGNATUR = hentSignatur();
+    const KJOREKONTOR = hentKjorekontor();
     // NISSY-brukernavn (login-koden som "thwe"/"gugu") — til stats-JOIN
     // Auto-detekt fra cookie-prefix: NISSY lagrer preferanser som <brukernavn>efilter, <brukernavn>vopp osv.
     function hentNissyBrukernavn() {
@@ -189,6 +204,23 @@
     }
 
     const SERVER_BASE = 'https://thomaswestby.no/skript';
+    // Host-agnostisk NISSY-origin (pastrans / nissy6 / …) → admin-/dispatch-kall blir same-origin (unngår CORS).
+    const NISSY_ORIGIN = (typeof location !== 'undefined' && /\.nhn\.no$/i.test(location.hostname || '')) ? location.origin : 'https://pastrans-sorost.mq.nhn.no';
+
+    // Skriv merknad i NISSYs avvik-felt (setResourceDeviation) — samme mekanisme som Overvåker Live.
+    // Brukes ved MANUELL godkjenning med grunn. NISSY forventer ISO-8859-1 på æøå.
+    function skrivAvvikMerknadNissy(resId, tekst) {
+        if (!resId || !tekst) return;
+        try {
+            const encodeISO = (s) => encodeURIComponent(s)
+                .replace(/%C3%A6/g, '%E6').replace(/%C3%B8/g, '%F8').replace(/%C3%A5/g, '%E5')
+                .replace(/%C3%86/g, '%C6').replace(/%C3%98/g, '%D8').replace(/%C3%85/g, '%C5');
+            const url = `${NISSY_ORIGIN}/planlegging/ajax-dispatch?update=false&action=setResourceDeviation&rid=${encodeURIComponent(resId)}&deviation=${encodeISO(tekst)}`;
+            fetch(url, { credentials: 'same-origin' }).then(r => {
+                console.log(r.ok ? `[AVVIK] 📝 Merknad skrevet i NISSY (rid ${resId}): ${tekst}` : `[AVVIK] ⚠ Merknad feilet (rid ${resId}): HTTP ${r.status}`);
+            }).catch(e => console.warn('[AVVIK] ⚠ Merknad-feil:', e.message));
+        } catch (e) { console.warn('[AVVIK] ⚠ Merknad-feil:', e.message); }
+    }
 
     // Slå opp vedtak i DB — returnerer første gyldige treff, eller null.
     // Sender hele meldingsteksten; serveren matcher saksnummer/kort_id som substring.
@@ -197,7 +229,8 @@
         try {
             const url = `${SERVER_BASE}/vedtak.php?handling=soek` +
                 `&tekst=${encodeURIComponent(tekst)}` +
-                `&turdato=${encodeURIComponent(turdato || '')}`;
+                `&turdato=${encodeURIComponent(turdato || '')}` +
+                (KJOREKONTOR ? `&kjorekontor=${encodeURIComponent(KJOREKONTOR)}` : '');
             const res = await fetch(url, { cache: 'no-store' });
             const j = await res.json();
             if (!j.ok || !Array.isArray(j.treff) || !j.treff.length) return null;
@@ -441,7 +474,7 @@
 
     // godkjenteKanskjePostnrGH — nå i godkjente_adresser.json (godkjenteKanskjePostnrGH)
 
-    const ADMIN_BASE = 'https://pastrans-sorost.mq.nhn.no/administrasjon/admin';
+    const ADMIN_BASE = NISSY_ORIGIN + '/administrasjon/admin';
     let adminTilgjengelig = false;
 
     async function sjekkAdminLogin() {
@@ -990,11 +1023,14 @@
     }
 
     // Lagre km-resultat for en rekvisisjon
-    function lagreKmResultat(rekNr, folkKm, bestiltKm, turDato) {
+    function lagreKmResultat(rekNr, folkKm, bestiltKm, turDato, usikker, usikreAdr) {
         if (!rekNr) return;
         _kmServerCache[rekNr] = {
             folkKm: folkKm !== null && folkKm !== undefined ? folkKm : null,
             bestiltKm: bestiltKm !== null && bestiltKm !== undefined ? bestiltKm : null,
+            usikker: !!usikker,
+            usikreAdr: Array.isArray(usikreAdr) ? usikreAdr : [],  // adresser Geonorge kun traff på postnr-nivå
+            motor: 'ors',  // skiller ORS-beregnede fra gamle Google-tall (sistnevnte forkastes ved lesing)
             turDato: turDato || new Date().toISOString().slice(0, 10),
             beregnet: new Date().toISOString().slice(0, 10)
         };
@@ -1004,6 +1040,7 @@
     // Synkron cache-lookup per rekNr (brukes i rendering)
     function hentKmFraCache(rekNr) {
         if (!rekNr || !_kmServerCache[rekNr]) return null;
+        if (_kmServerCache[rekNr].motor !== 'ors') return null;  // gammelt Google-tall → ignorer, tving fersk ORS-beregning
         return _kmServerCache[rekNr];
     }
 
@@ -1062,41 +1099,99 @@
         } catch (e) {}
     }
 
-    // Passivt oppslag: returnerer km hvis ruten er cachet, ellers null (kaller aldri Google)
+    // Passivt oppslag: returnerer km kun hvis ruten alt er cachet på server (kaller aldri ORS live)
     async function sjekkKmCache(fraAdresse, tilAdresse) {
         try {
-            const fraRen = fraAdresse ? fraAdresse.replace(/<br>/g, ', ').replace(/<[^>]+>/g, '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim() : '';
-            const tilRen = tilAdresse ? tilAdresse.replace(/<br>/g, ', ').replace(/<[^>]+>/g, '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim() : '';
+            const fraRen = renskAdr(fraAdresse);
+            const tilRen = renskAdr(tilAdresse);
             if (!fraRen || !tilRen) return null;
-            const res = await fetch(`${SERVER_BASE}/googlemaps.php?only_cache=1&fra=${encodeURIComponent(fraRen)}&til=${encodeURIComponent(tilRen)}`);
-            const data = await res.json();
-            if (data.ok) return { km: data.km, tid: data.tid || null };
+            const res = await fetch(`${SERVER_BASE}/ruter.php?cache=1&fra=${encodeURIComponent(fraRen)}&til=${encodeURIComponent(tilRen)}`);
+            const d = await res.json();
+            if (d.ok && d.meter != null) {
+                return { km: Math.round(d.meter / 100) / 10, tid: d.sek ? Math.round(d.sek / 60) : null, usikker: d.fraNivaa !== 'adresse' || d.tilNivaa !== 'adresse' };
+            }
             return null;
         } catch (e) { return null; }
     }
 
+    // Renser HTML-adresse til GATE + POSTNR for geokoding. NISSY-format er «<stedsnavn>, <gate nr>,
+    // <postnr> <sted>» (+ evt. «/Bygg…/Etg.», «Kommune:», «Kommentar:»). Stedsnavnet (f.eks. «Solvang
+    // Kollonihage», «Ortopedisk Poliklinikk/Bygg 6 Inngang B») MÅ bort — det får Geonorge til å feile
+    // (→ «Bestilt: ?»). Vi beholder gata RETT FØR postnummeret + postnr/sted, og dropper alt foran.
+    function renskAdr(adr) {
+        if (!adr) return '';
+        var s = String(adr).replace(/<br\s*\/?>/gi, ',').replace(/<[^>]+>/g, ' ');
+        var deler = s.split(',').map(function (d) { return d.trim(); })
+            .filter(function (d) { return d && !/^(kommune|kommentar)\s*:/i.test(d); });
+        var pnrIdx = -1;
+        for (var i = 0; i < deler.length; i++) { if (/\b\d{4}\b/.test(deler[i])) { pnrIdx = i; break; } }
+        var ut;
+        if (pnrIdx > 0) {
+            // Gate = nærmeste segment FØR postnr som ikke er bygg/etasje/inngang-info.
+            // Stedsnavn (lenger til venstre) blir dermed aldri med.
+            var gIdx = -1;
+            for (var j = pnrIdx - 1; j >= 0; j--) {
+                if (/^(\d+\.?\s*etg|etasje|inngang|bygg|avd|hus|plan)\b/i.test(deler[j])) continue;
+                gIdx = j; break;
+            }
+            var gate = gIdx >= 0 ? deler[gIdx].split('/')[0].trim() : '';
+            ut = (gate ? gate + ' ' : '') + deler[pnrIdx];
+        } else if (pnrIdx === 0) {
+            ut = deler[0];                 // bare postnr-sted (ingen gate)
+        } else {
+            ut = deler.join(' ');          // ingen postnr funnet — fallback til alt
+        }
+        return ut.replace(/\bH\d{3,4}\b/gi, '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    // Google-fallback (reisetid.php = Google Distance Matrix, server-side nøkkel). Lempelig på
+    // stavemåte/feil postnr (det Geonorge er streng på). Brukt KUN når Geonorge bommer.
+    async function googleFallbackKm(fra, til) {
+        try {
+            const r = await fetch(`${SERVER_BASE}/reisetid.php?origin=${encodeURIComponent(fra)}&dest=${encodeURIComponent(til)}`);
+            const d = await r.json();
+            if (d.ok && d.km != null) {
+                console.log(`[KM] Google-fallback: ${fra.substring(0,30)} → ${til.substring(0,30)} = ${d.km} km`);
+                return { km: Math.round(d.km * 10) / 10, tid: d.sek ? Math.round(d.sek / 60) : null };
+            }
+        } catch (e) { console.warn('[KM] Google-fallback feil:', e.message); }
+        return null;
+    }
+
+    // Km: Geonorge-geokoding + ORS-rute (presist/trygt). Treffer Geonorge KUN postnr (eller feiler),
+    // faller vi tilbake til Google (reisetid.php) — men FLAGGER da usikker + kilde='google' så
+    // operatøren verifiserer (Google kan gi falske avvik). Returnerer
+    // {km, tid, usikker, kilde:'geonorge'|'google'|null, usikreAdr:[...]}.
     async function beregnKm(fraAdresse, tilAdresse, handling, seksjon) {
         try {
-            const fraRen = fraAdresse ? fraAdresse.replace(/<br>/g, ', ').replace(/<[^>]+>/g, '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim() : '';
-            const tilRen = tilAdresse ? tilAdresse.replace(/<br>/g, ', ').replace(/<[^>]+>/g, '').replace(/,/g, ' ').replace(/\s+/g, ' ').trim() : '';
+            const fraRen = renskAdr(fraAdresse);
+            const tilRen = renskAdr(tilAdresse);
             if (!fraRen || !tilRen) {
                 console.warn(`[KM] Mangler adresse: fra="${fraRen}" til="${tilRen}"`);
                 return null;
             }
-
-            // Google Maps via googlemaps.php
-            const handlParam = handling ? `&handling=${encodeURIComponent(handling)}` : '';
-            const seksjonParam = seksjon ? `&seksjon=${encodeURIComponent(seksjon)}` : '';
-            const nissyIdParam = NISSY_BRUKERNAVN ? `&nissy_id=${encodeURIComponent(NISSY_BRUKERNAVN)}` : '';
-            const gRes = await fetch(`${SERVER_BASE}/googlemaps.php?kilde=avvik&bruker=${encodeURIComponent(NISSY_NAVN)}${nissyIdParam}${handlParam}${seksjonParam}&fra=${encodeURIComponent(fraRen)}&til=${encodeURIComponent(tilRen)}`);
-            const gData = await gRes.json();
-            if (gData.ok) {
-                const resultat = { km: gData.km, tid: gData.tid || null };
-                console.log(`[KM] Google Maps: ${fraRen.substring(0,30)} → ${tilRen.substring(0,30)} = ${resultat.km} km`);
-                return resultat;
+            const r = await fetch(`${SERVER_BASE}/ruter.php?fra=${encodeURIComponent(fraRen)}&til=${encodeURIComponent(tilRen)}`);
+            const d = await r.json();
+            if (d.ok && d.meter != null) {
+                const fraUs = d.fraNivaa !== 'adresse';
+                const tilUs = d.tilNivaa !== 'adresse';
+                if (!fraUs && !tilUs) {
+                    console.log(`[KM] ORS: ${fraRen.substring(0,30)} → ${tilRen.substring(0,30)} = ${Math.round(d.meter/100)/10} km (adresse)`);
+                    return { km: Math.round(d.meter / 100) / 10, tid: d.sek ? Math.round(d.sek / 60) : null, usikker: false, kilde: 'geonorge', usikreAdr: [] };
+                }
+                // Geonorge traff kun postnr på minst én adresse → Google-fallback (flagges usikker).
+                const usikreAdr = [];
+                if (fraUs) usikreAdr.push(fraRen);
+                if (tilUs) usikreAdr.push(tilRen);
+                const g = await googleFallbackKm(fraRen, tilRen);
+                if (g) return { km: g.km, tid: g.tid, usikker: true, kilde: 'google', usikreAdr: usikreAdr };
+                console.log(`[KM] ORS postnr-estimat (Google-fallback feilet): ${Math.round(d.meter/100)/10} km`);
+                return { km: Math.round(d.meter / 100) / 10, tid: d.sek ? Math.round(d.sek / 60) : null, usikker: true, kilde: 'geonorge', usikreAdr: usikreAdr };
             }
-            console.warn(`[KM] Google Maps fant ikke rute: ${fraRen.substring(0,40)} → ${tilRen.substring(0,40)}`);
-            return null;
+            // Geonorge feilet helt → prøv Google.
+            const g = await googleFallbackKm(fraRen, tilRen);
+            if (g) return { km: g.km, tid: g.tid, usikker: true, kilde: 'google', usikreAdr: [fraRen, tilRen] };
+            console.warn(`[KM] Ingen rute (Geonorge+Google feilet): ${fraRen.substring(0,40)} → ${tilRen.substring(0,40)}`);
+            return { km: null, tid: null, usikker: true, kilde: null, usikreAdr: [fraRen, tilRen] };
         } catch (e) {
             console.error('[KM] Feil i beregnKm:', e.message);
             return null;
@@ -1312,6 +1407,10 @@
     if (window._avvikHeartbeatTimer) {
         clearInterval(window._avvikHeartbeatTimer);
     }
+    if (window._avvikHbWorker) {
+        try { window._avvikHbWorker.terminate(); } catch (e) {}
+        window._avvikHbWorker = null;
+    }
     if (window._avvikAutoRefreshTimer) {
         clearInterval(window._avvikAutoRefreshTimer);
     }
@@ -1440,6 +1539,8 @@
         .gk-btn-sm--green:hover { background: #059669; }
         .gk-btn-sm--amber { background: #f59e0b; color: #fff; }
         .gk-btn-sm--amber:hover { background: #d97706; }
+        .gk-btn-sm:disabled { background: #cbd5e1; color: #f8fafc; cursor: not-allowed; }
+        .gk-btn-sm:disabled:hover { background: #cbd5e1; }
         .gk-perm-section { padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
         .gk-perm-section + .gk-perm-section { margin-top: 10px; }
         .gk-perm-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -2194,19 +2295,25 @@
 
                 console.log(`[ADR] Auto-km ${i+1}/${bekreftedeKandidater.length} RID=${k.reqId}: folkKm=${folkKm?.km ?? 'null'}, bestiltKm=${bestiltKm?.km ?? 'null'}`);
 
+                // Usikker = geokoding traff ikke eksakt adresse (eller feilet). Da stoler vi IKKE på
+                // sammenligningen — vis avviket men varsle operatøren, i stedet for å filtrere/flagge.
+                const kmUsikker = !folkKm || !bestiltKm || folkKm.km == null || bestiltKm.km == null || folkKm.usikker || bestiltKm.usikker;
+
                 // Lagre i server-cache
                 const autoRekNr = admin && admin.rekNr ? admin.rekNr : (k.rekNr || '');
                 if (autoRekNr) {
                     let turDatoISO = new Date().toISOString().slice(0, 10);
                     const datoM = (k.start || '').match(/(\d{1,2})\.(\d{1,2})/);
                     if (datoM) { turDatoISO = `${new Date().getFullYear()}-${datoM[2].padStart(2,'0')}-${datoM[1].padStart(2,'0')}`; }
-                    lagreKmResultat(autoRekNr, folkKm ? folkKm.km : null, bestiltKm ? bestiltKm.km : null, turDatoISO);
+                    lagreKmResultat(autoRekNr, folkKm ? folkKm.km : null, bestiltKm ? bestiltKm.km : null, turDatoISO, kmUsikker);
                 }
 
-                if (folkKm && bestiltKm && bestiltKm.km <= folkKm.km) continue; // OK
+                if (!kmUsikker && bestiltKm.km <= folkKm.km) continue; // sikkert OK → bort
 
                 k.erTur = erTur;
-                k.kmInfo = { folkKm: folkKm?.km || null, bestiltKm: bestiltKm?.km || null, kilde: 'live' };
+                const usikreAdr = [...new Set([...(folkKm?.usikreAdr || []), ...(bestiltKm?.usikreAdr || [])])];
+                const googleBrukt = folkKm?.kilde === 'google' || bestiltKm?.kilde === 'google';
+                k.kmInfo = { folkKm: folkKm?.km ?? null, bestiltKm: bestiltKm?.km ?? null, usikker: kmUsikker, usikreAdr: usikreAdr, googleBrukt: googleBrukt, kilde: 'live' };
                 k.folkAdrTekst = folkAdr;
                 k.fraAdrTekst = fraAdr;
                 k.tilAdrTekst = tilAdr;
@@ -2240,12 +2347,13 @@
 
                 // Kun vis km-info når BEGGE er cachet — partial hit ser ut som en bug
                 if (folkKm && bestiltKm) {
-                    if (bestiltKm.km <= folkKm.km) {
+                    const kmUsikker = folkKm.km == null || bestiltKm.km == null || folkKm.usikker || bestiltKm.usikker;
+                    if (!kmUsikker && bestiltKm.km <= folkKm.km) {
                         console.log(`[ADR] Passiv cache: RID=${k.reqId} OK (${bestiltKm.km}≤${folkKm.km}) — filtrert`);
                         continue;
                     }
                     k.erTur = erTur;
-                    k.kmInfo = { folkKm: folkKm.km, bestiltKm: bestiltKm.km, kilde: 'global' };
+                    k.kmInfo = { folkKm: folkKm.km, bestiltKm: bestiltKm.km, usikker: kmUsikker, kilde: 'global' };
                     k.folkAdrTekst = folkAdr;
                     k.fraAdrTekst = fraAdr;
                     k.tilAdrTekst = tilAdr;
@@ -2269,7 +2377,7 @@
     // ==================================================================
     async function sjekkKommune(rader, statusFn) {
         const funn = [];
-        const kandidater = rader.filter(r => r.harFullInfo && !godkjentIMinne.has(r.rekNr) || godkjentIMinne.has(r.turid) && !(r.rmate && ['RFLY', 'HLSX', 'RP'].includes(r.rmate.toUpperCase())));
+        const kandidater = rader.filter(r => r.harFullInfo && !godkjentIMinne.has(r.rekNr) && !godkjentIMinne.has(r.turid) && !(r.rmate && ['RFLY', 'HLSX', 'RP'].includes(r.rmate.toUpperCase())));
 
         for (let i = 0; i < kandidater.length; i++) {
             const r = kandidater[i];
@@ -2471,8 +2579,10 @@
     }
 
     // ==================================================================
-    //    KJØR SKANN                                                    
+    //    KJØR SKANN
     // ==================================================================
+    const FILTER_LOGG_TERSKEL = 950;   // logg filtre fra dette radantallet (taket er 999)
+    const _avkortLoggTid = {};         // filterId → sist logget (throttle FILTER_AVKORTET, 5 min)
     async function kjorSkann(sjekkType) {
         console.log(`[SKANN] Start: ${sjekkType}`);
         visLasteStatus('Henter reiser...');
@@ -2541,6 +2651,25 @@
                 return f ? f.navn : String(fid);
             }).join(', ');
             advarsler.push({ type: 'red', tekst: `&#9888; Maks antall rader nådd i filter: ${fNavn}. Ikke alle turer vises.` });
+        }
+
+        // Statistikk-logging: filtre som nærmer seg / når 999-rad-taket logges sentralt
+        // (handling=FILTER_AVKORTET) → grunnlag for å vurdere filterinndeling. >=999 betyr at
+        // turer ble droppet stille (kan skjule dubletter). Throttle: maks 1 per filter per 5 min.
+        const _ft = dispatchData.filterTelling || {};
+        const _naa = Date.now();
+        for (const fid in _ft) {
+            const ant = _ft[fid];
+            if (ant < FILTER_LOGG_TERSKEL) continue;
+            if (_naa - (_avkortLoggTid[fid] || 0) < 300000) continue;
+            _avkortLoggTid[fid] = _naa;
+            const f = RFILTER_VALG.find(v => String(v.id) === String(fid));
+            const avkortet = ant >= 999;
+            loggHandling('FILTER_AVKORTET', {
+                seksjon: sjekkType,
+                grunn: avkortet ? '999-rad-tak NÅDD — turer droppet' : 'nær 999-taket',
+                detaljer: `filter=${f ? f.navn : fid} (id ${fid}); rader=${ant}; avkortet=${avkortet ? 'ja' : 'nei'}`
+            });
         }
 
         // Advar om manglende kolonner (men fortsett skannet)
@@ -3022,6 +3151,14 @@
             const pasNavn = a.pnavn || (f.admin1 && f.admin1.pasientNavn) || '';
             const aMeld = f.admin1 ? [f.admin1.meldTransport, f.admin1.meldPasReise].filter(Boolean) : [];
             const bMeld = f.admin2 ? [f.admin2.meldTransport, f.admin2.meldPasReise].filter(Boolean) : [];
+            // AVVIK-payload: BEGGE reiser med, så operatøren kan VELGE hvilken avviket gjelder (Thomas v38.4.51).
+            const ad1 = f.admin1 || {}, ad2 = f.admin2 || {};
+            const avvFelt = {
+                rekNr1: a.rekNr || ad1.rekNr || '', rekNr2: b.rekNr || ad2.rekNr || '',
+                rekvirent1: a.rekvirent || ad1.rekvirent || '', rekvirent2: b.rekvirent || ad2.rekvirent || '',
+                sist1: ad1.sistEndretBruker || '', sist2: ad2.sistEndretBruker || ''
+            };
+            const avvPayload = `type:'AVVIK_DUBLETT', id:'${a.reqId}', resId1:'${a.resId || ''}', resId2:'${b.resId || ''}', turid1:'${a.turid || ''}', turid2:'${b.turid || ''}', start1:'${esc(a.start || '')}', start2:'${esc(b.start || '')}', rmate1:'${esc(a.rmate || '')}', rmate2:'${esc(b.rmate || '')}', rekNr1:'${esc(avvFelt.rekNr1)}', rekNr2:'${esc(avvFelt.rekNr2)}', rekvirent1:'${esc(avvFelt.rekvirent1)}', rekvirent2:'${esc(avvFelt.rekvirent2)}', sist1:'${esc(avvFelt.sist1)}', sist2:'${esc(avvFelt.sist2)}'`;
 
             return `<div class="card dublett" data-rid="${a.reqId}" data-rek="${a.rekNr || ""}">
                 <div class="card-header">
@@ -3052,7 +3189,7 @@
                 </div></div>
                 <div class="card-actions">
                     <button class="btn-check" onclick="window._avvikCh.postMessage({type:'GODKJENN_DUBLETT', id1:'${a.reqId}', id2:'${b.reqId}', resId1:'${a.resId||''}', resId2:'${b.resId||''}', turid1:'${a.turid||''}', turid2:'${b.turid||''}'})">Ikke dobbeltbestilling</button>
-                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK_DUBLETT', id:'${a.reqId}', resId:'${a.resId || ''}', turid1:'${a.turid || ''}', turid2:'${b.turid || ''}', start1:'${esc(a.start || '')}', start2:'${esc(b.start || '')}', rmate1:'${esc(a.rmate || '')}', rmate2:'${esc(b.rmate || '')}', rekNr:'${esc(a.rekNr || (f.admin1 && f.admin1.rekNr ? f.admin1.rekNr : ''))}', rekvirent:'${esc(a.rekvirent || (f.admin1 && f.admin1.rekvirent ? f.admin1.rekvirent : ''))}', bestiller:'${esc(f.admin1 && f.admin1.bestiller ? f.admin1.bestiller : '')}', ansvarligRekvirent:'${esc(f.admin1 && f.admin1.ansvarligRekvirent ? f.admin1.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(f.admin1 && f.admin1.sistEndretBruker ? f.admin1.sistEndretBruker : '')}'})">AVVIK</button>
+                    <button class="btn-avvik" onclick="window._avvikCh.postMessage({${avvPayload}})">AVVIK</button>
                 </div>
             </div>`;
         }
@@ -3086,30 +3223,40 @@
             if (!f.kmInfo && rekNr) {
                 const cached = hentKmFraCache(rekNr);
                 if (cached) {
-                    f.kmInfo = { folkKm: cached.folkKm, bestiltKm: cached.bestiltKm, kilde: 'local' };
+                    f.kmInfo = { folkKm: cached.folkKm, bestiltKm: cached.bestiltKm, usikker: !!cached.usikker, kilde: 'local' };
                 }
             }
 
             // Kilde-ikon: 🏠 = lokal (per rekvisisjon), 🌐 = server (delt), ⚡ = ferskt kall
             const kmKildeIkon = f.kmInfo && f.kmInfo.kilde === 'local'  ? '<span title="Lokal cache (samme rekvisisjon)" style="opacity:0.7;">&#127968;</span> '
                               : f.kmInfo && f.kmInfo.kilde === 'global' ? '<span title="Server-cache (delt mellom brukere)" style="opacity:0.7;">&#127760;</span> '
-                              : f.kmInfo && f.kmInfo.kilde === 'live'   ? '<span title="Ferskt Google-kall" style="opacity:0.7;">&#9889;</span> '
+                              : f.kmInfo && f.kmInfo.kilde === 'live'   ? '<span title="Ferskt ORS-kall (Geonorge+ORS)" style="opacity:0.7;">&#9889;</span> '
                               : '';
 
             let kmHtml = '';
+            const kmUsikker = !!(f.kmInfo && f.kmInfo.usikker);
+            const usikreAdrListe = (f.kmInfo && Array.isArray(f.kmInfo.usikreAdr)) ? f.kmInfo.usikreAdr : [];
+            const googleBrukt = !!(f.kmInfo && f.kmInfo.googleBrukt);
+            const usikkerKjerne = usikreAdrListe.length
+                ? 'usikker: ' + usikreAdrListe.map(esc).join(', ')
+                : 'usikker adresse';
+            const usikkerTekst = ' &#9888; ' + usikkerKjerne + (googleBrukt ? ' &#128205; via Google — sjekk manuelt' : ' — sjekk manuelt');
             if (f.kmInfo && f.kmInfo.folkKm !== null && f.kmInfo.bestiltKm !== null) {
                 const kmAvvik = f.kmInfo.bestiltKm > f.kmInfo.folkKm;
-                const kmStil = kmAvvik
-                    ? 'background:#fef2f2; border-color:#ef4444; color:#991b1b;'
-                    : 'background:#f0fdf4; border-color:#10b981; color:#065f46;';
+                const kmStil = kmUsikker
+                    ? 'background:#fffbeb; border-color:#f59e0b; color:#92400e;'   // gul = usikker, ikke bekreftet avvik
+                    : kmAvvik
+                        ? 'background:#fef2f2; border-color:#ef4444; color:#991b1b;'
+                        : 'background:#f0fdf4; border-color:#10b981; color:#065f46;';
                 kmHtml = `<div class="warning-text" style="${kmStil}">
                     ${kmKildeIkon}Bestilt: ${f.kmInfo.bestiltKm.toFixed(1)} km &nbsp;|&nbsp; Folkereg: ${f.kmInfo.folkKm.toFixed(1)} km
-                    ${!kmAvvik ? ' &#10004; OK' : ''}
+                    ${kmUsikker ? usikkerTekst : (!kmAvvik ? ' &#10004; OK' : '')}
                 </div>`;
             } else if (f.kmInfo) {
                 const bKm = f.kmInfo.bestiltKm !== null ? f.kmInfo.bestiltKm.toFixed(1) + ' km' : '?';
                 const fKm = f.kmInfo.folkKm !== null ? f.kmInfo.folkKm.toFixed(1) + ' km' : '?';
-                kmHtml = `<div class="warning-text">Bestilt: ${bKm} &nbsp;|&nbsp; Folkereg: ${fKm}</div>`;
+                const stil = kmUsikker ? ' style="background:#fffbeb; border-color:#f59e0b; color:#92400e;"' : '';
+                kmHtml = `<div class="warning-text"${stil}>${kmKildeIkon}Bestilt: ${bKm} &nbsp;|&nbsp; Folkereg: ${fKm}${kmUsikker ? usikkerTekst : ''}</div>`;
             }
 
             const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(folkTekst)}&destination=${encodeURIComponent(behandlingsAdr)}`;
@@ -3174,7 +3321,7 @@
                     ${f.godkjentAdresseavvik ? '<div style="margin-top:4px; padding:4px 8px; background:#f0fdf4; border-radius:4px; font-size:11px; color:#166534;">&#9989; <strong>Godkjent adresseavvik</strong> registrert på pasienten</div>' : ''}
                 </div>
                 <div class="card-actions">
-                    ${!f.kmInfo ? `<button class="btn-nissy" id="btnKm-${f.reqId}" onclick="window._avvikCh.postMessage({type:'BEREGN_KM', reqId:'${f.reqId}', resId:'${f.resId || ''}', rekNr:'${esc(rekNr)}', turDato:'${(f.start || '').match(/\\d{1,2}\\.\\d{1,2}/) ? f.start.match(/(\\d{1,2}\\.\\d{1,2})/)[1] : ''}'})">&#128207; Beregn km</button>` : ''}
+                    ${(!f.kmInfo || kmUsikker) ? `<button class="btn-nissy" id="btnKm-${f.reqId}" onclick="window._avvikCh.postMessage({type:'BEREGN_KM', reqId:'${f.reqId}', resId:'${f.resId || ''}', rekNr:'${esc(rekNr)}', turDato:'${(f.start || '').match(/\\d{1,2}\\.\\d{1,2}/) ? f.start.match(/(\\d{1,2}\\.\\d{1,2})/)[1] : ''}'})">${!f.kmInfo ? '&#128207; Beregn km' : '&#128260; Beregn på nytt'}</button>` : ''}
                     <button class="btn-nissy" onclick="window._avvikCh.postMessage({type:'VIS_NISSY', reqId:'${f.reqId}'})">Vis i NISSY</button>
                     <button class="btn-check" onclick="window._avvikCh.postMessage({type:'VIS_GODKJENN_MODAL', reqId:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(rekNr)}', kortType:'adresse', kanskje:${!!adrKanskje}, erTur:${f.erTur === true ? 'true' : f.erTur === false ? 'false' : 'null'}, henteAdr:'${esc(henteAdr)}', leverAdr:'${esc(leverAdr)}', henteNavn:'${esc(henteNavn)}', leverNavn:'${esc(leverNavn)}', folkAdr:'${esc(folkVis.replace(/<br>/g, ", "))}' })">GODKJENN</button>
                     <button class="btn-avvik" onclick="window._avvikCh.postMessage({type:'AVVIK', id:'${f.reqId}', resId:'${f.resId || ''}', turid:'${f.turid || ''}', rekNr:'${esc(rekNr || f.rekNr || '')}', rekvirent:'${esc(f.rekvirent || (harAdmin && f.adminData.rekvirent ? f.adminData.rekvirent : ''))}', bestiller:'${esc(harAdmin && f.adminData.bestiller ? f.adminData.bestiller : '')}', ansvarligRekvirent:'${esc(harAdmin && f.adminData.ansvarligRekvirent ? f.adminData.ansvarligRekvirent : '')}', sistEndretBruker:'${esc(harAdmin && f.adminData.sistEndretBruker ? f.adminData.sistEndretBruker : '')}'})">AVVIK</button>
@@ -3237,7 +3384,7 @@
                     </div>
                     ${kHarAdmin && f.adminData.telefoner && f.adminData.telefoner.length ? '<div style="margin-bottom:8px; padding:6px 10px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; font-size:13px;"><span style="color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; margin-right:8px;">Telefon</span>' + f.adminData.telefoner.map(t => '<a href="tel:' + t.nr.replace(/[^+0-9]/g,'') + '" style="color:#2563eb;text-decoration:none;font-weight:600;">' + t.nr + '</a> <span style="color:#94a3b8;font-size:11px;font-weight:normal;">(' + t.kilde + ')</span>').join(' &nbsp;|&nbsp; ') + '</div>' : ''}
                     ${kFolkAdr ? '<div style="margin-bottom:8px;"><span class="label">Folkeregistrert adresse</span><div class="value">' + kFolkAdr + kKommuneSpan(kFolkKommune) + '</div></div>' : ''}
-                    ${kHarAdmin ? '<div class="row" style="border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f8fafc;"><div class="col"><span class="label">Hentested</span>' + (kFraNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kFraNavn + '</div>' : '') + '<div class="value">' + (kFraAdr || fraVis) + kKommuneSpan(kHenteKommune, f.fraKilde) + '</div>' + (f.adminData.fraKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.fraKommentar + '</div>' : '') + '</div><div style="display:flex; align-items:center; justify-content:center; min-width:40px; max-width:40px; padding:0 4px;"><span style="font-size:20px;">&#10145;&#65039;</span></div><div class="col"><span class="label">Leveringssted</span>' + (kTilNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kTilNavn + '</div>' : '') + '<div class="value">' + (kTilAdr || tilVis) + kKommuneSpan(kLeverKommune, f.tilKilde) + '</div>' + (f.adminData.tilKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.tilKommentar + '</div>' : '') + '</div></div>' : (!kKanskje ? '<div style="margin-bottom:8px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:11px; color:#92400e;">&#9888; Admin ikke tilgjengelig — viser kun data fra tabell. <a href="https://pastrans-sorost.mq.nhn.no/administrasjon/" target="_blank" style="color:#1d4ed8; text-decoration:underline;">Logg inn i admin</a> og skann p\u00e5 nytt for full info.</div>' : '') + '<div class="row"><div class="col"><span class="label">Fra</span><span class="value">' + (f.start || '') + '<br>' + fraVis + kKommuneSpan(kHenteKommune, f.fraKilde) + '</span><span class="label">Til</span><span class="value">' + tilVis + kKommuneSpan(kLeverKommune, f.tilKilde) + '</span></div><div class="col"><span class="label">Rekvirent</span><span class="value">' + (f.rekvirent || '---') + '</span><span class="label">Status</span><span class="value">' + (f.status || '---') + '</span></div></div>'}
+                    ${kHarAdmin ? '<div class="row" style="border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f8fafc;"><div class="col"><span class="label">Hentested</span>' + (kFraNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kFraNavn + '</div>' : '') + '<div class="value">' + (kFraAdr || fraVis) + kKommuneSpan(kHenteKommune, f.fraKilde) + '</div>' + (f.adminData.fraKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.fraKommentar + '</div>' : '') + '</div><div style="display:flex; align-items:center; justify-content:center; min-width:40px; max-width:40px; padding:0 4px;"><span style="font-size:20px;">&#10145;&#65039;</span></div><div class="col"><span class="label">Leveringssted</span>' + (kTilNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kTilNavn + '</div>' : '') + '<div class="value">' + (kTilAdr || tilVis) + kKommuneSpan(kLeverKommune, f.tilKilde) + '</div>' + (f.adminData.tilKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.tilKommentar + '</div>' : '') + '</div></div>' : (!kKanskje ? '<div style="margin-bottom:8px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:11px; color:#92400e;">&#9888; Admin ikke tilgjengelig — viser kun data fra tabell. <a href="' + NISSY_ORIGIN + '/administrasjon/" target="_blank" style="color:#1d4ed8; text-decoration:underline;">Logg inn i admin</a> og skann p\u00e5 nytt for full info.</div>' : '') + '<div class="row"><div class="col"><span class="label">Fra</span><span class="value">' + (f.start || '') + '<br>' + fraVis + kKommuneSpan(kHenteKommune, f.fraKilde) + '</span><span class="label">Til</span><span class="value">' + tilVis + kKommuneSpan(kLeverKommune, f.tilKilde) + '</span></div><div class="col"><span class="label">Rekvirent</span><span class="value">' + (f.rekvirent || '---') + '</span><span class="label">Status</span><span class="value">' + (f.status || '---') + '</span></div></div>'}
                     ${f.vedtakData ? '<div style="margin-top:6px; padding:6px 10px; background:#dcfce7; border:1px solid #16a34a; border-radius:6px; font-size:12px; color:#14532d; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">&#9989; <strong>Vedtak funnet:</strong>&nbsp;' + esc(f.vedtakData.saksnummer || f.vedtakData.kort_id || '') + (f.vedtakData.formaal ? ' &mdash; ' + esc(f.vedtakData.formaal) : '') + ' &nbsp;|&nbsp; Gyldig til <strong>' + esc(f.vedtakData.gyldig_tom || '') + '</strong>' + (f.vedtakData.kategori ? ' &nbsp;<span style="background:#bbf7d0; padding:1px 5px; border-radius:3px; font-size:11px;">' + esc(f.vedtakData.kategori) + '</span>' : '') + '</div>' : ''}
                     ${f.meldingAntyder ? '<div style="margin-top:6px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e; display:flex; align-items:flex-start; gap:8px;">&#9888;&#65039; <span><strong>Melding antyder godkjenning \u2014 ikke funnet i vedtak-DB</strong><br><span style="font-size:11px; color:#78350f;">' + esc(f.meldingAntyder.substring(0, 120)) + (f.meldingAntyder.length > 120 ? '\u2026' : '') + '</span></span></div>' : ''}
                     ${kMeldTrans ? '<div style="margin-top:6px; padding:4px 8px; background:#eff6ff; border-radius:4px; font-size:11px; color:#1e40af;"><strong>Melding transport:</strong> ' + kMeldTrans + '</div>' : ''}
@@ -3434,14 +3581,13 @@
                         <button class="gk-tab" data-gktab="permanent" id="gkTabPermanent">Lagre permanent</button>
                     </div>
                     <div class="gk-panel active" id="gkPanelSession">
-                        <button class="gk-primary-btn" id="gkBtnSession">Godkjenn denne runden</button>
                         <div class="gk-quick-section">
-                            <div class="gk-quick-label">Hurtiggodkjenn med grunn:</div>
+                            <div class="gk-quick-label">Velg grunn:</div>
                             <div class="gk-quick-chips" id="gkGrunnKnapper"></div>
                         </div>
                         <div class="gk-reason-row">
-                            <input type="text" class="gk-input" id="gkGrunnInput" placeholder="Annen grunn (valgfritt)..." />
-                            <button class="gk-btn-sm gk-btn-sm--blue" id="gkGrunnOkBtn">OK</button>
+                            <input type="text" class="gk-input" id="gkGrunnInput" placeholder="Annen grunn..." />
+                            <button class="gk-btn-sm gk-btn-sm--blue" id="gkGrunnOkBtn" disabled>OK</button>
                         </div>
                     </div>
                     <div class="gk-panel" id="gkPanelPermanent">
@@ -3611,10 +3757,17 @@
                     }
                 };
 
+                // Spor når popupen selv sist var synlig/fikk fokus — den kan ha vært frosset i bakgrunnen,
+                // og da er _sisteHeartbeat stale. Ikke alarmér de første sekundene etter at den våknet.
+                var _popupSynligTid = Date.now();
+                document.addEventListener('visibilitychange', function () { if (!document.hidden) _popupSynligTid = Date.now(); });
+                window.addEventListener('focus', function () { _popupSynligTid = Date.now(); });
                 setInterval(function() {
                     const bar = document.getElementById('heartbeatBar');
-                    if (bar && Date.now() - _sisteHeartbeat > 180000) bar.classList.add('show');
-                    else if (bar) bar.classList.remove('show');
+                    if (!bar) return;
+                    var nyligVaaknet = Date.now() - _popupSynligTid < 20000;
+                    if (Date.now() - _sisteHeartbeat > 180000 && !nyligVaaknet) bar.classList.add('show');
+                    else bar.classList.remove('show');
                 }, 15000);
 
                 document.getElementById('heartbeatBar').addEventListener('click', function() {
@@ -3673,9 +3826,12 @@
                 }
                 function gkSessionGodkjenn(grunn) {
                     if (!gkPendingData) return;
-                    if (grunn) lagreGrunn(gkPendingData.turid || gkPendingData.reqId, grunn);
-                    window._avvikCh.postMessage({type:'GODKJENN', id:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, rekNr:gkPendingData.rekNr || '', grunn:grunn || '', kortType:gkPendingData.kortType || ''});
-                    gkToast(grunn ? 'Godkjent: ' + grunn : 'Godkjent denne runden', 'success');
+                    grunn = (grunn || '').trim();
+                    // Grunn er obligatorisk — uten den skrives ingen merknad i NISSY.
+                    if (!grunn) { gkToast('Velg eller skriv en grunn for å godkjenne', 'info'); return; }
+                    lagreGrunn(gkPendingData.turid || gkPendingData.reqId, grunn);
+                    window._avvikCh.postMessage({type:'GODKJENN', id:gkPendingData.reqId, resId:gkPendingData.resId, turid:gkPendingData.turid, rekNr:gkPendingData.rekNr || '', grunn:grunn, kortType:gkPendingData.kortType || ''});
+                    gkToast('Godkjent: ' + grunn, 'success');
                     setTimeout(function() { gkModal.classList.remove('show'); }, 400);
                 }
                 function gkBuildContext(data) {
@@ -3821,21 +3977,15 @@
                 var gkMouseDownTarget = null;
                 gkModal.addEventListener('mousedown', function(e) { gkMouseDownTarget = e.target; });
                 gkModal.addEventListener('click', function(e) { if (e.target === this && gkMouseDownTarget === this) this.classList.remove('show'); });
-                // Sesjon-godkjenn
-                document.getElementById('gkBtnSession').addEventListener('click', function() {
-                    // Ripple-effekt
-                    var btn = this;
-                    var ripple = document.createElement('span');
-                    ripple.className = 'gk-ripple';
-                    var rect = btn.getBoundingClientRect();
-                    var size = Math.max(rect.width, rect.height);
-                    ripple.style.width = ripple.style.height = size + 'px';
-                    ripple.style.left = (rect.width / 2 - size / 2) + 'px';
-                    ripple.style.top = (rect.height / 2 - size / 2) + 'px';
-                    btn.appendChild(ripple);
-                    setTimeout(function() { ripple.remove(); }, 500);
-                    gkSessionGodkjenn('');
-                });
+                // Sesjon-godkjenn via fritekst — OK-knapp grå til feltet har tekst
+                (function() {
+                    var inp = document.getElementById('gkGrunnInput');
+                    var okBtn = document.getElementById('gkGrunnOkBtn');
+                    if (inp && okBtn) {
+                        inp.addEventListener('input', function() { okBtn.disabled = inp.value.trim() === ''; });
+                        inp.addEventListener('keydown', function(e) { if (e.key === 'Enter' && inp.value.trim() !== '') { e.preventDefault(); gkSessionGodkjenn(hentGrunn()); } });
+                    }
+                })();
                 document.getElementById('gkGrunnOkBtn').addEventListener('click', function() {
                     gkSessionGodkjenn(hentGrunn());
                 });
@@ -4147,9 +4297,22 @@
     // ==================================================================
     //    HEARTBEAT (BroadcastChannel -- sjekker popup-kontakt)
     // ==================================================================
-    window._avvikHeartbeatTimer = setInterval(() => {
-        avvikChannel.postMessage({ type: 'HEARTBEAT' });
-    }, 15000);
+    // Heartbeat fra Web Worker-timer i stedet for setInterval: side-timere throttles/fryses i
+    // bakgrunnsfaner (→ falsk «Mistet kontakt»), men en Worker-timer går videre. Pluss et ekstra
+    // hjerteslag straks fanen blir synlig/får fokus → baren forsvinner umiddelbart når man er tilbake.
+    const _sendHeartbeat = () => { try { avvikChannel.postMessage({ type: 'HEARTBEAT' }); } catch (e) {} };
+    _sendHeartbeat();
+    try {
+        const _hbBlob = new Blob(['setInterval(function(){postMessage(1);},15000);'], { type: 'application/javascript' });
+        const _hbWorker = new Worker(URL.createObjectURL(_hbBlob));
+        _hbWorker.onmessage = _sendHeartbeat;
+        window._avvikHbWorker = _hbWorker;
+    } catch (e) {
+        // Fallback hvis Worker blokkeres (CSP o.l.): vanlig timer (kan throttles, men bedre enn ingenting)
+        window._avvikHeartbeatTimer = setInterval(_sendHeartbeat, 15000);
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) _sendHeartbeat(); });
+    window.addEventListener('focus', _sendHeartbeat);
 
     // ==================================================================
     //    SERVER KEEPALIVE -- holder NISSY-sesjonen i live
@@ -4326,6 +4489,13 @@
                 res_id: data.resId || '',
                 grunn: data.grunn || ''
             });
+            // Manuelt godkjent MED grunn (fra modalen) → skriv standardisert merknad i NISSYs avvik-felt.
+            // Tom grunn = «godkjent denne runden» = kun lokalt, skriver IKKE til NISSY.
+            if (data.grunn && data.resId) {
+                // Rek.nr foran så avvik på samkjøring kan skilles per tur
+                const rekDel = data.rekNr ? `Rek ${data.rekNr}: ` : '';
+                skrivAvvikMerknadNissy(data.resId, `${rekDel}Godkjent manuelt: ${data.grunn}, ${SIGNATUR}`);
+            }
             fadeOgFjern(data.id);
         }
 
@@ -4386,9 +4556,12 @@
                     ${data.bestiller ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;"><span style="font-weight:bold; color:#991b1b;">Bestiller:</span><span>' + data.bestiller + '</span></div>' : ''}
                     ${data.ansvarligRekvirent ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;"><span style="font-weight:bold; color:#991b1b;">Ansvarlig rekvirent:</span><span>' + data.ansvarligRekvirent + '</span></div>' : ''}
                     ${data.sistEndretBruker ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;"><span style="font-weight:bold; color:#991b1b;">Sist endret:</span><span>' + data.sistEndretBruker + '</span></div>' : '<div style="margin-bottom:6px;"></div>'}
+                    <div style="margin-bottom:8px;">
+                        <input id="avvBliksund_${data.id}" type="text" inputmode="numeric" maxlength="5" placeholder="Bliksund-hendelse (5 siffer)" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,5); var fb=document.getElementById('avvFerdig_${data.id}'); var ok=/^\\d{5}$/.test(this.value); if(fb){fb.disabled=!ok; fb.style.opacity=ok?'1':'0.45'; fb.style.cursor=ok?'pointer':'not-allowed';}" style="padding:7px 10px; border:1.5px solid #fca5a5; border-radius:6px; font-size:13px; width:200px; outline:none;">
+                    </div>
                     <div style="display:flex; gap:8px;">
                         <button onclick="window._avvikCh.postMessage({type:'AVVIK_AVBRYT', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid || ''}'})" class="btn-nissy" style="background:#ef4444; color:white;">&#10060; Avbryt</button>
-                        <button onclick="window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid || ''}'})" class="btn-nissy" style="background:#10b981; color:white;">&#10004; Ferdig</button>
+                        <button id="avvFerdig_${data.id}" disabled onclick="var v=(document.getElementById('avvBliksund_${data.id}').value||'').trim(); if(!/^\\d{5}$/.test(v)){return;} window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid || ''}', rekNr:'${rekNr || ''}', bliksund:v})" class="btn-nissy" style="background:#10b981; color:white; opacity:0.45; cursor:not-allowed;">&#10004; Ferdig</button>
                     </div>
                 </div>`;
         }
@@ -4396,45 +4569,39 @@
         if (data.type === 'AVVIK_DUBLETT') {
             loggHandling('AVVIK_REG', {
                 seksjon: 'dublett',
-                rek_nr: data.rekNr || '',
+                rek_nr: data.rekNr1 || '',
                 tur_id: data.turid1 || '',
-                res_id: data.resId || '',
-                rekvirent: data.rekvirent || '',
-                bestiller: data.bestiller || '',
+                res_id: data.resId1 || '',
+                rekvirent: data.rekvirent1 || '',
                 detaljer: { turid1: data.turid1, turid2: data.turid2, start1: data.start1, start2: data.start2, rmate1: data.rmate1, rmate2: data.rmate2 }
             });
             const win = window.mqWin;
             if (!win || win.closed) return;
             const card = win.document.querySelector(`[data-rid="${data.id}"]`);
             if (!card) return;
-            const rekNr = data.rekNr || data.id;
+            const id = data.id;
             let avvikDiv = card.querySelector('.avvik-info');
             if (!avvikDiv) { avvikDiv = win.document.createElement('div'); avvikDiv.className = 'avvik-info'; card.appendChild(avvikDiv); }
+            // Aktiver «Ferdig» KUN når en reise er valgt OG bliksund er 5 siffer.
+            const sjekk = `var v=(document.getElementById('avvBliksund_${id}').value||'');var sel=document.querySelector('input[name=avvValg_${id}]:checked');var ok=/^\\d{5}$/.test(v)&&!!sel;var fb=document.getElementById('avvFerdig_${id}');if(fb){fb.disabled=!ok;fb.style.opacity=ok?'1':'0.45';fb.style.cursor=ok?'pointer':'not-allowed';}`;
+            const valgRad = (n) => `<label class="avv-valg" style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;margin-bottom:7px;background:#fff5f5;border:1.5px solid #fecaca;border-radius:6px;cursor:pointer;">
+                    <input type="radio" name="avvValg_${id}" value="${n}" onchange="${sjekk}" style="margin-top:3px;cursor:pointer;">
+                    <div><div style="font-weight:bold;color:#991b1b;">Reise ${n}</div>
+                    <div style="font-size:12px;">Rek.nr: <strong>${data['rekNr' + n] || '?'}</strong> &middot; Start: <strong>${data['start' + n] || '?'}</strong> &middot; ${data['rmate' + n] || '?'}</div>
+                    ${data['rekvirent' + n] ? '<div style="font-size:11px;color:#64748b;">Rekvirent: ' + data['rekvirent' + n] + '</div>' : ''}
+                    ${data['sist' + n] ? '<div style="font-size:11px;color:#64748b;">Sist endret: ' + data['sist' + n] + '</div>' : ''}
+                    </div></label>`;
             avvikDiv.innerHTML = `
                 <div style="padding:12px 15px; background:#fef2f2; border-top:2px solid #ef4444;">
-                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
-                        <span style="font-weight:bold; color:#991b1b;">Rek.nr:</span>
-                        <span style="font-size:15px; font-weight:bold;">${rekNr || 'Ikke funnet'}</span>
-                        ${rekNr ? `<span style="cursor:pointer; user-select:none;" title="Kopier rek.nr." onclick="navigator.clipboard.writeText('${rekNr}'); this.textContent='\\u2705'; setTimeout(() => this.textContent='\\ud83d\\udccb', 1500)">&#128203;</span>` : ''}
+                    <div style="font-weight:bold; color:#991b1b; margin-bottom:8px;">Velg hvilken reise avviket gjelder:</div>
+                    ${valgRad(1)}
+                    ${valgRad(2)}
+                    <div style="margin:6px 0 8px;">
+                        <input id="avvBliksund_${id}" type="text" inputmode="numeric" maxlength="5" placeholder="Bliksund-hendelse (5 siffer)" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,5);${sjekk}" style="padding:7px 10px; border:1.5px solid #fca5a5; border-radius:6px; font-size:13px; width:220px; outline:none;">
                     </div>
-                    <div style="margin-bottom:8px; padding:8px; background:#fff5f5; border:1px solid #fecaca; border-radius:6px;">
-                        <div style="font-weight:bold; color:#991b1b; margin-bottom:4px;">Reise 1</div>
-                        <div>Turid: <strong>${data.turid1 || '?'}</strong> | Start: <strong>${data.start1 || '?'}</strong> | Reisemåte: <strong>${data.rmate1 || '?'}</strong></div>
-                    </div>
-                    <div style="margin-bottom:8px; padding:8px; background:#fff5f5; border:1px solid #fecaca; border-radius:6px;">
-                        <div style="font-weight:bold; color:#991b1b; margin-bottom:4px;">Reise 2</div>
-                        <div>Turid: <strong>${data.turid2 || '?'}</strong> | Start: <strong>${data.start2 || '?'}</strong> | Reisemåte: <strong>${data.rmate2 || '?'}</strong></div>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
-                        <span style="font-weight:bold; color:#991b1b;">Rekvirent:</span>
-                        <span>${data.rekvirent || 'Ikke funnet'}</span>
-                    </div>
-                    ${data.bestiller ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;"><span style="font-weight:bold; color:#991b1b;">Bestiller:</span><span>' + data.bestiller + '</span></div>' : ''}
-                    ${data.ansvarligRekvirent ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;"><span style="font-weight:bold; color:#991b1b;">Ansvarlig rekvirent:</span><span>' + data.ansvarligRekvirent + '</span></div>' : ''}
-                    ${data.sistEndretBruker ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;"><span style="font-weight:bold; color:#991b1b;">Sist endret:</span><span>' + data.sistEndretBruker + '</span></div>' : '<div style="margin-bottom:6px;"></div>'}
                     <div style="display:flex; gap:8px;">
-                        <button onclick="window._avvikCh.postMessage({type:'AVVIK_AVBRYT', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid1 || ''}'})" class="btn-nissy" style="background:#ef4444; color:white;">&#10060; Avbryt</button>
-                        <button onclick="window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid1 || ''}'})" class="btn-nissy" style="background:#10b981; color:white;">&#10004; Ferdig</button>
+                        <button onclick="window._avvikCh.postMessage({type:'AVVIK_AVBRYT', id:'${id}', resId:'${data.resId1 || ''}', turid:'${data.turid1 || ''}'})" class="btn-nissy" style="background:#ef4444; color:white;">&#10060; Avbryt</button>
+                        <button id="avvFerdig_${id}" disabled onclick="var v=(document.getElementById('avvBliksund_${id}').value||'').trim();var sel=document.querySelector('input[name=avvValg_${id}]:checked');if(!/^\\d{5}$/.test(v)||!sel){return;}var r=sel.value;window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${id}', resId:(r==='1'?'${data.resId1 || ''}':'${data.resId2 || ''}'), turid:(r==='1'?'${data.turid1 || ''}':'${data.turid2 || ''}'), rekNr:(r==='1'?'${data.rekNr1 || ''}':'${data.rekNr2 || ''}'), ogsaGodkjennTurid:(r==='1'?'${data.turid2 || ''}':'${data.turid1 || ''}'), ogsaGodkjennRekNr:(r==='1'?'${data.rekNr2 || ''}':'${data.rekNr1 || ''}'), bliksund:v})" class="btn-nissy" style="background:#10b981; color:white; opacity:0.45; cursor:not-allowed;">&#10004; Skriv avvik på valgt reise</button>
                     </div>
                 </div>`;
         }
@@ -4488,10 +4655,20 @@
 
         if (data.type === 'AVVIK_FERDIG') {
             if (data.turid || data.rekNr) { godkjennTur(data.turid, '', data.rekNr || ''); }
+            // DUBLETT: godkjenn også den ANDRE reisen (den vi IKKE skriver avvik på) så paret ikke re-flagges.
+            if (data.ogsaGodkjennTurid || data.ogsaGodkjennRekNr) { godkjennTur(data.ogsaGodkjennTurid || '', '', data.ogsaGodkjennRekNr || ''); }
+            // Bliksund-hendelse er påkrevd fra knappen → skriv standardisert merknad i NISSY
+            // Rek.nr foran så avvik på samkjøring kan skilles per tur
+            if (data.bliksund && data.resId) {
+                const rekDel = data.rekNr ? `Rek ${data.rekNr}: ` : '';
+                skrivAvvikMerknadNissy(data.resId, `${rekDel}Ikke godkjent. Skrevet avvik: ${data.bliksund}. ${SIGNATUR}`);
+            }
             loggHandling('AVVIK_FERDIG', {
                 rek_nr: data.rekNr || '',
                 tur_id: data.turid || '',
-                res_id: data.resId || ''
+                res_id: data.resId || '',
+                grunn: data.bliksund ? `Bliksund ${data.bliksund}` : '',
+                detaljer: { bliksund: data.bliksund || '' }
             });
             fadeOgFjern(data.id);
         }
@@ -4951,7 +5128,10 @@
                 const bestiltFraAdr = erTur ? fraAdr : tilAdr;
                 const bestiltKm = await beregnKm(bestiltFraAdr, behandlingsAdr, 'manual', 'adresse');
 
-                console.log(`[KM-MANUELL] RID=${data.reqId}: folkKm=${folkKm?.km ?? 'null'}, bestiltKm=${bestiltKm?.km ?? 'null'}, erTur=${erTur}`);
+                const kmUsikker = !folkKm || !bestiltKm || folkKm.km == null || bestiltKm.km == null || folkKm.usikker || bestiltKm.usikker;
+                const usikreAdrM = [...new Set([...(folkKm?.usikreAdr || []), ...(bestiltKm?.usikreAdr || [])])];
+                const googleBruktM = folkKm?.kilde === 'google' || bestiltKm?.kilde === 'google';
+                console.log(`[KM-MANUELL] RID=${data.reqId}: folkKm=${folkKm?.km ?? 'null'}, bestiltKm=${bestiltKm?.km ?? 'null'}, erTur=${erTur}, usikker=${kmUsikker}, google=${googleBruktM}`);
                 console.log(`[KM-MANUELL]   folk="${folkAdr.substring(0,60)}" fra="${fraAdr.substring(0,60)}" til="${tilAdr.substring(0,60)}"`);
 
                 // Lagre i server-cache (rekNr som nøkkel)
@@ -4964,12 +5144,12 @@
                         const aar = new Date().getFullYear();
                         turDatoISO = `${aar}-${datoM[2].padStart(2,'0')}-${datoM[1].padStart(2,'0')}`;
                     }
-                    lagreKmResultat(kmRekNr, folkKm ? folkKm.km : null, bestiltKm ? bestiltKm.km : null, turDatoISO);
+                    lagreKmResultat(kmRekNr, folkKm ? folkKm.km : null, bestiltKm ? bestiltKm.km : null, turDatoISO, kmUsikker, usikreAdrM);
                 }
 
                 if (kmDiv) {
                     const fmtKm = (res, adr, dest) => {
-                        if (!res) {
+                        if (!res || res.km == null) {
                             const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(adr)}&destination=${encodeURIComponent(dest)}`;
                             return `<a href="${mapsUrl}" target="_blank" style="text-decoration:none;" title="Sjekk i Google Maps">? &#128205;</a>`;
                         }
@@ -4977,15 +5157,19 @@
                     };
 
                     if (folkKm || bestiltKm) {
-                        const avvik = folkKm && bestiltKm && bestiltKm.km > folkKm.km;
-                        const stil = avvik
-                            ? 'background:#fef2f2; border-color:#ef4444; color:#991b1b;'
-                            : 'background:#f0fdf4; border-color:#10b981; color:#065f46;';
+                        const avvik = folkKm && bestiltKm && folkKm.km != null && bestiltKm.km != null && bestiltKm.km > folkKm.km;
+                        const stil = kmUsikker
+                            ? 'background:#fffbeb; border-color:#f59e0b; color:#92400e;'   // gul = usikker
+                            : avvik
+                                ? 'background:#fef2f2; border-color:#ef4444; color:#991b1b;'
+                                : 'background:#f0fdf4; border-color:#10b981; color:#065f46;';
                         const bTxt = fmtKm(bestiltKm, bestiltFraAdr, behandlingsAdr);
                         const fTxt = fmtKm(folkKm, folkAdr, behandlingsAdr);
+                        const escM = (a) => String(a || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        const usikTxtM = ' &#9888; ' + (usikreAdrM.length ? 'usikker: ' + usikreAdrM.map(escM).join(', ') : 'usikker adresse') + (googleBruktM ? ' &#128205; via Google — sjekk manuelt' : ' — sjekk manuelt');
                         kmDiv.innerHTML = `<div class="warning-text" style="${stil}">
                             Bestilt: ${bTxt} &nbsp;|&nbsp; Folkereg: ${fTxt}
-                            ${(folkKm && bestiltKm && !avvik) ? ' &#10004; OK' : ''}
+                            ${kmUsikker ? usikTxtM : ((folkKm && bestiltKm && !avvik) ? ' &#10004; OK' : '')}
                         </div>`;
                     }
                 }
@@ -5042,7 +5226,7 @@
             if (win && !win.closed) {
                 const hb = win.document.getElementById('heartbeatBar');
                 if (hb) {
-                    hb.innerHTML = '&#9888; Admin ikke tilgjengelig enda — re-sjekkes automatisk ved skanning. <a href="https://pastrans-sorost.mq.nhn.no/administrasjon/" target="_blank" style="color:white; text-decoration:underline;">Logg inn her</a> om det ikke løser seg.';
+                    hb.innerHTML = '&#9888; Admin ikke tilgjengelig enda — re-sjekkes automatisk ved skanning. <a href="' + NISSY_ORIGIN + '/administrasjon/" target="_blank" style="color:white; text-decoration:underline;">Logg inn her</a> om det ikke løser seg.';
                     hb.classList.add('show');
                 }
             }
