@@ -1,4 +1,5 @@
-// === WESTBYS VERKTØYKASSE v2.122-dev ===
+// === WESTBYS VERKTØYKASSE v2.123-dev ===
+// v2.123-dev: toast-adressen bruker nå samme lyse farge (#f8fafc) som pasientnavnet (var svak grå #64748b).
 // v2.122-dev: toast «ingen kort funnet» → dempet 🪪-symbol m/ tooltip (ikke skremmende tekst som forvirrer operatøren).
 // === WESTBYS VERKTØYKASSE v2.106-dev ===
 // v2.106-dev: DRIFTSMELDING-felt i footeren (per kjørekontor). Til høyre for «🕘 Logg» + «🗗 Vis kart+»
@@ -231,7 +232,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.122-dev';
+    const VERSJON = '2.123-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1980,7 +1981,7 @@
                             <span data-vkt-kopier="${pnr}" title="Kopier personnummer" style="cursor:pointer;color:#64748b;font-size:13px;line-height:1;padding:1px 4px;border-radius:3px;user-select:none;">📋</span>
                             <span data-vkt-rekv="${i}" style="font-size:11px;color:#64748b;font-style:italic;">⏳ rekv...</span>
                         </div>
-                        <div data-vkt-adr="${i}" style="font-size:11px;color:#64748b;margin-top:3px;"></div>
+                        <div data-vkt-adr="${i}" style="font-size:11px;color:#f8fafc;margin-top:3px;"></div>
                     </div>
                     <button data-vkt-pas="${i}" data-vkt-modul="rekvisisjon" style="padding:5px 10px;background:#0ea5e9;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">Rek</button>
                     <button data-vkt-pas="${i}" data-vkt-modul="planlegging" style="padding:5px 10px;background:#7c3aed;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">Plan</button>
@@ -2060,7 +2061,7 @@
                             });
                         } else {
                             adrEl.innerHTML = `📍 ${escHtml(adr)}${kildeMerke}`;
-                            adrEl.style.color = '#64748b';
+                            adrEl.style.color = '#f8fafc';   // samme lyse farge som pasientnavnet (Thomas 2026-07-01)
                         }
                     }
                 }
