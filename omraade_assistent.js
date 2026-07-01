@@ -1,3 +1,7 @@
+// === OMRÅDE ASSISTENT v0.9.91-dev ===
+// v0.9.91-dev: erHelsebuss strammet inn — RESSURSEN «HLSB L-O» DEFINERER bussen (Thomas). Tildelt IKKE-HLSB-ressurs
+//              (f.eks. taxi IN-403, avtaleområde 51501 Vågå) = feeder-taxi m/ HLSX-passasjer → EKSKLUDERES, selv om
+//              den har HLSX-ben. Kun HLSB-callsign ELLER ventende (ingen ressurs) + HLSX/Innlandet regnes som buss.
 // === OMRÅDE ASSISTENT v0.9.90-dev ===
 // v0.9.90-dev: taxi-boksen viser nå LØYVE (tildelt bil) for autentisk preg (Thomas). Parses fra «Løyve/Tur nr:
 //              C-4303 / 71613072» i Transportør/ressurs-seksjonen → C-4303. + transportør (Follo Taxi) i tooltip.
@@ -428,7 +432,7 @@
 (function () {
     'use strict';
 
-    const VERSJON = '0.9.90-dev';
+    const VERSJON = '0.9.91-dev';
     // Interne GD-/ST-biler (kjører i Kongsvinger) er ikke ekte returbiler — kan skjules via checkbox.
     let skjulGD = true;
     let skjulUonsket = true;   // «skjul uønskede» (default på): skjuler lokale + avreiste returbiler.
@@ -550,9 +554,15 @@
     // frabringerne (intra-Akershus, ingen Innlandet-ende) men beholder Lovisenberg→Rendalen (Innlandet-ende).
     // TODO: callsign-prefiks + avtaleområde + terminaler + seter + Innlandet-postnr fra server-config pr buss.
     function erHelsebuss(r) {
+        const res = (r.ressurs || '').trim();
+        // RESSURSEN «HLSB L-O» DEFINERER helseekspressen (Thomas 2026-07-01, avtaleområde 901 HLSB LHMR-OSLO).
+        if (/^\s*HLSB\b/i.test(res)) return true;                                                       // callsign = ekte buss
+        // Har en ANNEN tildelt ressurs (f.eks. taxi IN-403, avtaleområde 51501 Vågå)? → IKKE bussen, selv om en
+        // passasjer har HLSX-ben (mate-taxi som kobler til bussen). Ekskluderer feilklassifisering av feeder-taxier.
+        if (res) return false;
+        // Ventende (INGEN ressurs tildelt ennå): HLSX-tur m/ Innlandet-endepunkt = ventende helsebuss.
         if (!erHlsx(r)) return false;
-        if (/^\s*HLSB\b/i.test(r.ressurs || '')) return true;                                          // callsign = på bussen
-        return (r.legs || []).some(l => erInnlandet(l.fra) || erInnlandet(l.til));                      // Innlandet-endepunkt
+        return (r.legs || []).some(l => erInnlandet(l.fra) || erInnlandet(l.til));
     }
     /* ── Plass/kapasitet — gjenbruk av samkjører-modellen (samkjorer.js) ── */
     // Behov som krever alenetransport (kan aldri samkjøres med andre).

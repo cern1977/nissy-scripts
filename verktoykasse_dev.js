@@ -1,3 +1,7 @@
+// === WESTBYS VERKTØYKASSE v2.124-dev ===
+// v2.124-dev: toast spør nå ATTEST-REGISTERET via attest-agenten (når tilkoblet) og viser reell aktiv-attest —
+//             rekv-søket alene bommet på stående attester (RAZIJA: 5 rekv men aktiv attest). Faller tilbake på
+//             rekv-basert deteksjon uten agent. Oppgraderer kun (viser attest når aktive>0), nedgraderer aldri.
 // === WESTBYS VERKTØYKASSE v2.123-dev ===
 // v2.123-dev: toast-adressen bruker nå samme lyse farge (#f8fafc) som pasientnavnet (var svak grå #64748b).
 // v2.122-dev: toast «ingen kort funnet» → dempet 🪪-symbol m/ tooltip (ikke skremmende tekst som forvirrer operatøren).
@@ -232,7 +236,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.123-dev';
+    const VERSJON = '2.124-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -2034,6 +2038,23 @@
                     el.style.fontStyle = '';
                     el.style.fontWeight = '600';
                     if (nAttest > 0) el.title = `${nRekv} rekvisisjon(er) + ${nAttest} stående attest`;
+                }
+                // ATTEST-REGISTER (autoritativt): rekv-søket fanger IKKE alltid stående attester (eks RAZIJA
+                // MESANOVIC: 5 rekv, men aktiv attest i registeret). Når attest-agenten er tilkoblet (grønn prikk),
+                // spør vi det EKTE registeret og oppdaterer badgen med reell aktiv-attest-telling. Uten agent:
+                // behold rekv-basert deteksjon. Oppgraderer kun (viser attest når aktive>0) — nedgraderer aldri.
+                if (attestTabReady) {
+                    try {
+                        const att = await sjekkAttest(pas.pnr);
+                        if (att && !att.feil && !att.error && typeof att.aktive === 'number' && el.isConnected && att.aktive > 0) {
+                            el.innerHTML = nRekv > 0
+                                ? `📋 ${nRekv} rekv <span style="color:#fbbf24;">+ 📄 ${att.aktive} attest</span>`
+                                : `<span style="color:#fbbf24;">📄 ${att.aktive} attest</span>`;
+                            el.style.color = nRekv > 0 ? '#10b981' : '#fbbf24';
+                            el.style.fontWeight = '600';
+                            el.title = `${nRekv} rekvisisjon(er) + ${att.aktive} aktiv attest (fra attest-registeret)`;
+                        }
+                    } catch (_) {}
                 }
                 // Adresse + «vår pasient?»-varsel.
                 // Primært fra rekvisisjonen (pasient_adresse m/ postnr). Mangler den
