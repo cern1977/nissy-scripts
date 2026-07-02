@@ -1,3 +1,8 @@
+// === WESTBYS VERKTØYKASSE v2.125-dev ===
+// v2.125-dev: tlf-toast sier «⚠ Du er ikke logget inn i admin» i stedet for «Ingen pasienter funnet» når
+//             admin-sesjonen mangler — findPatient svarer 200 OK med login-siden → 0 rader så det SÅ ut som
+//             ikke-treff. Detekteres ved 0 treff: mangler søkeskjema (input Phone) eller login-heuristikk.
+//             Setter samtidig admin-statusprikken til utlogget (rød).
 // === WESTBYS VERKTØYKASSE v2.124-dev ===
 // v2.124-dev: toast spør nå ATTEST-REGISTERET via attest-agenten (når tilkoblet) og viser reell aktiv-attest —
 //             rekv-søket alene bommet på stående attester (RAZIJA: 5 rekv men aktiv attest). Faller tilbake på
@@ -236,7 +241,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.124';
+    const VERSJON = '2.125';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = false;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1217,6 +1222,22 @@
                     rediger_url: tds[2]?.querySelector('a')?.href || ''
                 });
             }
+            // UTLOGGET-DETEKSJON (v2.125): uten admin-sesjon svarer NISSY 200 OK med
+            // LOGIN-SIDEN i stedet for søkeresultat → 0 rader → toasten sa misvisende
+            // «Ingen pasienter funnet». Sjekkes kun ved 0 treff: ekte 0-treff-side har
+            // fortsatt søkeskjemaet (input Phone); login-siden har det ikke. I tillegg
+            // samme login-heuristikk som sjekkAdminLogin().
+            if (!pasienter.length) {
+                const harSokeskjema = !!doc.querySelector('input[name="Phone"], form[action*="findPatient"]');
+                const serUtSomLogin = html.includes('Logg inn') || html.includes('ikke tilgang') ||
+                    (html.includes('login') && !html.includes('logout') && html.length < 2000);
+                if (!harSokeskjema || serUtSomLogin) {
+                    console.warn('[VERKTØYKASSE] sokTlfINissy: admin ikke innlogget (login-side i findPatient-svar)');
+                    adminStatus = 'utlogget';
+                    try { tegnAdminStatus(); } catch (_) {}
+                    return { feil: 'ikke innlogget i admin', utlogget: true };
+                }
+            }
             console.log(`[VERKTØYKASSE] tlf ${tlf}: ${pasienter.length} pasient(er) funnet`);
             return { tlf, hentet: new Date().toISOString(), pasienter };
         } catch(e) {
@@ -1728,7 +1749,11 @@
                     const feilet = resultater.find(r => r.feil);
                     if (feilet) {
                         resultatEl.style.display = 'block';
-                        resultatEl.innerHTML = `<div style="color:#ef4444;font-size:12px;">Søk feilet: ${feilet.feil}</div>`;
+                        // Utlogget ≠ søkefeil: si tydelig at operatøren må logge inn i admin
+                        // (før v2.125 endte dette som misvisende «Ingen pasienter funnet»).
+                        resultatEl.innerHTML = feilet.utlogget
+                            ? `<div style="color:#fbbf24;font-size:12px;">⚠ Du er ikke logget inn i admin.<br>Åpne <b>Admin</b> fra 🧰-menyen, logg inn og prøv igjen.</div>`
+                            : `<div style="color:#ef4444;font-size:12px;">Søk feilet: ${feilet.feil}</div>`;
                         btn.disabled = false; btn.textContent = '👤 Pasient';
                         return;
                     }
