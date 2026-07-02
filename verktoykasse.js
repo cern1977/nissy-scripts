@@ -1,3 +1,23 @@
+// === WESTBYS VERKTØYKASSE v2.129-dev ===
+// v2.129-dev: Treff-verifisering forkastet EKTE treff (Stensland 92263998): pasientsiden lagrer
+//             «+4792263998» og (?<!\d)-grensen avviste nummeret rett etter «47». Verifiseringen
+//             tester nå også 47-/0047-prefiksede varianter av søkenummeret.
+// === WESTBYS VERKTØYKASSE v2.128-dev ===
+// v2.128-dev: SIVANESAN-lekkasjen løst (Thomas fant rotårsaken): Finn pasient-skjemaet er
+//             sesjonslagret og et gammelt personnummer «lå igjen» i øverste feltet — pnr trumfer
+//             telefon → alle tlf-søk returnerte samme pasient. To forsvarslinjer:
+//             (1) skjemaet hentes og ALLE tekstfelt blankes eksplisitt før hvert søk;
+//             (2) hvert treff VERIFISERES mot editPatient-siden (søkenummeret må stå der) —
+//                 forkastede treff logges + rødt varsel i toasten ved 0 gjenværende.
+// === WESTBYS VERKTØYKASSE v2.127-dev ===
+// v2.127-dev: pasient-treff i toasten viser nå HVILKET nummer som ga treffet (☎ kilde-badge) —
+//             to ulike innringere ga samme pasient (SIVANESAN) og vi trengte selvdiagnose for å
+//             skille «pasienten har mange numre registrert i NISSY» fra en ekte sammenblanding.
+// === WESTBYS VERKTØYKASSE v2.126-dev ===
+// v2.126-dev: tlf-søket sender nå RENSEDE sifre til findPatient — Zisson-nummer med mellomrom/+47
+//             ga 0 treff selv om pasienten lå i NISSY (PAULSEN: «481 57 872» bommet, «48157872» traff —
+//             Thomas verifiserte begge manuelt i Finn pasient). Landkode-variant (47xxxxxxxx) søkes
+//             i tillegg som 8-sifret.
 // === WESTBYS VERKTØYKASSE v2.125-dev ===
 // v2.125-dev: tlf-toast sier «⚠ Du er ikke logget inn i admin» i stedet for «Ingen pasienter funnet» når
 //             admin-sesjonen mangler — findPatient svarer 200 OK med login-siden → 0 rader så det SÅ ut som
@@ -241,7 +261,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.125';
+    const VERSJON = '2.129';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = false;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1193,6 +1213,45 @@
         }
     }
 
+    // === TREFF-VERIFISERING (v2.128) — mot «åpen pasient smitter søket» ===
+    // NISSY-admin er sesjonsbasert server-side: står en pasient åpen (editPatient) i samme
+    // sesjon, kan findPatient returnere DEN pasienten uansett søkenummer (SIVANESAN-lekkasjen:
+    // tre ulike innringere ga samme pasient). Verktøykassen henter dessuten selv editPatient
+    // i bakgrunnen (folkereg-adresse) → selvforsterkende. Derfor: hvert treff verifiseres ved
+    // at søkenummeret (evt. uten landkode) faktisk finnes på pasientens editPatient-side.
+    const _pasSideCache = new Map();  // rediger_url → html|null (per session)
+    async function pasientHarNummer(redigerUrl, tlf) {
+        try {
+            if (!redigerUrl) return null;  // kan ikke sjekke → behold treffet
+            let html = _pasSideCache.get(redigerUrl);
+            if (html === undefined) {
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), 10000);
+                try {
+                    const r = await fetch(redigerUrl, { credentials: 'same-origin', signal: ctrl.signal });
+                    html = r.ok ? await r.text() : null;
+                } finally { clearTimeout(timer); }
+                _pasSideCache.set(redigerUrl, html);
+            }
+            if (html === null) return null;
+            const ren = String(tlf || '').replace(/\D/g, '');
+            if (!ren) return null;
+            const kort = (ren.length === 10 && ren.startsWith('47')) ? ren.slice(2) : ren;
+            // Tillat mellomrom/nbsp mellom sifrene («21 68 57 95») men krev sifergrense
+            // rundt (ellers matcher 8-sifret nummer inni pnr/lange tallstrenger).
+            // v2.129: sjekk OGSÅ landkode-variantene — pasientsiden lagrer ofte
+            // «+4792263998», og der står 8-sifret nummer RETT ETTER «47» → (?<!\d)
+            // avviste et EKTE treff (Stensland-saken 2026-07-02). «47…»/«0047…»-
+            // variantene matcher fordi tegnet foran («+» eller start) ikke er siffer.
+            const varianter = [kort, '47' + kort, '0047' + kort];
+            for (let i = 0; i < varianter.length; i++) {
+                const m = '(?<!\\d)' + varianter[i].split('').join('[\\s\\u00a0]?') + '(?!\\d)';
+                if (new RegExp(m).test(html)) return true;
+            }
+            return false;
+        } catch (_) { return null; }
+    }
+
     // === TLF-OPPSLAG — findPatient i admin, returnerer pasienter med matchende telefon ===
     async function sokTlfINissy(tlf) {
         // AbortController-timeout: uten den henger et tregt/stallet findPatient-kall
@@ -1203,6 +1262,26 @@
         const timer = setTimeout(() => ctrl.abort(), 15000);
         try {
             const fd = new FormData();
+            // v2.128 ROTÅRSAK (Thomas): Finn pasient-skjemaet er sesjonslagret — et
+            // personnummer fra et TIDLIGERE søk «ligger igjen» i øverste feltet, og
+            // pnr trumfer telefon → alle søk returnerte den gamle pasienten (SIVANESAN).
+            // Fiks: hent skjemaet først og blank ALLE tekstfelt eksplisitt (uansett
+            // feltnavn), behold hidden-felter, sett kun Phone. Faller tilbake til
+            // gammel oppførsel hvis skjema-parsingen feiler.
+            try {
+                const fr = await fetch(`${ADMIN_BASE}/findPatient`, { credentials: 'same-origin', signal: ctrl.signal });
+                if (fr.ok) {
+                    const fdoc = new DOMParser().parseFromString(await fr.text(), 'text/html');
+                    const inputs = fdoc.querySelectorAll('form input');
+                    for (let i = 0; i < inputs.length; i++) {
+                        const inp = inputs[i];
+                        if (!inp.name || inp.name === 'Phone') continue;
+                        const type = (inp.type || 'text').toLowerCase();
+                        if (type === 'hidden') fd.append(inp.name, inp.value || '');
+                        else if (type === 'text' || type === 'tel' || type === 'number') fd.append(inp.name, '');
+                    }
+                }
+            } catch (_) { /* skjema-reset best effort — Phone+submit sendes uansett */ }
             fd.append('Phone', tlf);
             fd.append('submitButton', 'Søk pasient');
             const r = await fetch(`${ADMIN_BASE}/findPatient`, {
@@ -1238,8 +1317,22 @@
                     return { feil: 'ikke innlogget i admin', utlogget: true };
                 }
             }
-            console.log(`[VERKTØYKASSE] tlf ${tlf}: ${pasienter.length} pasient(er) funnet`);
-            return { tlf, hentet: new Date().toISOString(), pasienter };
+            // Verifiser treffene mot pasientsiden (se pasientHarNummer) — forkast
+            // treff der søkenummeret ikke står på pasienten (sesjons-smitte).
+            const verifiserte = [];
+            let forkastet = 0;
+            for (let i = 0; i < pasienter.length; i++) {
+                const p = pasienter[i];
+                const ok = await pasientHarNummer(p.rediger_url, tlf);
+                if (ok === false) {
+                    forkastet++;
+                    console.warn(`[VERKTØYKASSE] tlf ${tlf}: forkastet «${p.navn}» — nummeret står ikke på pasientsiden (åpen pasient i admin-sesjonen?)`);
+                    continue;
+                }
+                verifiserte.push(p);  // true eller null (kunne ikke sjekke) → behold
+            }
+            console.log(`[VERKTØYKASSE] tlf ${tlf}: ${verifiserte.length} pasient(er) funnet` + (forkastet ? ` (${forkastet} forkastet)` : ''));
+            return { tlf, hentet: new Date().toISOString(), pasienter: verifiserte, forkastet };
         } catch(e) {
             const melding = (e.name === 'AbortError') ? 'tidsavbrudd – NISSY svarte ikke (prøv igjen)' : e.message;
             console.warn('[VERKTØYKASSE] sokTlfINissy:', melding);
@@ -1739,8 +1832,21 @@
                     // Søk ALLE relevante numre parallelt: anroper + numre fra zisson-
                     // jobben (pasientens oppgitte nr) + pasient-tlf fra kortet. Deduped
                     // på rene sifre, så samme nummer ikke søkes to ganger.
+                    // v2.126: søk med RENSEDE sifre (før: råstreng m/ +47/mellomrom fra
+                    // Zisson → 0 treff i findPatient selv om nummeret lå i NISSY —
+                    // PAULSEN-saken: manuelt søk «48157872» traff, toasten bommet).
+                    // Har nummeret landkode (47/0047), søkes OGSÅ 8-sifret variant.
                     const kandidater = new Map();
-                    const leggTilNr = (raw) => { const ren = (raw || '').replace(/\D/g, ''); if (ren && !kandidater.has(ren)) kandidater.set(ren, raw); };
+                    const leggTilNr = (raw) => {
+                        let ren = (raw || '').replace(/\D/g, '');
+                        if (!ren) return;
+                        if (ren.startsWith('0047') && ren.length === 12) ren = ren.slice(4);
+                        if (!kandidater.has(ren)) kandidater.set(ren, ren);
+                        if (ren.length === 10 && ren.startsWith('47')) {
+                            const kort = ren.slice(2);
+                            if (!kandidater.has(kort)) kandidater.set(kort, kort);
+                        }
+                    };
                     leggTilNr(tlf);
                     (numre || []).forEach(n => leggTilNr(n && n.tlf));
                     leggTilNr(kortInfo?.pasient_telefon);
@@ -1759,18 +1865,27 @@
                     }
 
                     // Merge unike pasienter etter pnr (fall tilbake til navn hvis pnr mangler)
+                    // + husk HVILKET nummer som ga treffet (selvdiagnose: to anrop på rad
+                    // viste samme pasient — nå ser operatøren kilden direkte i toasten).
                     const unike = new Map();
                     for (const r of resultater) {
                         for (const p of (r.pasienter || [])) {
                             const nokkel = p.pnr || p.navn || JSON.stringify(p);
-                            if (!unike.has(nokkel)) unike.set(nokkel, p);
+                            if (!unike.has(nokkel)) unike.set(nokkel, { ...p, _kildeTlf: r.tlf || '' });
                         }
                     }
                     const pasienter = Array.from(unike.values());
 
                     visPasientliste(resultatEl, pasienter, id, anroperNavn);
+                    // Sesjons-smitte-varsel: treff ble forkastet fordi søkenummeret ikke
+                    // står på pasienten (typisk: en pasient står åpen i admin-sesjonen).
+                    let nForkastet = 0;
+                    for (let i = 0; i < resultater.length; i++) nForkastet += (resultater[i].forkastet || 0);
+                    if (!pasienter.length && nForkastet) {
+                        resultatEl.innerHTML += `<div style="color:#f87171;font-size:11px;margin-top:4px;">⚠ ${nForkastet} NISSY-treff forkastet — nummeret står ikke på pasienten. En åpen pasient i admin kan «smitte» søket.</div>`;
+                    }
                     knapperEl.style.display = 'none';
-                    await svarTlfJobb(id, 'pasient', { antall: pasienter.length, kilder: oppgaver.length });
+                    await svarTlfJobb(id, 'pasient', { antall: pasienter.length, kilder: oppgaver.length, forkastet: nForkastet });
                 }
             };
         });
@@ -2007,6 +2122,7 @@
                         <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
                             <span style="color:#cbd5e1;font-family:monospace;font-size:12px;font-weight:600;">${pnr}</span>
                             ${alderTxt ? `<span style="color:#94a3b8;font-size:11px;">${alderTxt}</span>` : ''}
+                            ${pas._kildeTlf ? `<span title="Nummeret som ga treff i NISSY" style="color:#64748b;font-size:10px;">☎ ${formaterTlf(pas._kildeTlf)}</span>` : ''}
                             <span data-vkt-kopier="${pnr}" title="Kopier personnummer" style="cursor:pointer;color:#64748b;font-size:13px;line-height:1;padding:1px 4px;border-radius:3px;user-select:none;">📋</span>
                             <span data-vkt-rekv="${i}" style="font-size:11px;color:#64748b;font-style:italic;">⏳ rekv...</span>
                         </div>
