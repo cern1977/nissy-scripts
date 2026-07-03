@@ -1,3 +1,11 @@
+// === BASIC TOOLS v1.123-dev ===
+// v1.123-dev: UTSENDELSESVARSEL — institusjonsnavn ga 60-min-gulvet (HUSDAL-raden 03.07: Oslo→Drevsjø
+//             3t38 blinket fra 14:05 i stedet for 16:43). Visningsnavn («Kirurgisk, gastro- og urologisk
+//             avdeling», «Engerdal Sykehjem») kan verken struktureres for NISSY-kallet eller geokodes.
+//             Nå: kan ikke radteksten struktureres → hent EKTE adresser fra admin-plakaten
+//             (api.hentRekvisisjon/ajax_reqdetails via radens reqId — samme kilde som Vis kart+) →
+//             beregnReisetidNissy → cache i localStorage (24 t). ruter.php-fallback bruker også
+//             admin-adressene når vi har dem.
 // === BASIC TOOLS v1.122-dev ===
 // v1.122-dev: UTSENDELSESVARSEL — «F5-flommen» endelig forklart (Thomas' konsollsjekk 03.07): origin-
 //             kvoten (5 MB) var FULL av Område-assistentens rutegeometrier → vkt_utv_rtcache fikk aldri
@@ -324,7 +332,7 @@
     //             → «07:09»), så turer en ANNEN dag ble evaluert som i dag → falsk blink. Beholder nå
     //             tidRaw m/ dato-prefiks; utvOppdater hopper over turer med dato ≠ i dag.
     // v1.92-dev: fix popup-frysing under geokoding — geo()-timeout + parallell geocodeAlle.
-    const VERSJON = '1.122-dev';
+    const VERSJON = '1.123-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -2959,13 +2967,40 @@
         const m = utvRenskAdr(adr).match(/^(.*?)\s+(\d+)\s*([A-Za-zÆØÅæøå]?)\s*,?\s*(\d{4})\s+(.+)$/);
         return m ? { gatenavn: m[1].trim(), husnummer: m[2], husbokstav: (m[3] || '').toUpperCase(), postnummer: m[4], poststed: m[5].trim() } : null;
     }
-    async function utvReisetidMin(fra, til) {
+    async function utvReisetidMin(t) {
+        const fra = t.fra, til = t.til;
         const key = fra + '|' + til;
         if (_utvReisetid[key] !== undefined) return _utvReisetid[key];
         // v1.119: NISSYs egen beregner FØRST — fasiten, samme tall NISSY brukte da hentetiden ble
         // satt. reisetid + regiontillegg ≈ oppmøte − hentetid → fristen blir nøyaktig oppmøte − 25.
-        // Cachet per fra|til som før (behandlingstidspunktet påvirker ikke NISSYs reisetid nevneverdig).
-        const fraObj = utvParseAdr(fra), tilObj = utvParseAdr(til);
+        // Cachet per fra|til (localStorage 24 t; behandlingstidspunktet påvirker ikke reisetiden nevneverdig).
+        let fraObj = utvParseAdr(fra), tilObj = utvParseAdr(til);
+        let ruterFra = fra, ruterTil = til;
+        // v1.123: visningsnavn (institusjon uten gate/husnr) kan ikke struktureres → hent de EKTE
+        // adressene fra admin-plakaten via radens reqId/resId (samme kombo-rekkefølge som beriktTur).
+        // Én ekstra admin-hent per rad — men svaret caches 24 t, så det er en engangskostnad.
+        // (HUSDAL-caset: «Kirurgisk, gastro- og urologisk avdeling → Engerdal Sykehjem» ga 60-min-
+        // gulvet og blink 2,5 t for tidlig; admin-adressene gir NISSYs ekte 3t38.)
+        if ((!fraObj || !tilObj) && (t.reqId || t.resId)) {
+            const api = window.__verktoykasseDev || window.__verktoykasse;
+            if (api && api.hentRekvisisjon) {
+                const kombos = [];
+                if (t.resId) kombos.push([t.resId, t.resId]);
+                if (t.reqId && t.resId) kombos.push([t.reqId, t.resId]);
+                if (t.reqId) kombos.push([t.reqId, t.reqId]);
+                for (let i = 0; i < kombos.length; i++) {
+                    try {
+                        const rek = await api.hentRekvisisjon(kombos[i][0], 1, kombos[i][1], '');
+                        if (rek && rek.fra_adresse && rek.til_adresse) {
+                            fraObj = fraObj || utvParseAdr(rek.fra_adresse);
+                            tilObj = tilObj || utvParseAdr(rek.til_adresse);
+                            ruterFra = rek.fra_adresse; ruterTil = rek.til_adresse;  // bedre geokoding i fallback òg
+                            break;
+                        }
+                    } catch (_) {}
+                }
+            }
+        }
         if (ER_DEV) console.log('[' + NAVN + '] utv cache-miss → ' + (fraObj && tilObj ? 'NISSY' : 'ruter.php') + ': «' + key + '»');
         if (fraObj && tilObj) {
             const dn = new Date();
@@ -2975,7 +3010,7 @@
             if (j) { utvLagreCache(key, j.reisetid + (j.tidstilleggRegionalt || 0)); return _utvReisetid[key]; }
         }
         try {
-            const j = await fetch('https://thomaswestby.no/skript/ruter.php?fra=' + encodeURIComponent(utvRenskAdr(fra)) + '&til=' + encodeURIComponent(utvRenskAdr(til))).then(r => r.json());
+            const j = await fetch('https://thomaswestby.no/skript/ruter.php?fra=' + encodeURIComponent(utvRenskAdr(ruterFra)) + '&til=' + encodeURIComponent(utvRenskAdr(ruterTil))).then(r => r.json());
             utvLagreCache(key, (j && j.ok && j.sek) ? Math.round(j.sek / 60) : null);
         } catch (_) { _utvReisetid[key] = null; }
         return _utvReisetid[key];
@@ -3008,8 +3043,9 @@
                 const diff = T - naa;
                 if (diff > 30 || diff < -360) continue;  // kun imminente/nylig passerte → begrenser ruter-kall
                 let rt = UTV_VENTETID_MIN;
-                const ft = lesFraTilFraRad(rad);
-                if (ft && ft.fra && ft.til) { const m = await utvReisetidMin(ft.fra, ft.til); if (m != null) rt = m; }
+                // v1.123: sender hele tur-objektet — utvReisetidMin trenger reqId/resId for
+                // admin-adresse-oppslaget når fra/til er visningsnavn.
+                if (t.fra && t.til) { const m = await utvReisetidMin(t); if (m != null) rt = m; }
                 const ventetid = Math.max(rt, UTV_VENTETID_MIN);
                 const frist = T + ventetid;
                 if (naa >= frist - UTV_VARSEL_MIN) {
