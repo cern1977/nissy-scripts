@@ -1,3 +1,14 @@
+// === BASIC TOOLS v1.125-dev ===
+// v1.125-dev: TOOLTIP-PRESISERING (Thomas): «reisetid 1 t 0 min» var egentlig VENTETIDEN (maks(reisetid,
+//             60 min-gulvet)) — reisetid og ventetid er forskjellige ting. Nå vises begge når gulvet
+//             slår inn: «reisetid 23 min → ventetid 1 t 0 min»; lange turer (reisetid ≥ 60) viser kun
+//             reisetid (ventetid = reisetid); ukjent: «reisetid ukjent → ventetid 1 t 0 min».
+// === BASIC TOOLS v1.124-dev ===
+// v1.124-dev: UTSENDELSES-TOOLTIP — NISSYs native mouseover-title på <tr> viser bare rekvisisjons-
+//             nummeret («meningsløst» — Thomas). Når 🔔-varselet er PÅ overskrives den med
+//             utsendelses-info: «Send ut innen HH:MM (reisetid …, hentetid …)». Settes i samme
+//             utvOppdater-løkke som blinken (gratis — fristen er alt beregnet), re-påføres etter
+//             NISSY-re-render av samme MutationObserver. Varsel AV → native tooltip urørt.
 // === BASIC TOOLS v1.123-dev ===
 // v1.123-dev: UTSENDELSESVARSEL — institusjonsnavn ga 60-min-gulvet (HUSDAL-raden 03.07: Oslo→Drevsjø
 //             3t38 blinket fra 14:05 i stedet for 16:43). Visningsnavn («Kirurgisk, gastro- og urologisk
@@ -332,7 +343,7 @@
     //             → «07:09»), så turer en ANNEN dag ble evaluert som i dag → falsk blink. Beholder nå
     //             tidRaw m/ dato-prefiks; utvOppdater hopper over turer med dato ≠ i dag.
     // v1.92-dev: fix popup-frysing under geokoding — geo()-timeout + parallell geocodeAlle.
-    const VERSJON = '1.123';
+    const VERSJON = '1.125';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -3023,6 +3034,9 @@
         document.head.appendChild(st);
     }
     function utvPaa() { return localStorage.getItem(UTV_LS) === '1'; }
+    // v1.124: formatering til utsendelses-tooltipen
+    function utvFmtKl(mm) { return String(Math.floor(mm / 60) % 24).padStart(2, '0') + ':' + String(mm % 60).padStart(2, '0'); }
+    function utvFmtVarighet(mm) { return mm >= 60 ? Math.floor(mm / 60) + ' t ' + (mm % 60) + ' min' : mm + ' min'; }
     let _utvKjorer = false;
     async function utvOppdater() {
         if (_utvKjorer) return; _utvKjorer = true;
@@ -3042,12 +3056,22 @@
                 if (datoM && (+datoM[1] !== dn.getDate() || +datoM[2] !== dn.getMonth() + 1)) continue;
                 const diff = T - naa;
                 if (diff > 30 || diff < -360) continue;  // kun imminente/nylig passerte → begrenser ruter-kall
-                let rt = UTV_VENTETID_MIN;
+                let rt = UTV_VENTETID_MIN, rtKjent = false;
                 // v1.123: sender hele tur-objektet — utvReisetidMin trenger reqId/resId for
                 // admin-adresse-oppslaget når fra/til er visningsnavn.
-                if (t.fra && t.til) { const m = await utvReisetidMin(t); if (m != null) rt = m; }
+                if (t.fra && t.til) { const m = await utvReisetidMin(t); if (m != null) { rt = m; rtKjent = true; } }
                 const ventetid = Math.max(rt, UTV_VENTETID_MIN);
                 const frist = T + ventetid;
+                // v1.124: erstatt NISSYs rekvnr-tooltip med utsendelses-info (kun når varselet er på —
+                // vi er bak utvPaa()-sjekken her). Re-render nullstiller title; denne løkka setter den igjen.
+                const sendUt = frist - UTV_VARSEL_MIN;
+                // v1.125: reisetid ≠ ventetid — vis begge når 60-min-gulvet hever ventetiden.
+                rad.title = '🔔 Send ut innen ' + utvFmtKl(sendUt)
+                    + (naa >= sendUt ? ' — FRIST PASSERT' : '')
+                    + ' (' + (!rtKjent ? 'reisetid ukjent → ventetid ' + utvFmtVarighet(ventetid)
+                            : rt < ventetid ? 'reisetid ' + utvFmtVarighet(rt) + ' → ventetid ' + utvFmtVarighet(ventetid)
+                            : 'reisetid ' + utvFmtVarighet(rt))
+                    + ', hentetid ' + t.tid + ')';
                 if (naa >= frist - UTV_VARSEL_MIN) {
                     aktive[rad.id] = true;
                     // v1.104: blink-bakgrunnen (!important) skjulte NISSYs blå markering — pauser
