@@ -1,3 +1,7 @@
+// === WESTBYS VERKTØYKASSE v2.130-dev ===
+// v2.130-dev: kort-oppslaget i tlf-toasten tåler nå forbigående nettverksglipp — «Failed to fetch»
+//             ga skremmende feiltekst selv om NISSY-søket funket. Nå: automatisk retry (2 forsøk,
+//             0,7s pause) + dempet «(kort-info utilgjengelig)» m/ tooltip i stedet for rå feil.
 // === WESTBYS VERKTØYKASSE v2.129-dev ===
 // v2.129-dev: Treff-verifisering forkastet EKTE treff (Stensland 92263998): pasientsiden lagrer
 //             «+4792263998» og (?<!\d)-grensen avviste nummeret rett etter «47». Verifiseringen
@@ -261,7 +265,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.129';
+    const VERSJON = '2.130';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = false;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1759,7 +1763,15 @@
         const oppslagUrl = kortId
             ? `${ZISSON_OPPSLAG_URL}?kort_id=${kortId}`
             : `${ZISSON_OPPSLAG_URL}?tlf=${encodeURIComponent(tlf)}`;
-        fetch(oppslagUrl).then(r => r.json()).then(d => {
+        // v2.130: retry ved forbigående nettverksglipp («Failed to fetch» i toasten 03.07 mens
+        // NISSY-søket funket fint) — ett nytt forsøk etter kort pause før vi gir oss.
+        const hentOppslag = async () => {
+            for (let fs = 0; fs < 2; fs++) {
+                try { return await fetch(oppslagUrl).then(r => r.json()); }
+                catch (e) { if (fs) throw e; await new Promise(r => setTimeout(r, 700)); }
+            }
+        };
+        hentOppslag().then(d => {
             if (!d.ok || !d.kort) {
                 if (d.kort === null) {
                     // Ingen kort lagret på innringeren → IKKE skremmende «ingen kort funnet»-tekst (forvirrer operatøren).
@@ -1811,8 +1823,9 @@
             if (erSelv || harPasientPnr || harPasientTlf) autoKlikkPasient('kort: pasient kjent');
             else if (erPasientlinje)     autoKlikkPasient('pasientlinje');
         }).catch(e => {
-            kortEl.textContent = `(oppslag-feil: ${e.message})`;
-            kortEl.style.color = '#fbbf24';
+            // Dempet melding — kortoppslaget er tilleggsinfo; NISSY-søket går sin gang uansett.
+            kortEl.innerHTML = `<span title="Kort-oppslaget nådde ikke serveren (${e.message}) — prøvd 2 ganger" style="cursor:help;">(kort-info utilgjengelig)</span>`;
+            kortEl.style.color = '#94a3b8';
             if (erPasientlinje) autoKlikkPasient('pasientlinje (oppslag-feil)');
         });
         }  // slutt else (ikke sjåførlinje)
