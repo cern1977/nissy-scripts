@@ -1,3 +1,13 @@
+// === OMRÅDE ASSISTENT v0.9.93-dev ===
+// v0.9.93-dev: KVOTE-VERN for localStorage (Thomas 03.07: «vkt_utv_rtcache FINNES IKKE» — omr_ru_-geometriene
+//              hadde fylt hele origin-kvoten på 5 MB → ALL localStorage-skriving på NISSY-siden feilet stille,
+//              også andre skripts cacher). (1) Oppstartsrydding: omr_ru_ budsjetteres til 2 MB, eldste ryker.
+//              (2) lsSkriv self-healer ved QuotaExceeded: kaster ut eldste omr_ru_-poster og prøver igjen.
+//              (3) omr_ru_-TTL 7 døgn → 24 t (Thomas: «trenger ikke cache mer enn 24 t»).
+// === OMRÅDE ASSISTENT v0.9.92-dev ===
+// v0.9.92-dev: FRABRINGER som eget kort til HØYRE for pasientkortet (symmetrisk m/ tilbringer venstre; Thomas).
+//              🚶 selv / 🚗 løyve+status / ❌ mangler. Fast 56px høyre-gutter (.hlsxfrab), søyle 440→480px.
+//              omrFrabringerStatus returnerer nå løyve+transportør (som tilbringer).
 // === OMRÅDE ASSISTENT v0.9.91-dev ===
 // v0.9.91-dev: erHelsebuss strammet inn — RESSURSEN «HLSB L-O» DEFINERER bussen (Thomas). Tildelt IKKE-HLSB-ressurs
 //              (f.eks. taxi IN-403, avtaleområde 51501 Vågå) = feeder-taxi m/ HLSX-passasjer → EKSKLUDERES, selv om
@@ -432,7 +442,7 @@
 (function () {
     'use strict';
 
-    const VERSJON = '0.9.91-dev';
+    const VERSJON = '0.9.93-dev';
     // Interne GD-/ST-biler (kjører i Kongsvinger) er ikke ekte returbiler — kan skjules via checkbox.
     let skjulGD = true;
     let skjulUonsket = true;   // «skjul uønskede» (default på): skjuler lokale + avreiste returbiler.
@@ -1011,7 +1021,7 @@
             if (!d) continue;
             if (busDet.dato && d.dato && d.dato !== busDet.dato) continue;   // samme dag som bussen
             if (String(d.fraPostnr) !== String(stoppPostnr)) continue;       // avgår fra busstoppet
-            res = { funnet: true, status: d.status, klarFra: d.klarFra, suti: d.suti, meldingPRK: d.meldingPRK, meldingTR: d.meldingTR };
+            res = { funnet: true, status: d.status, klarFra: d.klarFra, suti: d.suti, meldingPRK: d.meldingPRK, meldingTR: d.meldingTR, loyve: d.loyve || '', transportor: d.transportor || '' };
             break;
         }
         _frabrCache[key] = { t: Date.now(), res: res };
@@ -1337,7 +1347,50 @@
         } catch (e) {}
         return undefined;
     }
-    function lsSkriv(fullKey, v) { try { localStorage.setItem(fullKey, JSON.stringify({ v: v, t: Date.now() })); } catch (e) {} }
+    // v0.9.93: lsSkriv self-healer ved full kvote — QuotaExceeded kastet stille før, og når omr_ru_-
+    // geometriene (store polylines) hadde spist hele origin-kvoten (5 MB) feilet ALL localStorage-
+    // skriving på NISSY-siden, også andre skripts cacher. Nå: rydd eldste omr_ru_-poster og prøv igjen.
+    function lsSkriv(fullKey, v) {
+        const s = JSON.stringify({ v: v, t: Date.now() });
+        for (let fs = 0; fs < 3; fs++) {
+            try { localStorage.setItem(fullKey, s); return; }
+            catch (e) { if (!lsFrigjor(fullKey)) return; }
+        }
+    }
+    // Frigjør ~300 kB ved å fjerne de ELDSTE omr_ru_-postene. Returnerer false når ingenting kunne fjernes.
+    function lsFrigjor(unntatt) {
+        const kand = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k || k === unntatt || k.indexOf('omr_ru_') !== 0) continue;
+            let t = 0; try { const o = JSON.parse(localStorage.getItem(k)); t = (o && o.t) || 0; } catch (e) {}
+            kand.push({ k: k, t: t, n: (localStorage.getItem(k) || '').length });
+        }
+        if (!kand.length) return false;
+        kand.sort(function (a, b) { return a.t - b.t; });
+        let frigjort = 0;
+        for (let i = 0; i < kand.length && frigjort < 300 * 1024; i++) { localStorage.removeItem(kand[i].k); frigjort += kand[i].n; }
+        try { console.log('[' + NAVN + '] localStorage-kvote full — ryddet ' + Math.round(frigjort / 1024) + ' kB gamle rutegeometrier'); } catch (e) {}
+        return true;
+    }
+    // v0.9.93: oppstartsrydding — omr_ru_ budsjetteres til 2 MB (eldste ryker først) så geometri-cachen
+    // aldri igjen kveler hele kvoten. (Indekserte løkker — Prototype overstyrer reduce/filter på hovedsiden.)
+    (function ryddRuteCache() {
+        try {
+            const alle = []; let sum = 0;
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (!k || k.indexOf('omr_ru_') !== 0) continue;
+                const n = (localStorage.getItem(k) || '').length;
+                let t = 0; try { const o = JSON.parse(localStorage.getItem(k)); t = (o && o.t) || 0; } catch (e) {}
+                alle.push({ k: k, t: t, n: n }); sum += n;
+            }
+            alle.sort(function (a, b) { return a.t - b.t; });
+            let i2 = 0;
+            while (sum > 2 * 1024 * 1024 && i2 < alle.length) { localStorage.removeItem(alle[i2].k); sum -= alle[i2].n; i2++; }
+            if (i2) console.log('[' + NAVN + '] rutecache-budsjett: ' + i2 + ' eldste geometrier fjernet (' + Math.round(sum / 1024) + ' kB igjen)');
+        } catch (e) {}
+    })();
     // fetch med timeout (abort etter ms) — hindrer at ÉN hengende request fryser hele berik()/Promise.all.
     function fetchTO(url, opts, ms) {
         let ctrl, t;
@@ -1937,13 +1990,14 @@
             // tilbringer-taxien et eget kort til VENSTRE. Header/retn-rad får egen lesbar bakgrunn.
             '.hlsxrad{display:flex;gap:6px;align-items:stretch;margin-bottom:6px}' +
             '.paskort{flex:1;font-size:11px;color:#cbd5e1;background:rgba(15,23,42,.9);border:1px solid #334155;border-radius:8px;padding:6px 9px}' +
-            '.hlsxtaxi{flex:0 0 56px;display:flex;align-items:stretch}' +   // fast venstre-gutter → pasientkortene flukter; taxi vises kun for de som har tilbringer
+            '.hlsxtaxi{flex:0 0 56px;display:flex;align-items:stretch}' +   // fast venstre-gutter (tilbringer) → pasientkortene flukter
+            '.hlsxfrab{flex:0 0 56px;display:flex;align-items:stretch}' +   // fast høyre-gutter (frabringer) — symmetrisk m/ tilbringer
             '.taxibox{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;background:rgba(15,23,42,.9);border:1px solid #334155;border-radius:8px;padding:4px 2px;font-size:10px;font-weight:700}' +
             '.taxibox .loyve{color:#e2e8f0;font-size:10px;font-weight:700;letter-spacing:.02em;word-break:break-all;line-height:1.05;text-align:center}' +
             '.hlsxrad .t{color:#fbbf24;font-weight:700;flex-shrink:0}' +
             '.hlsxrad .hst{font-size:10px;font-weight:700;white-space:nowrap}' +
             '.hlsxrad .frab{display:inline-block;margin-top:3px;font-size:10px;font-weight:600}' +
-            '#hlsxV,#hlsxH{width:440px;background:transparent;border:none}' +   // transparent søyle (bredere for meldinger)
+            '#hlsxV,#hlsxH{width:480px;background:transparent;border:none}' +   // transparent søyle (plass til taxi-bokser på begge sider)
             '#hlsxV h3,#hlsxH h3{background:rgba(15,23,42,.9);border-radius:8px;padding:5px 9px;margin-bottom:7px}' +
             '.hlsxrad .hmline{font-size:10px;line-height:1.35;margin-top:3px;padding:3px 7px;border-radius:5px;background:#0f172a;white-space:normal}' +
             '.hlsxrad .hmline.prk{color:#fde68a;border-left:2px solid #f59e0b}' +
@@ -2271,7 +2325,7 @@
     async function hentRute(fra, til) {
         const key = fra + '|' + til;
         if (_ruteCache[key]) return _ruteCache[key];  // cache KUN gyldige ruter (ikke feil → retry når ORS-kvote er tilbake)
-        const ls = lsLes('omr_ru_' + key, 7 * _LS_DAG);
+        const ls = lsLes('omr_ru_' + key, 1 * _LS_DAG);  // v0.9.93: 24 t (Thomas) — geometrier er store og trenger ikke leve lenger
         if (ls && ls.geometri && ls.geometri.length) { _ruteCache[key] = ls; return ls; }
         try {
             const r = await fetchTO(SERVER + '/ruter.php?fra=' + encodeURIComponent(fra) + '&til=' + encodeURIComponent(til), {}, 12000);
@@ -2535,10 +2589,11 @@
         // Hver passasjer-rad har data-reqid → async fylles MELDINGSFELT (💬, tooltip) for alle, og FRABRINGER
         // (siste bil fra busstoppet hjem) for ut/retur. INN-passasjerer (Innlandet sin ende) får ikke frabringer.
         const stBadge = o => { const s = hlsxStatusVis(o.status); return s.sym ? ' <span class="hst" title="' + esc(s.tip) + '" style="color:' + s.f + '">' + s.sym + ' ' + esc(s.txt) + '</span>' : ''; };
+        // Layout: [🚕 tilbringer-boks VENSTRE] [pasientkort] [🚗 frabringer-boks HØYRE] — symmetrisk (Thomas).
         const rad = (o, medFrab) => '<div class="hlsxrad" data-leds="' + (o.leds || 0) + '"' + (o.reqId ? ' data-reqid="' + esc(o.reqId) + '" data-resid="' + esc(o.resId) + '"' : '') + '><div class="hlsxtaxi"></div><div class="paskort"><span>' + pil(o.dir) + esc(o.navn) + ' <span class="hleds">' + (o.leds ? '<span style="color:#fbbf24">👥 +' + o.leds + '</span>' : '') + '</span><span class="hstwrap">' + stBadge(o) + '</span></span><br><span class="fratil" style="color:#94a3b8">' + esc(o.fra) + ' → ' + esc(o.til) + '</span>'
-            + '<span class="hmsgline"></span>'
-            + (medFrab && o.dir === 'ut' && o.reqId && o.stoppPostnr ? '<br><span class="frab" data-stopp="' + esc(o.stoppPostnr) + '" style="color:#64748b">🚗 frabringer: ⏳</span>' : '')
-            + '</div></div>';
+            + '<span class="hmsgline"></span></div>'
+            + '<div class="hlsxfrab"' + (medFrab && o.dir === 'ut' && o.reqId && o.stoppPostnr ? ' data-stopp="' + esc(o.stoppPostnr) + '"' : '') + '></div>'
+            + '</div>';
         // Grupper pr TERMINAL (Rikshospitalet/Ullevål) med overskrift i stedet for avreisetid pr passasjer.
         const TERM_REKKEF = ['Rikshospitalet', 'Ullevål', 'Annet'];
         const grupper = (items, medFrab) => {
@@ -2620,16 +2675,30 @@
                     if (d.meldingTR) h += '<div class="hmline tr" title="Melding til transportøren">🚍 ' + esc(d.meldingTR) + '</div>';
                     setH(hm, h);
                 }
-                // Frabringer (ut/retur) — idempotent (skriver kun ved endret tekst → ingen flimmer ved autorefresh).
-                const fr = rad.querySelector('.frab');
-                if (fr) {
-                    try {
-                        let txt, color, title = '';
-                        if (erSelvtransport(meld)) { txt = '🚶 Kommer selv til møteplassen — ingen frabringer'; color = '#22c55e'; title = [d.meldingPRK, d.meldingTR].filter(Boolean).join('\n\n'); }
-                        else { const f = await omrFrabringerStatus(d, fr.getAttribute('data-stopp')); const v = frabringerVis(f); txt = '🚗 Frabringer: ' + v.sym + ' ' + v.txt; color = v.f; if (f && f.funnet && (f.meldingPRK || f.meldingTR)) title = [f.meldingPRK, f.meldingTR].filter(Boolean).join('\n\n'); }
-                        if (fr.textContent !== txt) { fr.textContent = txt; fr.style.color = color; }
-                        if (title && fr.getAttribute('title') !== title) fr.setAttribute('title', title);
-                    } catch (_) { if (fr.textContent !== '🚗 Frabringer: ?') fr.textContent = '🚗 Frabringer: ?'; }
+                // Frabringer (🚗) → eget kort til HØYRE for pasientkortet (symmetrisk m/ tilbringer venstre; Thomas).
+                // 🚶 selv / 🚗 løyve+status / ❌ mangler. Idempotent (setH). Kun ut/retur-rader har data-stopp.
+                const fb = rad.querySelector('.hlsxfrab');
+                if (fb) {
+                    let h = '';
+                    const stopp = fb.getAttribute('data-stopp');
+                    if (stopp) {
+                        try {
+                            if (erSelvtransport(meld)) {
+                                const tip = 'Kommer selv til møteplassen — ingen frabringer' + (d.meldingTR ? ' — ' + d.meldingTR : '');
+                                h = '<div class="taxibox" title="' + esc(tip) + '" style="border-color:#22c55e"><div style="font-size:14px">🚶</div><div style="color:#22c55e;font-size:9px">selv</div></div>';
+                            } else {
+                                const f = await omrFrabringerStatus(d, stopp);
+                                const v = frabringerVis(f);
+                                const km = ((f && f.klarFra) || '').match(/(\d{1,2}:\d{2})/);
+                                const loyve = ((f && f.loyve) || '').slice(0, 10);
+                                const tip = 'Frabringer' + (f && f.loyve ? ' løyve ' + f.loyve : '') + (f && f.transportor ? ' (' + f.transportor + ')' : '') + ' hjem fra stoppet: ' + v.txt + (f && f.meldingTR ? ' — ' + f.meldingTR : '');
+                                h = '<div class="taxibox" title="' + esc(tip) + '" style="border-color:' + v.f + '"><div style="font-size:14px">🚗</div>'
+                                    + (loyve ? '<div class="loyve">' + esc(loyve) + '</div>' : '')
+                                    + '<div style="color:' + v.f + '">' + v.sym + (km ? ' ' + km[1] : '') + '</div></div>';
+                            }
+                        } catch (_) {}
+                    }
+                    setH(fb, h);
                 }
                 // Tilbringer (🚕) → eget TAXI-KORT til VENSTRE for pasientkortet (Thomas' skisse). Vises kun når
                 // påstigning er utenfor Oslo (møteplass; ikke 0xxx) og pas ikke kommer seg selv — og SKJULES når

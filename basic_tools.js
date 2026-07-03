@@ -1,3 +1,24 @@
+// === BASIC TOOLS v1.122-dev ===
+// v1.122-dev: UTSENDELSESVARSEL — «F5-flommen» endelig forklart (Thomas' konsollsjekk 03.07): origin-
+//             kvoten (5 MB) var FULL av Område-assistentens rutegeometrier → vkt_utv_rtcache fikk aldri
+//             satt seg (setItem feilet stille). Fikset i Område-assistent v0.9.93 (kvote-vern). Her:
+//             (1) skrivefeil logges nå ALLTID i konsollen (aldri stille igjen), (2) TTL 7 døgn → 24 t
+//             (Thomas: «trenger ikke cache mer enn 24 t»).
+// === BASIC TOOLS v1.121-dev ===
+// v1.121-dev: UTSENDELSESVARSEL — «mange ruter.php-kall ved hver F5» (Thomas 03.07): feilede oppslag
+//             ble ikke persistert og re-fetches ved hver innlasting. Nå caches også null-svar i
+//             localStorage med kort TTL (30 min). + dev-logging av hvert faktiske oppslag (kilde+par)
+//             så cache-misser er synlige i konsollen.
+// === BASIC TOOLS v1.120-dev ===
+// v1.120-dev: UTSENDELSESVARSEL reisetid-cache persisteres i localStorage (vkt_utv_rtcache, TTL 7 døgn,
+//             maks 600 par) — F5/re-innlasting slår ikke lenger opp alle parene på nytt. Feilede
+//             oppslag (null) holdes kun i minnet (kan være forbigående nettverksglipp).
+// === BASIC TOOLS v1.119-dev ===
+// v1.119-dev: UTSENDELSESVARSEL bruker NISSYs egen tidberegner (beregnReisetidNissy) som primærkilde
+//             for reisetid — samme tall NISSY la til grunn da hentetiden ble satt. Ventetiden inkluderer
+//             regiontillegget (hentetid + reisetid + tillegg = oppmøte → frist = oppmøte − 25 min).
+//             ruter.php beholdes som fallback når adressen ikke lar seg strukturere (institusjon uten
+//             gateadresse) eller NISSY-kallet feiler.
 // === BASIC TOOLS v1.98-dev ===
 // v1.98-dev: UTSENDELSESVARSEL — checkbox «🔔 Utsendelsesvarsel» i footeren. Blinker ventende V-rader
 //            amber når «send ut»-frist passert: nå ≥ hentetid + maks(reisetid,60min) − 25min. reisetid
@@ -303,7 +324,7 @@
     //             → «07:09»), så turer en ANNEN dag ble evaluert som i dag → falsk blink. Beholder nå
     //             tidRaw m/ dato-prefiks; utvOppdater hopper over turer med dato ≠ i dag.
     // v1.92-dev: fix popup-frysing under geokoding — geo()-timeout + parallell geocodeAlle.
-    const VERSJON = '1.118';
+    const VERSJON = '1.122';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -2891,9 +2912,39 @@
     // ===== UTSENDELSESVARSEL =====
     // Blinker ventende V-rader amber når «send ut»-fristen er passert (samme formel som Område-assistent):
     //   haster når  nå ≥ hentetid(Reisetid-kolonnen) + max(reisetid, 60 min) − 25 min (responstid).
-    // reisetid = turens varighet (fra→til via ruter.php, cachet). Av/på via checkbox i footeren.
+    // reisetid = turens varighet fra→til. v1.119: NISSYs egen beregner (beregnReisetidNissy, inkl.
+    // regiontillegg) er primærkilde, ruter.php fallback. Cachet per fra|til. Av/på via checkbox i footeren.
     const UTV_VARSEL_MIN = 25, UTV_VENTETID_MIN = 60, UTV_LS = 'vkt_utsendelsevarsel';
-    const _utvReisetid = {};  // "fra|til" → minutter (cachet i økten)
+    // v1.120: reisetid-cachen persisteres i localStorage så F5 ikke re-slår opp alle parene.
+    // TTL 24 t (v1.122, Thomas). v1.121: FEILEDE oppslag (null)
+    // persisteres OGSÅ, men med kort TTL (30 min) — uten dette ble alle ugekodbare institusjons-
+    // adresser re-fetchet ved hver F5 («veldig mange ruter.php-kall»-funnet 03.07).
+    const UTV_RT_LS = 'vkt_utv_rtcache', UTV_RT_TTL = 24 * 3600 * 1000, UTV_RT_TTL_FEIL = 30 * 60 * 1000, UTV_RT_MAKS = 600;
+    const _utvReisetid = {};  // "fra|til" → minutter (minne-cache; speiles til localStorage)
+    try {
+        const c = JSON.parse(localStorage.getItem(UTV_RT_LS) || '{}');
+        const naa = Date.now();
+        for (const k in c) {
+            if (!c[k] || !('m' in c[k])) continue;
+            if (naa - c[k].t < (typeof c[k].m === 'number' ? UTV_RT_TTL : UTV_RT_TTL_FEIL)) _utvReisetid[k] = c[k].m;
+        }
+    } catch (_) {}
+    function utvLagreCache(key, m) {
+        _utvReisetid[key] = m;
+        try {
+            const c = JSON.parse(localStorage.getItem(UTV_RT_LS) || '{}');
+            c[key] = { m: m, t: Date.now() };
+            const nokler = Object.keys(c);
+            if (nokler.length > UTV_RT_MAKS) {  // eldste ut — begrens localStorage-fotavtrykket
+                nokler.sort((a, b) => (c[a].t || 0) - (c[b].t || 0));
+                for (let i = 0; i < nokler.length - UTV_RT_MAKS; i++) delete c[nokler[i]];
+            }
+            localStorage.setItem(UTV_RT_LS, JSON.stringify(c));
+        } catch (e) {
+            // v1.122: ALDRI stille igjen — full kvote var usynlig i dagevis (03.07-funnet).
+            try { console.warn('[' + NAVN + '] utv-cache: localStorage-skriving FEILET (' + (e && e.name) + ') — full kvote? Reisetider re-fetches ved neste F5.'); } catch (_) {}
+        }
+    }
     function utvRenskAdr(adr) {
         var s = String(adr || '').replace(/<br\s*\/?>/gi, ',').replace(/<[^>]+>/g, ' ');
         var deler = s.split(',').map(function (d) { return d.trim(); }).filter(function (d) { return d && !/^(kommune|kommentar)\s*:/i.test(d); });
@@ -2901,12 +2952,31 @@
         if (pnrIdx > 0) { var gIdx = -1, j; for (j = pnrIdx - 1; j >= 0; j--) { if (/^(\d+\.?\s*etg|etasje|inngang|bygg|avd|hus|plan)\b/i.test(deler[j])) continue; gIdx = j; break; } var gate = gIdx >= 0 ? deler[gIdx].split('/')[0].trim() : ''; return ((gate ? gate + ' ' : '') + deler[pnrIdx]).replace(/\bH\d{3,4}\b/gi, '').replace(/\s+/g, ' ').trim(); }
         return deler.join(' ');
     }
+    // v1.119: strukturer rensket radadresse for beregnReisetidNissy. utvRenskAdr gir «gate nr postnr
+    // sted» (uten komma) — regexen er derfor raus på komma. Uten husnr (institusjonsnavn) → null →
+    // ruter.php-fallback.
+    function utvParseAdr(adr) {
+        const m = utvRenskAdr(adr).match(/^(.*?)\s+(\d+)\s*([A-Za-zÆØÅæøå]?)\s*,?\s*(\d{4})\s+(.+)$/);
+        return m ? { gatenavn: m[1].trim(), husnummer: m[2], husbokstav: (m[3] || '').toUpperCase(), postnummer: m[4], poststed: m[5].trim() } : null;
+    }
     async function utvReisetidMin(fra, til) {
         const key = fra + '|' + til;
         if (_utvReisetid[key] !== undefined) return _utvReisetid[key];
+        // v1.119: NISSYs egen beregner FØRST — fasiten, samme tall NISSY brukte da hentetiden ble
+        // satt. reisetid + regiontillegg ≈ oppmøte − hentetid → fristen blir nøyaktig oppmøte − 25.
+        // Cachet per fra|til som før (behandlingstidspunktet påvirker ikke NISSYs reisetid nevneverdig).
+        const fraObj = utvParseAdr(fra), tilObj = utvParseAdr(til);
+        if (ER_DEV) console.log('[' + NAVN + '] utv cache-miss → ' + (fraObj && tilObj ? 'NISSY' : 'ruter.php') + ': «' + key + '»');
+        if (fraObj && tilObj) {
+            const dn = new Date();
+            const p2 = n => String(n).padStart(2, '0');
+            const behDato = p2(dn.getDate()) + '.' + p2(dn.getMonth() + 1) + '.' + String(dn.getFullYear()).slice(-2);
+            const j = await beregnReisetidNissy(fraObj, tilObj, behDato, p2(dn.getHours()) + ':' + p2(dn.getMinutes()));
+            if (j) { utvLagreCache(key, j.reisetid + (j.tidstilleggRegionalt || 0)); return _utvReisetid[key]; }
+        }
         try {
             const j = await fetch('https://thomaswestby.no/skript/ruter.php?fra=' + encodeURIComponent(utvRenskAdr(fra)) + '&til=' + encodeURIComponent(utvRenskAdr(til))).then(r => r.json());
-            _utvReisetid[key] = (j && j.ok && j.sek) ? Math.round(j.sek / 60) : null;
+            utvLagreCache(key, (j && j.ok && j.sek) ? Math.round(j.sek / 60) : null);
         } catch (_) { _utvReisetid[key] = null; }
         return _utvReisetid[key];
     }
@@ -2978,7 +3048,7 @@
         td.style.cssText = 'padding:0 8px;white-space:nowrap;';
         const lbl = document.createElement('label');
         lbl.style.cssText = 'font-size:11px;color:#334155;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-family:-apple-system,sans-serif;';
-        lbl.title = 'Blink ventende-rader når «send ut»-fristen er passert (reisetid-justert: hentetid + maks(reisetid,60min) − 25min)';
+        lbl.title = 'Blink ventende-rader når «send ut»-fristen er passert (NISSY-reisetid: hentetid + maks(reisetid+regiontillegg,60min) − 25min)';
         const cb = document.createElement('input');
         cb.type = 'checkbox'; cb.checked = utvPaa();
         cb.onchange = () => { localStorage.setItem(UTV_LS, cb.checked ? '1' : '0'); utvOppdater(); };
