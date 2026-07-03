@@ -1,3 +1,7 @@
+// === WESTBYS VERKTØYKASSE v2.131-dev ===
+// v2.131-dev: hentRekvisisjon parser nå også tidene fra admin-plakatens Reise-blokk:
+//             klar_fra («Pasient klar fra») + oppmote_tid («Oppmøtetidspunkt») — fasit for
+//             basic_tools' retning/hentetid når radkolonnene mangler tid (P-rader).
 // === WESTBYS VERKTØYKASSE v2.130-dev ===
 // v2.130-dev: kort-oppslaget i tlf-toasten tåler nå forbigående nettverksglipp — «Failed to fetch»
 //             ga skremmende feiltekst selv om NISSY-søket funket. Nå: automatisk retry (2 forsøk,
@@ -265,7 +269,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.130';
+    const VERSJON = '2.131';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = false;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1119,6 +1123,14 @@
         // Retning
         const retnM = html.match(/Til \/ Fra behandling:<\/td>\s*<td[^>]*>\s*(.*?)\s*<\/td>/is);
         data.retning = retnM ? retnM[1].trim() : null;
+
+        // v2.131: Tider fra Reise-blokka — «Pasient klar fra» = hentetid-fasit, «Oppmøtetidspunkt»
+        // = oppmøte. Radkolonnene i planleggeren varierer (P-rader manglet tid → «retning ukjent»
+        // i basic_tools, Thomas 03.07) — admin-plakaten er fasit.
+        const klarM = html.match(/Pasient klar fra:<\/td>\s*<td[^>]*>\s*([^<]+)/i);
+        data.klar_fra = klarM ? klarM[1].trim() : null;
+        const oppmM = html.match(/Oppm[^<:]{0,4}tetidspunkt:<\/td>\s*<td[^>]*>\s*([^<]+)/i);
+        data.oppmote_tid = oppmM ? oppmM[1].trim() : null;
 
         // Rekvirent
         const rekvM = html.match(/Rekvirent[^<]*<\/td>\s*<td[^>]*>\s*([^<]+)/i);

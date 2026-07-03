@@ -222,6 +222,72 @@
 //   window.__vkt_brukernavn  — NISSY-brukernavn (f.eks. 'thwe')
 // Dev-versjon: basic_tools_dev.js (samme API, brukt for testing).
 (function() {
+    // v1.118-dev: km-dommen måles mot FOLKEREGISTRERT adresse (Thomas 03.07: «Folkeregistrert er
+    //             fasiten») — pasienten kan fritt reise kortere enn kravet sitt; forrige hentested
+    //             er irrelevant (kan alt være endret). pasient_adresse fra admin-plakaten (fantes
+    //             i vkt) propageres som t.pasientAdresse; popupen viser «Krav (folkereg.): X km |
+    //             Alternativ: Y km» + nåværende til info. Mangler adressen → gammel dom m/ varsel.
+    // v1.117-dev: ÉN knapp i stedet for to (Thomas 03.07): «Bytt hentested + hentetid → HH:MM i
+    //             NISSY» gjør adressebytte OG tidsjustering i samme klikk (leser #aaNyTid-feltet
+    //             live; tomt/ugyldig/uendret felt → kun adressebytte). Confirm viser begge. Ved
+    //             delvis suksess (adresse ok, tid feilet) → oransje ⚠-status + forklaring.
+    //             + REGIONTILLEGG i deltaet (Thomas: «plusser ikke NISSY på 20 min?»): hentetid =
+    //             oppmøte − (reisetid + tidstilleggRegionalt); tillegget er adresseavhengig og
+    //             medregnes nå (nissyDelta) — vises i boksen når det endres over regiongrense.
+    // v1.116-dev: endreTidPaaResId VERIFISERES (samme falsk-suksess-felle som altRequisition/v1.107):
+    //             HTTP 200 fra /confirm ≠ lagret — nå plukkes feiltekst fra responsen og skjemaet
+    //             re-hentes for å sjekke at departureTime faktisk ble ny tid (Thomas 03.07: «Tiden
+    //             ble ikke endret» tross grønn knapp). + dev-logging (window.__bt_confirmRespons).
+    // v1.115-dev: tidsfeltet vises kun på VENTENDE turer — pågående kan ikke endres herfra,
+    //             så der vises bare forslaget som tekst (Thomas 03.07).
+    // v1.114-dev: hentetid-forslaget er nå REDIGERBART (Thomas: «tekstfelt så vi kan overstyre
+    //             hvis pasienten vil ha bedre tid») — #aaNyTid-input forhåndsutfylt med forslaget;
+    //             🕐-knappen leser feltet live (ugyldig format → tilbake til forslag).
+    // v1.113-dev: beregnReisetid-500-GÅTEN LØST (Thomas' DevTools-diff + replay-tester) — TRE feil
+    //             lag på lag: (1) Content-Type må være application/x-www-form-urlencoded (rå JSON-
+    //             kropp, Prototype-stil) — application/json ga generisk 500; (2) transportType må
+    //             være 'TAX' — tom streng ga enum-500; (3) planleggerens Array.prototype.toJSON
+    //             dobbel-encoder [] → "[]" i JSON.stringify → Jackson-feil (fjernes midlertidig
+    //             under serialisering). Aldri noe wizard-sesjonskrav. Verifisert {reisetid:13}.
+    // v1.112-dev: DIREKTE beregnReisetid-kall uten edit-skjema (Thomas: payloaden er ren adresse —
+    //             ingen turid/rekvnr). Fallback når edit-veien feiler (pågående turer nekter trolig
+    //             edit): adresser fra popupens admin-fasit + behandlingstidspunkt fra admin-plakatens
+    //             oppmøtetid m/ dato (nytt t.oppmoteRaw). Tester samtidig om wizard-sesjonskravet
+    //             fra 02.07-500-en var reelt.
+    // v1.111-dev: FIX «Retning fremdeles ukjent» på P-rader — P-grenen i byggTurer (tripSearch/
+    //             hentRekvisisjon-per-ben) bygde turen selv og droppet retning/tider; adminFasit()
+    //             (felles helper) kjøres nå i begge grenene, og fallback-løkka sender retning/
+    //             klar_fra/oppmote_tid videre.
+    // v1.110-dev: retning + tider fra ADMIN-PLAKATEN (fasit): beriktTur propagerer rek.retning
+    //             («Til / Fra behandling»), rek.klar_fra («Pasient klar fra» → henteTid) og
+    //             rek.oppmote_tid fra ajax_reqdetails (vkt v2.131) — «Retning ukjent» borte når
+    //             admin svarer, og P-rader uten tidskolonner får tider. Admin-retningen trumfer
+    //             tids-heuristikken. + reisetid-forhåndsboksen vises nå også for PÅGÅENDE turer
+    //             (info-lesing; selve adresseskrivingen er fortsatt sperret).
+    // v1.109-dev: tidsberegning FERDIGSTILT: (1) ruter-estimat som fallback når NISSYs beregnReisetid
+    //             ikke svarer (kjøresekunder fra km-dommens ruter.php-svar, merket «estimat»), så
+    //             hentetid-forslaget alltid vises; (2) dev-diagnostikk på hvert bail-punkt i
+    //             forhandsberegnReisetid (03.07-testen feilet sporløst).
+    // v1.108-dev: reisetid-forslaget kommer nå FØR bytte-knappen (Thomas: operatøren må avklare ny
+    //             hentetid med pasienten før byttet). Ny forhandsberegnReisetid (read-only GET av
+    //             edit-skjemaet + 2× beregnReisetid) vises rett etter km-dommen; resultatet gjenbrukes
+    //             i byttAdresse + 🕐-knappen. FIX 500: beregnReisetid krever wizard-tilstand i
+    //             server-sesjonen — kalles nå FØR altRequisition-POST (etter lagring er den borte).
+    //             + dev-logging av beregnReisetid-feilkropp.
+    // v1.107-dev: adressebytte VERIFISERES nå (gardermoen-mønsteret) — HTTP 200 fra altRequisition
+    //             betyr ikke lagret; ved valideringsfeil ekkoes skjemaet tilbake og popupen viste
+    //             falsk grønn ✓. Nå: feiltekst plukkes fra responsen + edit-skjemaet hentes på nytt
+    //             og adressen sammenlignes før suksess meldes. + FIX beregnReisetid brukte feil
+    //             feltnavn (treatmentDate → treatmentDatePart) så hentetid-forslaget aldri kom.
+    // v1.106-dev: FIX «Kunne ikke beregne alternativ rute» — ruter.php kan time ut på kald cache
+    //             (server-side geokoding+ruting); km() prøver nå 2 ganger (retry treffer varm cache)
+    //             + «Prøv igjen»-lenke i feilmeldingen i stedet for blindvei.
+    // v1.105-dev: HENTETID-FORSLAG via NISSYs egen tidberegner (rekvisisjon/ajax/beregnReisetid, funnet
+    //             av Thomas i DevTools). Ved bytte av HENTESTED beregnes reisetid for orig + ny adresse
+    //             (delta-tilnærming bevarer turens slakk); popupen viser «NISSY-reisetid X → Y min» +
+    //             foreslått ny hentetid og 🕐-knapp som justerer via endre tid-flyten (endreTidPaaResId,
+    //             nå eksponert som __basicTools.endreTid). Ved bytte av leveringssted: info om at
+    //             hentetiden ikke påvirkes.
     // v1.104-dev: utsendelsesvarsel skjulte NISSYs blå radmarkering (blink-bakgrunn m/ !important).
     //             Blinken pauses nå på markerte rader og gjenopptas ved avmarkering — klikk-synk
     //             (utvSynk) gjør det umiddelbart, uten å vente på 20s-ticken.
@@ -237,7 +303,7 @@
     //             → «07:09»), så turer en ANNEN dag ble evaluert som i dag → falsk blink. Beholder nå
     //             tidRaw m/ dato-prefiks; utvOppdater hopper over turer med dato ≠ i dag.
     // v1.92-dev: fix popup-frysing under geokoding — geo()-timeout + parallell geocodeAlle.
-    const VERSJON = '1.104';
+    const VERSJON = '1.118';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -636,7 +702,36 @@
             body,
             credentials: 'include'
         });
-        return { ok: res.ok, status: res.status };
+        if (!res.ok) return { ok: false, status: res.status, feil: 'HTTP ' + res.status };
+        // v1.116: HTTP 200 fra /confirm betyr IKKE lagret (samme felle som altRequisition, v1.107) —
+        // ved valideringsfeil ekkoes skjemaet tilbake. Plukk feiltekst + VERIFISER ved å hente
+        // skjemaet på nytt og sjekke at departureTime faktisk ble ny tid.
+        const rhtml = new TextDecoder('iso-8859-1').decode(await res.arrayBuffer());
+        const rdoc = new DOMParser().parseFromString(rhtml, 'text/html');
+        let feilTekst = '';
+        const feilEls = rdoc.querySelectorAll('.errorText, .error, .errors li, ul.error li, font[color="red"], span[style*="red"], [class*="rror"]');
+        for (let i = 0; i < feilEls.length; i++) {
+            const ft = (feilEls[i].textContent || '').replace(/\s+/g, ' ').trim();
+            if (ft && feilTekst.indexOf(ft) === -1) feilTekst += (feilTekst ? ' | ' : '') + ft;
+        }
+        if (ER_DEV) {
+            try {
+                window.__bt_confirmRespons = rhtml;
+                console.log('[' + NAVN + '] endreTid /confirm-respons — title: «' + (rdoc.title || '') + '», feiltekst: «' + feilTekst + '» (rå HTML i window.__bt_confirmRespons)');
+            } catch (_) {}
+        }
+        let lagret = false;
+        try {
+            const token2 = await dwrEncryptResId(resId);
+            const buf2 = await fetch(`${REK_BASE}/requisition/confirm?loggedin=true&id_enc=${token2}&userid=${userid}&ns=true`, { credentials: 'include' }).then(r => r.arrayBuffer());
+            const doc2 = new DOMParser().parseFromString(new TextDecoder('iso-8859-1').decode(buf2), 'text/html');
+            const el2 = doc2.querySelector('[name="departureTime"]');
+            const v2 = ((el2 && (el2.getAttribute('value') || el2.value)) || '').trim();
+            if (ER_DEV) console.log('[' + NAVN + '] endreTid-verifisering: departureTime i skjemaet = «' + v2 + '» (ville ha «' + nyTid + '»)');
+            lagret = v2 === nyTid;
+        } catch (_) { /* behandles som ikke lagret */ }
+        if (!lagret) return { ok: false, status: res.status, feil: 'NISSY lagret IKKE ny tid' + (feilTekst ? ' — NISSY sier: ' + feilTekst.slice(0, 300) : ' (ingen feiltekst funnet — sjekk konsollen i planleggeren)') };
+        return { ok: true, status: res.status };
     }
 
     // Bytt hent-/leveringssted-adressen i en VENTENDE rekvisisjon via altRequisition-editoren (samme
@@ -659,6 +754,10 @@
             if (!form) return { ok: false, feil: 'fant ikke altRequisition-skjema (uventet side)' };
             const fd = new FormData(form);
             const pfx = (ende === 'fra') ? 'trip.fromAddress' : 'trip.toAddress';
+            // v1.105: ta vare på OPPRINNELIG adresse på enden som byttes (til beregnReisetid-delta)
+            // FØR feltene muteres under.
+            const nissyAdr = p => ({ gatenavn: fd.get(p+'.streetName') || '', husnummer: fd.get(p+'.houseNr') || '', husbokstav: fd.get(p+'.houseSubNr') || '', postnummer: fd.get(p+'.postCode') || '', poststed: fd.get(p+'.city') || '' });
+            const origAdrObj = nissyAdr(pfx);
             // Sett den nye adressen (strukturert) på valgt ende. Cadastral/property tømmes → validateAddress fyller.
             fd.set(pfx + '.streetName', adr.gatenavn || adr.adresse || '');
             fd.set(pfx + '.houseNr', adr.husnr || '');
@@ -684,6 +783,36 @@
             const settUtm = (p, a) => { fd.set(p+'.utmCoordinate.x', a.utmCoordinateX); fd.set(p+'.utmCoordinate.y', a.utmCoordinateY); fd.set(p+'.utmCoordinate.z', a.utmCoordinateZ); fd.set(p+'.utmCoordinate.zone', a.utmCoordinateZone); };
             settUtm('trip.fromAddress', fromA);
             settUtm('trip.toAddress', toA);
+            // v1.108: hentetid-forslag ved bytte av HENTESTED — NISSYs egen tidberegner
+            // (ajax/beregnReisetid, Thomas fant endepunktet 2026-07-02) for opprinnelig og ny
+            // henteadresse mot samme behandlingssted. Delta = ny − orig reisetid → hentetiden bør
+            // flyttes −delta for å rekke oppmøtet. Delta (ikke absolutt) bevarer turens eksisterende
+            // slakk/manuelle justeringer. MÅ kjøres HER — FØR altRequisition-POSTen: endepunktet
+            // leser wizard-tilstand fra server-sesjonen, og etter lagring er den borte → 500
+            // (Thomas' test 02.07: to 500-ere når kallet lå etter POSTen). Best effort.
+            // Popupen forhåndsberegner normalt (forhandsberegnReisetid) og sender resultatet i
+            // ekstra.reisetid — da hopper vi over rekalkuleringen her.
+            let reisetid = (ekstra && ekstra.reisetid) || null;
+            if (ende === 'fra' && !reisetid) {
+                try {
+                    // NB: skjemaet bruker treatmentDatePart/treatmentTimePart (gardermoen-fasit),
+                    // ikke treatmentDate — v1.105 traff aldri pga. feil feltnavn.
+                    let behDato = fd.get('treatmentDatePart') || fd.get('treatmentDate') || '';
+                    const behTid = fd.get('treatmentTimePart') || fd.get('treatmentTime') || '';
+                    const dm = String(behDato).match(/^(\d{2}\.\d{2})\.(?:20)?(\d{2})$/);
+                    if (dm) behDato = dm[1] + '.' + dm[2];  // beregnReisetid vil ha dd.MM.yy
+                    if (behDato && behTid) {
+                        const tilAdrObj = nissyAdr('trip.toAddress');
+                        const [rO, rN] = await Promise.all([
+                            beregnReisetidNissy(origAdrObj, tilAdrObj, behDato, behTid),
+                            beregnReisetidNissy(nissyAdr(pfx), tilAdrObj, behDato, behTid)
+                        ]);
+                        if (rO && rN) reisetid = nissyDelta(rO, rN);
+                    } else if (ER_DEV) {
+                        console.log('[' + NAVN + '] beregnReisetid hoppet over — fant ikke behandlingsdato/-tid i skjemaet (treatmentDatePart/treatmentTimePart)');
+                    }
+                } catch (_) { /* best effort */ }
+            }
             // v1.103: logg endringen i trip.comment — auto-notat + evt. operatørens begrunnelse
             // + signatur. Merge à la gardermoen.js: dedup våre egne gamle «Endret …»-notater,
             // behold resten, ' | '-separator, 255-grense. Best effort — stopper aldri adressebyttet.
@@ -711,13 +840,22 @@
             const body = [...fd].map(([k, v]) => latin1Form(k) + '=' + latin1Form(String(v))).join('&');
             const res = await fetch(`${REK_BASE}/requisition/altRequisition?clear=false`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=ISO-8859-1' }, body, credentials: 'include' });
             if (!res.ok) return { ok: false, feil: 'lagring feilet: HTTP ' + res.status };
-            // v1.103-dev DIAGNOSTIKK (steg 3): reberegner NISSY tider server-side ved adresseendring?
-            // Logger tidsfeltene vi POSTet vs det responsen (neste wizard-side) inneholder.
-            // Indekserte løkker — Prototype.js overstyrer Array.prototype.filter/map i hovedsiden.
+            // v1.107: HTTP 200 fra altRequisition betyr bare «wizard-side returnert» — IKKE lagret.
+            // Ved valideringsfeil ekkoes skjemaet tilbake med feiltekst og INGENTING er endret
+            // (Thomas' test 02.07: grønn ✓ i popupen, men adressen sto urørt i NISSY). Vi leser
+            // derfor responsen, plukker ut feiltekst, og VERIFISERER lagringen ved å hente
+            // edit-skjemaet på nytt og sammenligne (gardermoen-mønsteret) før vi melder suksess.
+            const rhtml = new TextDecoder('iso-8859-1').decode(await res.arrayBuffer());
+            const rdoc = new DOMParser().parseFromString(rhtml, 'text/html');
+            let feilTekst = '';
+            const feilEls = rdoc.querySelectorAll('.errorText, .error, .errors li, ul.error li, font[color="red"], span[style*="red"], [class*="rror"]');
+            for (let i = 0; i < feilEls.length; i++) {
+                const ft = (feilEls[i].textContent || '').replace(/\s+/g, ' ').trim();
+                if (ft && feilTekst.indexOf(ft) === -1) feilTekst += (feilTekst ? ' | ' : '') + ft;
+            }
             if (ER_DEV) {
                 try {
-                    const rhtml = new TextDecoder('iso-8859-1').decode(await res.arrayBuffer());
-                    const rdoc = new DOMParser().parseFromString(rhtml, 'text/html');
+                    window.__bt_altRespons = rhtml;  // rå respons for inspeksjon i konsollen
                     const postet = [];
                     for (const [k, v] of fd) { if (/time|travel|date/i.test(k)) postet.push(k + '=' + v); }
                     const svar = [];
@@ -726,14 +864,138 @@
                         const el = alle[i];
                         if (/time|travel|date/i.test(el.name || '')) svar.push(el.name + '=' + el.value);
                     }
+                    console.log('[' + NAVN + '] altRequisition-respons — title: «' + (rdoc.title || '') + '», feiltekst: «' + feilTekst + '» (rå HTML i window.__bt_altRespons)');
                     console.log('[' + NAVN + '] altRequisition-diagnostikk — POSTet tidsfelter:', postet);
-                    console.log('[' + NAVN + '] altRequisition-diagnostikk — responsens tidsfelter (title: «' + (rdoc.title || '') + '»):', svar);
+                    console.log('[' + NAVN + '] altRequisition-diagnostikk — responsens tidsfelter:', svar);
                 } catch (_) { /* kun diagnostikk */ }
             }
-            return { ok: true, validert: (ende === 'fra' ? fromA : toA) };
+            // Verifiser: hent skjemaet på nytt og sjekk at den nye adressen faktisk står der.
+            let lagret = false;
+            try {
+                const enc2 = await dwrEncryptResId(resId);
+                const buf2 = await fetch(`${REK_BASE}/requisition/edit?loggedin=true&noSerial=true&id=${encodeURIComponent(enc2)}&userid=${encodeURIComponent(userid)}&ns=true`, { credentials: 'include' }).then(r => r.arrayBuffer());
+                const doc2 = new DOMParser().parseFromString(new TextDecoder('iso-8859-1').decode(buf2), 'text/html');
+                const les2 = n => { const el = doc2.querySelector('[name="' + pfx + '.' + n + '"]'); return ((el && (el.getAttribute('value') || el.value)) || '').trim().toLowerCase(); };
+                lagret = les2('streetName') === String(fd.get(pfx + '.streetName') || '').trim().toLowerCase()
+                      && les2('postCode') === String(fd.get(pfx + '.postCode') || '').trim().toLowerCase();
+            } catch (_) { /* behandles som ikke lagret */ }
+            if (!lagret) return { ok: false, feil: 'NISSY lagret IKKE adressen' + (feilTekst ? ' — NISSY sier: ' + feilTekst.slice(0, 300) : ' (ingen feiltekst funnet i responsen — sjekk konsollen i planleggeren)') };
+            return { ok: true, validert: (ende === 'fra' ? fromA : toA), reisetid };
         } catch (e) { return { ok: false, feil: e.message }; }
     }
-    window.__basicTools.byttAdresse = byttRekvisisjonAdresse;  // popupen kaller dette via window.opener
+    // v1.108: FORHÅNDSberegn reisetid-endringen FØR adressen skrives — operatøren skal kunne
+    // avklare ny hentetid med pasienten før byttet gjøres (Thomas 02.07). Read-only: GET av
+    // edit-skjemaet (etablerer wizard-sesjonen beregnReisetid trenger) + to beregnReisetid-kall.
+    // Kun relevant for hentested (ende='fra') — leveringsbytte påvirker ikke hentetiden.
+    async function forhandsberegnReisetid(resId, ende, adr, tur) {
+        // v1.109: diagnostikk på hvert bail-punkt (dev) — 03.07-testen ga «Fikk ikke NISSY-reisetid»
+        // uten spor av HVOR den stoppet.
+        const dbg = m => { if (ER_DEV) console.log('[' + NAVN + '] forhandsReisetid: ' + m); };
+        const nyAdrObj = { gatenavn: adr.gatenavn || adr.adresse || '', husnummer: adr.husnr || '', husbokstav: adr.husbokstav || '', postnummer: adr.postnr || '', poststed: adr.poststed || '' };
+        // v1.112: DIREKTE-kall uten edit-skjema (Thomas 03.07: «beregn tid kan vel gis adresse
+        // uansett?») — payloaden er ren adresse+tid, ingen turid/rekvnr. Adresser fra popupen
+        // (admin-fasit) + behandlingstidspunkt fra admin-plakatens oppmøtetid («04.07.2026 08:45»).
+        // Brukes som fallback når edit-skjema-veien feiler (pågående turer nekter edit).
+        const parseAdrStr = s => {
+            const m = String(s || '').match(/^(.*?)\s+(\d+)\s*([A-Za-zÆØÅæøå]?)\s*,\s*(\d{4})\s+(.+)$/);
+            return m ? { gatenavn: m[1].trim(), husnummer: m[2], husbokstav: (m[3] || '').toUpperCase(), postnummer: m[4], poststed: m[5].trim() } : null;
+        };
+        const direkte = async () => {
+            if (!tur || !tur.oppmoteRaw) { dbg('direkte: mangler oppmøtetid m/ dato (tur.oppmoteRaw)'); return null; }
+            const tm = String(tur.oppmoteRaw).match(/(\d{2})\.(\d{2})\.(?:20)?(\d{2})\s+(\d{1,2}:\d{2})/);
+            if (!tm) { dbg('direkte: klarte ikke parse oppmøtetid «' + tur.oppmoteRaw + '»'); return null; }
+            const behDato = tm[1] + '.' + tm[2] + '.' + tm[3], behTid = tm[4];
+            const fraObj = parseAdrStr(tur.fra), tilObj = parseAdrStr(tur.til);
+            if (!fraObj || !tilObj) { dbg('direkte: klarte ikke parse adresse (fra=«' + (tur.fra || '') + '», til=«' + (tur.til || '') + '»)'); return null; }
+            dbg('direkte: kaller beregnReisetid (behDato=' + behDato + ', behTid=' + behTid + ', fra=' + JSON.stringify(fraObj) + ', ny=' + JSON.stringify(nyAdrObj) + ', til=' + JSON.stringify(tilObj) + ')');
+            const [rO, rN] = await Promise.all([
+                beregnReisetidNissy(fraObj, tilObj, behDato, behTid),
+                beregnReisetidNissy(nyAdrObj, tilObj, behDato, behTid)
+            ]);
+            dbg('direkte-svar: orig=' + (rO ? rO.reisetid : 'null') + ', ny=' + (rN ? rN.reisetid : 'null'));
+            return (rO && rN) ? nissyDelta(rO, rN) : null;
+        };
+        try {
+            if (ende !== 'fra') return null;
+            const userid = await hentRekUserid();
+            if (!userid) { dbg('ingen userid (window.__vkt_brukernavn mangler)'); return direkte(); }
+            const enc = await dwrEncryptResId(resId);
+            const editUrl = `${REK_BASE}/requisition/edit?loggedin=true&noSerial=true&id=${encodeURIComponent(enc)}&userid=${encodeURIComponent(userid)}&ns=true`;
+            const buf = await fetch(editUrl, { credentials: 'include' }).then(r => r.arrayBuffer());
+            const doc = new DOMParser().parseFromString(new TextDecoder('iso-8859-1').decode(buf), 'text/html');
+            const form = doc.querySelector('#mainForm') || doc.querySelector('form[name="mainForm"]');
+            if (!form) { dbg('fant ikke edit-skjema (title: «' + (doc.title || '') + '») → prøver direkte-kall'); return direkte(); }
+            const fd = new FormData(form);
+            const nissyAdr = p => ({ gatenavn: fd.get(p+'.streetName') || '', husnummer: fd.get(p+'.houseNr') || '', husbokstav: fd.get(p+'.houseSubNr') || '', postnummer: fd.get(p+'.postCode') || '', poststed: fd.get(p+'.city') || '' });
+            let behDato = fd.get('treatmentDatePart') || fd.get('treatmentDate') || '';
+            const behTid = fd.get('treatmentTimePart') || fd.get('treatmentTime') || '';
+            const dm = String(behDato).match(/^(\d{2}\.\d{2})\.(?:20)?(\d{2})$/);
+            if (dm) behDato = dm[1] + '.' + dm[2];  // beregnReisetid vil ha dd.MM.yy
+            if (!behDato || !behTid) { dbg('mangler behandlingsdato/-tid (datoPart=«' + (fd.get('treatmentDatePart') || '') + '», tidPart=«' + (fd.get('treatmentTimePart') || '') + '») → prøver direkte-kall'); return direkte(); }
+            const tilAdrObj = nissyAdr('trip.toAddress');
+            dbg('kaller beregnReisetid (behDato=' + behDato + ', behTid=' + behTid + ', fra=' + JSON.stringify(nissyAdr('trip.fromAddress')) + ', ny=' + JSON.stringify(nyAdrObj) + ', til=' + JSON.stringify(tilAdrObj) + ')');
+            const [rO, rN] = await Promise.all([
+                beregnReisetidNissy(nissyAdr('trip.fromAddress'), tilAdrObj, behDato, behTid),
+                beregnReisetidNissy(nyAdrObj, tilAdrObj, behDato, behTid)
+            ]);
+            dbg('svar: orig=' + (rO ? rO.reisetid : 'null') + ', ny=' + (rN ? rN.reisetid : 'null'));
+            if (rO && rN) return nissyDelta(rO, rN);
+            dbg('beregnReisetid via edit-skjema ga null → prøver direkte-kall');
+            return direkte();
+        } catch (e) { dbg('exception: ' + e.message + ' → prøver direkte-kall'); return direkte(); }
+    }
+
+    window.__basicTools.byttAdresse = byttRekvisisjonAdresse;      // popupen kaller dette via window.opener
+    window.__basicTools.endreTid = endreTidPaaResId;               // popupen: «🕐 Juster hentetid» etter adressebytte
+    window.__basicTools.forhandsReisetid = forhandsberegnReisetid; // popupen: reisetid-forslag FØR adressebytte
+
+    // v1.117: REGIONTILLEGGET medregnes (Thomas: «plusser ikke NISSY på 20 minutter?») — NISSY
+    // setter hentetid = oppmøte − (reisetid + tidstilleggRegionalt), og tillegget AVHENGER av
+    // adressen. Delta regnes derfor på reisetid+tillegg: kansellerer i samme region, slår inn
+    // ved bytte over regiongrense. (Spesielle behov-tillegget er adresseuavhengig → kansellerer
+    // alltid i deltaet, så tom valgteSpesielleBehov er fortsatt trygt.)
+    function nissyDelta(rO, rN) {
+        const eff = r => r.reisetid + (r.tidstilleggRegionalt || 0);
+        return { orig: rO.reisetid, ny: rN.reisetid, delta: eff(rN) - eff(rO),
+                 tilleggOrig: rO.tidstilleggRegionalt || 0, tilleggNy: rN.tidstilleggRegionalt || 0 };
+    }
+
+    // v1.105: NISSYs egen tidberegner — POST JSON til ajax/beregnReisetid (samme som rekvisisjons-
+    // wizarden bruker). Svar: {reisetid: <min>, tidstilleggRegionalt, tidstilleggSpesielleBehov, …}.
+    // Vi sender tomme spesielle behov — delta-bruken kansellerer uansett tilleggene.
+    // v1.113 (500-GÅTEN LØST, Thomas' replay-test 03.07): endepunktet KREVER (1) Content-Type
+    // application/x-www-form-urlencoded (Prototype.js-stil — kroppen er fortsatt rå JSON!) og
+    // (2) transportType 'TAX' (tom streng → enum-parse-500). application/json ga generisk 500
+    // («custom-ajax/T-…») fra ALLE faner — det var aldri noe wizard-sesjonskrav.
+    async function beregnReisetidNissy(fraAdr, tilAdr, behDato, behTid) {
+        try {
+            // (3) Prototype-fella: planleggerens Array.prototype.toJSON dobbel-encoder arrays i
+            // JSON.stringify ([] → "[]" som STRENG → Jackson-deserialiseringsfeil server-side).
+            // Fjern midlertidig under serialisering og legg tilbake etterpå.
+            const protoToJSON = Array.prototype.toJSON;
+            let body;
+            try {
+                if (protoToJSON) delete Array.prototype.toJSON;
+                body = JSON.stringify({ behandlingsdato: behDato, behandlingstid: behTid, valgteSpesielleBehov: [], fraAdresse: fraAdr, tilAdresse: tilAdr, transportType: 'TAX' });
+            } finally {
+                if (protoToJSON) Array.prototype.toJSON = protoToJSON;
+            }
+            const r = await fetch(`${REK_BASE}/ajax/beregnReisetid`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+                body,
+                credentials: 'include'
+            });
+            if (!r.ok) {
+                if (ER_DEV) { try { console.log('[' + NAVN + '] beregnReisetid HTTP ' + r.status + ': ' + (await r.text()).slice(0, 400)); } catch (_) {} }
+                return null;
+            }
+            const j = await r.json();
+            // Feil kan komme som HTTP 200 med {errorMessage: …} (f.eks. deserialiseringsfeil).
+            if (ER_DEV && j && j.errorMessage) console.log('[' + NAVN + '] beregnReisetid errorMessage: ' + String(j.errorMessage).slice(0, 300));
+            return (j && typeof j.reisetid === 'number') ? j : null;
+        } catch (_) { return null; }
+    }
 
     // v1.103-dev DIAGNOSTIKK (steg 3): kartlegg NISSYs innebygde tidberegner. Kjøres manuelt fra
     // konsollen i planleggeren: __basicTools.diagTidberegner('<resId fra en ventende V-rad>').
@@ -1561,7 +1823,8 @@
                         try {
                             const rek = await api.hentRekvisisjon(rq, 1, resId, '');
                             if (rek && rek.fra_adresse && rek.til_adresse) {
-                                rekv.push({ reqId: rq, pasient_navn: rek.pasient_navn, fra_adresse: rek.fra_adresse, til_adresse: rek.til_adresse });
+                                rekv.push({ reqId: rq, pasient_navn: rek.pasient_navn, fra_adresse: rek.fra_adresse, til_adresse: rek.til_adresse,
+                                    retning: rek.retning, klar_fra: rek.klar_fra, oppmote_tid: rek.oppmote_tid, pasient_adresse: rek.pasient_adresse });
                             }
                         } catch (_) {}
                     }
@@ -1569,14 +1832,16 @@
                 if (rekv.length) {
                     rekv.forEach(rk => {
                         const harAdr = rk.fra_adresse && rk.til_adresse;
-                        turer.push(Object.assign({}, base || {}, {
+                        const tur = Object.assign({}, base || {}, {
                             type: 'P', resId: resId, reqId: rk.reqId || null, ventende: false,
                             navn: rk.pasient_navn || (base && base.navn) || resId,
                             fra: harAdr ? rk.fra_adresse : ((base && base.fra) || ''),
                             til: harAdr ? rk.til_adresse : ((base && base.til) || ''),
                             adrKilde: harAdr ? 'admin' : 'tabell',
                             adrFeil: harAdr ? null : 'rekvisisjon uten adresser (er admin innlogget?)'
-                        }));
+                        });
+                        adminFasit(tur, rk);   // v1.111: retning + tider fulgte ikke med P-grenen
+                        turer.push(tur);
                     });
                     continue;  // ben hentet via tripSearch — ferdig med denne raden
                 }
@@ -1594,6 +1859,23 @@
         }
         console.log(`[${NAVN}] turer til samkjøring:`, turer);
         return turer;
+    }
+
+    // v1.110/1.111: admin-plakaten er FASIT for retning + tider — radkolonnene varierer og P-rader
+    // kan mangle tid helt («Retning ukjent» / tom hentetid i popupen). Kalles fra BEGGE turbygger-
+    // grenene (P-grenen i byggTurer + beriktTur).
+    function adminFasit(t, rek) {
+        if (!rek) return;
+        if (rek.retning) t.retning = rek.retning;   // «Til behandling» / «Fra behandling»
+        // v1.118: pasientens registrerte adresse = KRAVGRUNNLAGET for «Annen adresse»-dommen
+        // (pasienten kan fritt reise kortere enn folkeregistrert — forrige hentested er irrelevant).
+        if (rek.pasient_adresse) t.pasientAdresse = rek.pasient_adresse;
+        const kl = s => { const m = String(s || '').match(/(\d{1,2}:\d{2})/); return m ? m[1] : ''; };
+        if (!t.henteTid && rek.klar_fra) { t.henteTid = kl(rek.klar_fra); t.tid = t.tid || t.henteTid; }
+        if (!t.oppTid && rek.oppmote_tid) t.oppTid = kl(rek.oppmote_tid);
+        // v1.112: rå oppmøtetidspunkt MED dato («04.07.2026 08:45») — gir beregnReisetid
+        // behandlingsdato/-tid uten å måtte åpne edit-skjemaet (viktig for pågående turer).
+        if (rek.oppmote_tid) t.oppmoteRaw = rek.oppmote_tid;
     }
 
     // Berik én tur med admin-adresser via ajax_reqdetails. Flerbens deler resId → bruk benets reqId.
@@ -1616,6 +1898,7 @@
                 if (rek && rek.fra_adresse && rek.til_adresse) {
                     t.fra = rek.fra_adresse; t.til = rek.til_adresse; t.adrKilde = 'admin';
                     if (rek.pasient_navn) t.navn = rek.pasient_navn;
+                    adminFasit(t, rek);
                     return;
                 }
             } catch (_) {}
@@ -2407,7 +2690,10 @@
             // Retning avgjør hvilken ende som kan byttes: TUR → henteadresse (fra), RETUR → returadresse (til).
             // Behandlingsstedet er alltid det faste endepunktet og kan ikke endres. (henteTid >= oppmøte = retur.)
             + '  const _h = parseHHMM(t.henteTid), _o = parseHHMM(t.oppTid);'
-            + '  const retur = (_h!=null && _o!=null) ? (_h >= _o) : null;'
+            + '  let retur = (_h!=null && _o!=null) ? (_h >= _o) : null;'
+            // v1.110: admin-plakatens «Til / Fra behandling» er FASIT og trumfer tids-heuristikken —
+            // P-rader kan mangle tidskolonner helt, og heuristikken kan bomme på tette tider.
+            + '  if (t.retning) { if (/fra\\s+behandling/i.test(t.retning)) retur = true; else if (/til\\s+behandling/i.test(t.retning)) retur = false; }'
             + '  let bytt = (retur === false) ? "fra" : "til";'
             + '  const retLabel = (retur === false) ? "🟢 Tur til behandling — endrer henteadresse" : (retur === true ? "🔴 Retur fra behandling — endrer returadresse" : "⚠ Retning ukjent — velg hvilken ende");'
             + '  box.innerHTML = "<div id=\\"aaRetning\\" style=\\"margin-top:8px;padding:6px 9px;border-radius:5px;background:rgba(124,58,237,0.12);border:1px solid #7c3aed;font-size:11px;color:#c4b5fd;\\">"+retLabel+"</div>"'
@@ -2433,40 +2719,114 @@
             + '  const fast = (bytt === "til") ? t.fra : t.til;'   // endepunktet som BEHOLDES (behandlingssted)
             + '  const orig = (bytt === "til") ? t.til : t.fra;'   // opprinnelig adresse som byttes ut
             + '  const altAdr = alt.adresse+", "+alt.postnr+" "+alt.poststed;'
-            + '  const km = async (a,b) => { try { const j = await fetch("https://thomaswestby.no/skript/ruter.php?fra="+encodeURIComponent(renskAdr(a))+"&til="+encodeURIComponent(renskAdr(b))).then(r=>r.json()); return (j&&j.ok)?j:null; } catch(_){ return null; } };'
-            + '  const [rOrig, rAlt] = await Promise.all([km(fast, orig), km(fast, altAdr)]);'
-            + '  if (!rAlt){ resEl.innerHTML = "<div style=\\"color:#ef4444;font-size:11px;\\">Kunne ikke beregne alternativ rute.</div>"; return; }'
+            // v1.106: ruter.php kan time ut på KALD cache (Geonorge-geokoding + ruting server-side) →
+            // json() kaster → null. Andre forsøk treffer varm cache og lykkes — derfor auto-retry,
+            // og «Prøv igjen»-knapp i stedet for blindvei hvis begge forsøk feiler.
+            + '  const km = async (a,b) => { for (let fs=0; fs<2; fs++){ try { const j = await fetch("https://thomaswestby.no/skript/ruter.php?fra="+encodeURIComponent(renskAdr(a))+"&til="+encodeURIComponent(renskAdr(b))).then(r=>r.json()); if (j&&j.ok) return j; } catch(_){} if (!fs) await new Promise(r=>setTimeout(r,800)); } return null; };'
+            // v1.118: KRAVET måles mot FOLKEREGISTRERT adresse (Thomas 03.07) — pasienten kan fritt
+            // reise kortere enn kravet sitt; forrige hentested er irrelevant for dommen (kan jo
+            // allerede være endret). rOrig hentes fortsatt (reisetid-estimat-fallback + info).
+            + '  const pAdr = (t.pasientAdresse || "").trim();'
+            + '  const sammePA = pAdr && renskAdr(pAdr).toLowerCase() === renskAdr(orig).toLowerCase();'
+            + '  const [rOrig, rAlt, rFolkeRaw] = await Promise.all([km(fast, orig), km(fast, altAdr), (pAdr && !sammePA) ? km(fast, pAdr) : Promise.resolve(null)]);'
+            + '  if (!rAlt){ resEl.innerHTML = "<div style=\\"color:#ef4444;font-size:11px;\\">Kunne ikke beregne alternativ rute (treg ruteserver?). <a href=\\"#\\" id=\\"aaRetry\\" style=\\"color:#93c5fd;\\">Prøv igjen</a></div>"; const rb=document.getElementById("aaRetry"); if(rb) rb.onclick = (ev)=>{ ev.preventDefault(); beregnAlt(t, bytt, alt); }; return; }'
             + '  const kmOrig = rOrig ? rOrig.km : (t.direkteKm!=null?t.direkteKm:null);'
             + '  const kmAlt = rAlt.km;'
-            + '  const diff = (kmOrig!=null) ? Math.round((kmAlt-kmOrig)*10)/10 : null;'
-            + '  const kortere = (kmOrig==null) || (kmAlt <= kmOrig);'
+            + '  const rFolke = sammePA ? rOrig : rFolkeRaw;'
+            + '  const kmFolke = (pAdr && rFolke) ? rFolke.km : null;'
+            + '  const basis = (kmFolke!=null) ? kmFolke : kmOrig;'
+            + '  const diff = (basis!=null) ? Math.round((kmAlt-basis)*10)/10 : null;'
+            + '  const kortere = (basis==null) || (kmAlt <= basis);'
+            + '  const domTekst = kortere'
+            + '    ? "✓ Kortere/lik " + (kmFolke!=null ? "folkeregistrert" : "nåværende") + " — kan godkjennes"'
+            + '    : "⚠ Lengre enn " + (kmFolke!=null ? "folkeregistrert" : "nåværende") + (diff!=null?" (+"+diff+" km)":"") + " — pasienten har ikke krav; krever begrunnelse";'
+            + '  const kmLinje = (kmFolke!=null)'
+            + '    ? "Krav (folkereg.): <b>"+kmFolke+" km</b> &nbsp;|&nbsp; Alternativ: <b>"+kmAlt+" km</b>" + (kmOrig!=null && !sammePA ? "<div style=\\"font-size:11px;color:#94a3b8;margin-top:2px;\\">Nåværende " + (bytt==="til"?"leveringssted":"hentested") + ": "+kmOrig+" km · folkereg.: "+esc(pAdr)+"</div>" : "")'
+            + '    : "Opprinnelig: <b>"+(kmOrig!=null?kmOrig+" km":"?")+"</b> &nbsp;|&nbsp; Alternativ: <b>"+kmAlt+" km</b><div style=\\"font-size:11px;color:#f59e0b;margin-top:2px;\\">Folkeregistrert adresse ukjent — dommen er målt mot nåværende adresse.</div>";'
             + '  resEl.innerHTML = "<div style=\\"padding:8px 10px;border-radius:6px;background:"+(kortere?"rgba(34,197,94,0.12)":"rgba(239,68,68,0.12)")+";border:1px solid "+(kortere?"#22c55e":"#ef4444")+";\\">"'
-            + '    + "<div style=\\"font-size:12px;color:#e2e8f0;\\">Opprinnelig: <b>"+(kmOrig!=null?kmOrig+" km":"?")+"</b> &nbsp;|&nbsp; Alternativ: <b>"+kmAlt+" km</b></div>"'
-            + '    + "<div style=\\"font-size:13px;font-weight:700;margin-top:4px;color:"+(kortere?"#22c55e":"#ef4444")+";\\">"+(kortere?"✓ Kortere/lik — kan godkjennes":"⚠ Lengre"+(diff!=null?" (+"+diff+" km)":"")+" — pasienten har ikke krav; krever begrunnelse")+"</div></div>";'
+            + '    + "<div style=\\"font-size:12px;color:#e2e8f0;\\">"+kmLinje+"</div>"'
+            + '    + "<div style=\\"font-size:13px;font-weight:700;margin-top:4px;color:"+(kortere?"#22c55e":"#ef4444")+";\\">"+domTekst+"</div></div>";'
             // Skrive-knapp for VENTENDE turer. v1.103: lengre reise blokkeres ikke lenger, men krever
             // OBLIGATORISK begrunnelse (kortere/lik: valgfri kommentar). Auto-notat + kommentar skrives
             // alltid i trip.comment. Pågående → fortsatt sperret (kan bytte transportør).
             + '  const bt = window.opener && window.opener.__basicTools;'
+            // v1.108: FORHÅNDSVIS reisetid/ny hentetid FØR bytte-knappen trykkes — operatøren skal
+            // avklare ny hentetid med pasienten før adressen skrives (Thomas 02.07). Resultatet
+            // (forRt) gjenbrukes: sendes med i byttAdresse-kallet + driver 🕐-knappen etterpå.
+            + '  const fmtMin = mm => { mm = ((mm % 1440) + 1440) % 1440; return String(Math.floor(mm/60)).padStart(2,"0") + ":" + String(mm%60).padStart(2,"0"); };'
+            + '  let forRt = null, forVist = false, oppdaterWbHook = null;'
+            // v1.110: også PÅGÅENDE turer får reisetid-info (ren lesing) — selve adresseskrivingen
+            // er fortsatt sperret av ventende-gaten lenger ned.
+            + '  if (t.resId && bt && bt.forhandsReisetid && bytt === "fra") {'
+            + '    const rtEl = document.createElement("div");'
+            + '    rtEl.style.cssText = "margin-top:8px;padding:8px 10px;border-radius:6px;background:rgba(59,130,246,0.12);border:1px solid #3b82f6;font-size:12px;color:#bfdbfe;";'
+            + '    rtEl.textContent = "🕐 Beregner NISSY-reisetid…";'
+            + '    resEl.appendChild(rtEl);'
+            // v1.109: fallback til ruter-estimat når NISSY-beregneren ikke svarer — vi har allerede
+            // kjøresekunder for begge rutene (rOrig/rAlt fra km-dommen), så forslaget kan alltid gis.
+            + '    bt.forhandsReisetid(t.resId, bytt, alt, t).then(rt => {'
+            + '      let kilde = "NISSY-reisetid";'
+            + '      if (!rt && rOrig && rAlt && rOrig.sek != null && rAlt.sek != null) {'
+            + '        const mO = Math.round(rOrig.sek/60), mN = Math.round(rAlt.sek/60);'
+            + '        rt = { orig: mO, ny: mN, delta: mN - mO, estimat: true };'
+            + '        kilde = "Reisetid (ruter-estimat — NISSY-beregneren svarte ikke)";'
+            + '      }'
+            + '      forRt = rt;'
+            + '      const hM = parseHHMM(t.henteTid);'
+            + '      if (!rt) { rtEl.textContent = "🕐 Fikk ikke reisetid — hentetiden må vurderes manuelt."; rtEl.style.opacity = "0.65"; return; }'
+            + '      forVist = true;'
+            + '      if (rt.delta === 0 || hM === null) { rtEl.textContent = "🕐 " + kilde + ": " + rt.orig + " → " + rt.ny + " min" + (rt.delta === 0 ? " — hentetiden kan beholdes." : "."); return; }'
+            + '      const nyT = fmtMin(hM - rt.delta);'
+            // v1.117: gjør det synlig når regiontillegget endres over regiongrense — ellers ser
+            // delta «feil» ut i forhold til reisetid-tallene.
+            + '      const tilleggTxt = (rt.tilleggOrig != null && rt.tilleggNy != null && rt.tilleggOrig !== rt.tilleggNy) ? ", inkl. regiontillegg " + rt.tilleggOrig + " → " + rt.tilleggNy + " min" : "";'
+            // v1.114: redigerbart tidsfelt — forslaget er utgangspunkt, operatøren kan overstyre
+            // etter avtale med pasienten (f.eks. rundere tid / bedre margin). 🕐-knappen leser feltet.
+            // v1.115: KUN på ventende — pågående kan ikke endres herfra, så der vises bare forslaget.
+            + '      if (t.ventende) {'
+            + '        rtEl.innerHTML = "🕐 " + kilde + ": " + rt.orig + " → " + rt.ny + " min (" + (rt.delta>0?"+":"") + rt.delta + " min" + tilleggTxt + ").<br>Ny hentetid: <input id=\\"aaNyTid\\" value=\\"" + nyT + "\\" maxlength=\\"5\\" style=\\"width:52px;text-align:center;padding:2px 4px;background:#0f172a;color:#f8fafc;border:1px solid #3b82f6;border-radius:4px;font-size:12px;font-weight:700;\\"> <span style=\\"opacity:0.8;\\">(forslag " + nyT + ", var " + t.henteTid + ")</span> — <b>avklar med pasienten før du bytter</b>.";'
+            // v1.117: ÉN knapp gjør begge deler — tidsfeltet kobles til bytte-knappen (label + lagring).
+            + '        const aaI0 = document.getElementById("aaNyTid");'
+            + '        if (aaI0 && oppdaterWbHook) aaI0.addEventListener("input", oppdaterWbHook);'
+            + '        if (oppdaterWbHook) oppdaterWbHook();'
+            + '      } else {'
+            + '        rtEl.innerHTML = "🕐 " + kilde + ": " + rt.orig + " → " + rt.ny + " min (" + (rt.delta>0?"+":"") + rt.delta + " min" + tilleggTxt + "). Foreslått ny hentetid: <b>" + nyT + "</b> (var " + t.henteTid + ").";'
+            + '      }'
+            + '    }).catch(() => {});'
+            + '  }'
             + '  if (t.ventende && t.resId && bt && bt.byttAdresse) {'
             + '    const ta = document.createElement("textarea");'
             + '    ta.id = "aaKommentar"; ta.rows = 2;'
             + '    ta.placeholder = kortere ? "Kommentar (valgfritt — logges på rekvisisjonen)" : "Begrunnelse — kreves ved lengre reise (hvem godkjente / hvorfor)";'
             + '    ta.style.cssText = "margin-top:8px;width:100%;box-sizing:border-box;padding:7px 9px;background:#0f172a;color:#f8fafc;border:1px solid "+(kortere?"#334155":"#ef4444")+";border-radius:6px;font-size:12px;resize:vertical;";'
             + '    resEl.appendChild(ta);'
+            // v1.117: ÉN knapp for hele operasjonen (Thomas 03.07) — adressen byttes og hentetiden
+            // settes (fra #aaNyTid-feltet) i samme klikk. Tidsfeltet er redigerbart før klikket;
+            // tomt/ugyldig/uendret felt → kun adressebytte.
+            + '    const lesTid = () => { if (bytt !== "fra") return null; const i = document.getElementById("aaNyTid"); let v = i ? i.value.trim() : ""; if (/^\\d{1,2}:\\d{2}$/.test(v) && parseHHMM(v) !== null) { if (v.length === 4) v = "0" + v; return v === t.henteTid ? null : v; } return null; };'
             + '    const wb = document.createElement("button");'
-            + '    wb.textContent = "✏️ Bytt " + (bytt==="til"?"leveringssted":"hentested") + " i NISSY";'
             + '    wb.style.cssText = "margin-top:6px;width:100%;padding:8px;background:#dc2626;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;";'
-            + '    const oppdaterKnapp = () => { const klar = kortere || !!ta.value.trim(); wb.disabled = !klar; wb.style.opacity = klar ? "1" : "0.45"; wb.style.cursor = klar ? "pointer" : "not-allowed"; wb.title = klar ? "" : "Skriv begrunnelse først — lengre reise krever godkjenning"; };'
-            + '    ta.addEventListener("input", oppdaterKnapp); oppdaterKnapp();'
+            + '    const oppdaterKnapp = () => { if (wb.dataset.laast) return; const klar = kortere || !!ta.value.trim(); wb.disabled = !klar; wb.style.opacity = klar ? "1" : "0.45"; wb.style.cursor = klar ? "pointer" : "not-allowed"; wb.title = klar ? "" : "Skriv begrunnelse først — lengre reise krever godkjenning"; const vT = lesTid(); wb.textContent = "✏️ Bytt " + (bytt==="til"?"leveringssted":"hentested") + (vT ? " + hentetid → " + vT : "") + " i NISSY"; };'
+            + '    ta.addEventListener("input", oppdaterKnapp); oppdaterKnapp(); oppdaterWbHook = oppdaterKnapp;'
             + '    wb.onclick = async () => {'
             + '      if (!kortere && !ta.value.trim()) { ta.focus(); return; }'
-            + '      if (!window.confirm("Dette SKRIVER den nye adressen til rekvisisjonen i NISSY:\\n\\n" + altAdr + "\\n\\n(" + (bytt==="til"?"leveringssted":"hentested") + ", ventende tur)\\n\\nKommentar logges på rekvisisjonen. Fortsette?")) return;'
-            + '      wb.disabled = true; wb.textContent = "Lagrer…";'
+            + '      const vTid = lesTid();'
+            + '      if (!window.confirm("Dette SKRIVER til rekvisisjonen i NISSY:\\n\\nNy adresse (" + (bytt==="til"?"leveringssted":"hentested") + "): " + altAdr + (vTid ? "\\nNy hentetid: " + t.henteTid + " → " + vTid : "") + "\\n\\nKommentar logges på rekvisisjonen. Fortsette?")) return;'
+            + '      wb.dataset.laast = "1"; wb.disabled = true; wb.textContent = "Lagrer adresse…";'
             + '      try {'
-            + '        const r = await bt.byttAdresse(t.resId, bytt, alt, { kommentar: ta.value.trim(), kmOrig: kmOrig, kmAlt: kmAlt, origAdr: orig });'
-            + '        if (r && r.ok) { wb.textContent = "✓ Adresse byttet i NISSY — verifiser i tabellen"; wb.style.background = "#16a34a"; ta.disabled = true; }'
-            + '        else { wb.disabled = false; wb.textContent = "✏️ Prøv igjen"; oppdaterKnapp(); alert("Kunne ikke bytte adresse: " + ((r&&r.feil)||"ukjent feil")); }'
-            + '      } catch(e) { wb.disabled = false; wb.textContent = "✏️ Prøv igjen"; oppdaterKnapp(); alert("Feil: " + e.message); }'
+            + '        const r = await bt.byttAdresse(t.resId, bytt, alt, { kommentar: ta.value.trim(), kmOrig: kmOrig, kmAlt: kmAlt, origAdr: orig, reisetid: forRt });'
+            + '        if (!(r && r.ok)) { delete wb.dataset.laast; wb.disabled = false; oppdaterKnapp(); alert("Kunne ikke bytte adresse: " + ((r&&r.feil)||"ukjent feil")); return; }'
+            + '        ta.disabled = true; const iT = document.getElementById("aaNyTid"); if (iT) iT.disabled = true;'
+            + '        if (vTid && bt.endreTid) {'
+            + '          wb.textContent = "✓ Adresse lagret — setter hentetid " + vTid + "…";'
+            + '          const rr = await bt.endreTid(t.resId, vTid, t.henteTid);'
+            + '          if (rr && rr.ok) { wb.textContent = "✓ Adresse + hentetid " + vTid + " lagret — verifiser i tabellen"; wb.style.background = "#16a34a"; }'
+            + '          else { wb.textContent = "⚠ Adresse lagret — hentetid FEILET"; wb.style.background = "#d97706"; alert("Adressen ble byttet, men hentetiden ble IKKE endret: " + ((rr && rr.feil) || "ukjent feil")); }'
+            + '        } else {'
+            + '          wb.textContent = "✓ Adresse byttet i NISSY — verifiser i tabellen"; wb.style.background = "#16a34a";'
+            + '          if (bytt === "til") { const d2 = document.createElement("div"); d2.style.cssText = "margin-top:6px;font-size:11px;color:#94a3b8;"; d2.textContent = "Hentetiden (ved behandlingssted) påvirkes ikke av byttet."; resEl.appendChild(d2); }'
+            + '        }'
+            + '      } catch(e) { delete wb.dataset.laast; wb.disabled = false; oppdaterKnapp(); alert("Feil: " + e.message); }'
             + '    };'
             + '    resEl.appendChild(wb);'
             + '  } else if (!t.ventende) {'
