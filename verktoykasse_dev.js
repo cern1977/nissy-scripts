@@ -1,3 +1,11 @@
+// === WESTBYS VERKTØYKASSE v2.132-dev ===
+// v2.132-dev: TLF-SØKET fikk fortsatt feil pasient (Thomas 31.07: pnr fra forrige søk lå igjen i
+//             Ssn-feltet og trumfet telefonnummeret). v2.128-blankingen traff ALDRI: NISSY legger
+//             <form> direkte i <table> rundt <tr>-ene — ugyldig HTML som parseren foster-parenter,
+//             så form-elementet blir tomt og feltene havner UTENFOR det (bekreftet med HTML-dump +
+//             konsolltest: alle tre feltene «UTENFOR FORM»). Etterkommer-selektoren `form input`
+//             ga derfor 0 treff. Nå: form.elements (respekterer form-eierskap) med fallback til
+//             alle input i dokumentet, og Ssn blankes ALLTID eksplisitt som sikkerhetsnett.
 // === WESTBYS VERKTØYKASSE v2.131-dev ===
 // v2.131-dev: hentRekvisisjon parser nå også tidene fra admin-plakatens Reise-blokk:
 //             klar_fra («Pasient klar fra») + oppmote_tid («Oppmøtetidspunkt») — fasit for
@@ -269,7 +277,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.131-dev';
+    const VERSJON = '2.132-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1279,25 +1287,40 @@
         try {
             const fd = new FormData();
             // v2.128 ROTÅRSAK (Thomas): Finn pasient-skjemaet er sesjonslagret — et
-            // personnummer fra et TIDLIGERE søk «ligger igjen» i øverste feltet, og
-            // pnr trumfer telefon → alle søk returnerte den gamle pasienten (SIVANESAN).
+            // personnummer fra et TIDLIGERE søk «ligger igjen» i Ssn-feltet, og pnr
+            // trumfer telefon → alle søk returnerte den gamle pasienten (SIVANESAN).
             // Fiks: hent skjemaet først og blank ALLE tekstfelt eksplisitt (uansett
-            // feltnavn), behold hidden-felter, sett kun Phone. Faller tilbake til
-            // gammel oppførsel hvis skjema-parsingen feiler.
+            // feltnavn), behold hidden-felter, sett kun Phone.
+            //
+            // v2.132 (Thomas 31.07, HTML-dump av findPatient): blankingen traff ALDRI.
+            // NISSY legger <form> DIREKTE i <table> rundt <tr>-ene — ugyldig HTML som
+            // parseren foster-parenter: form-elementet blir TOMT og feltene havner som
+            // søsken i tabellen. `form input` (etterkommer-selektor) ga derfor 0 treff.
+            // NISSYs egen side virker fordi parserens form-pointer gjør feltene til
+            // form-EIDE elementer — form.elements ser dem, CSS-selektoren gjør ikke.
+            // Nå: form.elements først, ellers alle input i dokumentet. Ssn blankes
+            // ALLTID eksplisitt, også om skjema-hentingen feiler helt.
+            let blanket = [];
             try {
                 const fr = await fetch(`${ADMIN_BASE}/findPatient`, { credentials: 'same-origin', signal: ctrl.signal });
                 if (fr.ok) {
                     const fdoc = new DOMParser().parseFromString(await fr.text(), 'text/html');
-                    const inputs = fdoc.querySelectorAll('form input');
-                    for (let i = 0; i < inputs.length; i++) {
-                        const inp = inputs[i];
-                        if (!inp.name || inp.name === 'Phone') continue;
+                    const skjema = fdoc.querySelector('#mainForm, form');
+                    const eide = skjema && skjema.elements && skjema.elements.length ? skjema.elements : null;
+                    const felter = eide || fdoc.querySelectorAll('input');
+                    for (let i = 0; i < felter.length; i++) {
+                        const inp = felter[i];
+                        if (!inp.name || inp.name === 'Phone' || inp.tagName !== 'INPUT') continue;
                         const type = (inp.type || 'text').toLowerCase();
                         if (type === 'hidden') fd.append(inp.name, inp.value || '');
-                        else if (type === 'text' || type === 'tel' || type === 'number') fd.append(inp.name, '');
+                        else if (type === 'text' || type === 'tel' || type === 'number') { fd.append(inp.name, ''); blanket.push(inp.name); }
                     }
                 }
-            } catch (_) { /* skjema-reset best effort — Phone+submit sendes uansett */ }
+            } catch (_) { /* skjema-reset best effort — Ssn/Phone sendes uansett */ }
+            // Sikkerhetsnett: Ssn er feltet som lekker, og det MÅ tømmes selv om
+            // parsingen skulle svikte igjen. (fd.has → ingen dublett når løkka traff.)
+            if (!fd.has('Ssn')) { fd.append('Ssn', ''); blanket.push('Ssn (sikkerhetsnett)'); }
+            if (ER_DEV) console.log('[VERKTØYKASSE] sokTlfINissy: blanket felt →', blanket.join(', ') || 'INGEN (!)');
             fd.append('Phone', tlf);
             fd.append('submitButton', 'Søk pasient');
             const r = await fetch(`${ADMIN_BASE}/findPatient`, {
