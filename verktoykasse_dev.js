@@ -1,3 +1,21 @@
+// === WESTBYS VERKTØYKASSE v2.138-dev ===
+// v2.138-dev: «IKKE BESTILT»-merke i behandlingslista (Thomas 04.08). searchStatus-tabellen har en
+//             Status-kolonne — «Bekreftet» = bestilt hos transportør, «Ny» = rekvirert men IKKE
+//             bestilt (raden har «Bestill»-lenke). Den kastet vi før, så en ubestilt retur var
+//             usynlig fordi grupperingen slår tur+retur sammen til én linje (KOSAR: 2 rekv, retur
+//             «Ny»). Nå kobles status til hvert ben via radens egen getRequisitionDetails(...), og
+//             linja får gult «⚠ retur ikke bestilt»/«tur ikke bestilt»/«ikke bestilt».
+// === WESTBYS VERKTØYKASSE v2.137-dev ===
+// v2.137-dev: kopier-pnr-knappen har fått et EKTE kopi-ikon (to overlappende firkanter, SVG) —
+//             før brukte den 📋, samme emoji som rekv-badgen ved siden av, bare i annen størrelse
+//             (Thomas 04.08). Klikk-kvitteringen lagrer/gjenoppretter innerHTML, ikke textContent,
+//             ellers ville SVG-en forsvunnet etter «✓».
+// === WESTBYS VERKTØYKASSE v2.136-dev ===
+// v2.136-dev: behandlingslista viser OPPMØTE + HENTETID (Thomas 04.08). Retur-tiden er fjernet:
+//             detaljsiden gir samme «Pasient klar fra» for begge ben, så «↩ 14:10» var bare
+//             hentetiden om igjen — ikke en reell returtid (raden viste «14:40 … 🚕 14:10 · ↩ 14:10»).
+//             Ordet «hent» er tilbake (kuttet i v2.134 for å spare plass → to nakne klokkeslett
+//             uten forklaring), og tooltip sier «Oppmøte HH:MM · Hentes HH:MM».
 // === WESTBYS VERKTØYKASSE v2.135-dev ===
 // v2.135-dev: behandlingslista viser KUN dagens og kommende (Thomas 04.08: «turer som har vært
 //             tidligere datoer trenger ikke være med»). Dagens allerede passerte turer beholdes
@@ -297,7 +315,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.135-dev';
+    const VERSJON = '2.138-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1212,6 +1230,33 @@
                     matches.push({ reqId: m[1], db: m[2], tripid: m[3], erAttest: /^null$/i.test(m[4] || '') });
                 }
             }
+
+            // v2.138: STATUS per rekvisisjon (Thomas 04.08). Søketabellen har en Status-kolonne
+            // — «Bekreftet» = bestilt hos transportør, «Ny» = rekvirert men IKKE bestilt (raden
+            // har «Bestill»-lenke). Vi kastet den før, så en ubestilt retur var usynlig i toasten.
+            // Radene bærer sin egen getRequisitionDetails(...) i onclick → kobler status til benet.
+            const statusPerBen = {};
+            try {
+                const sdoc = new DOMParser().parseFromString(html, 'text/html');
+                const alleRader = sdoc.querySelectorAll('tr');
+                let statusIdx = -1;
+                for (let i = 0; i < alleRader.length && statusIdx < 0; i++) {
+                    const c = alleRader[i].cells || [];
+                    for (let j = 0; j < c.length; j++) {
+                        if ((c[j].textContent || '').trim().toLowerCase() === 'status') { statusIdx = j; break; }
+                    }
+                }
+                if (statusIdx > -1) {
+                    for (let i = 0; i < alleRader.length; i++) {
+                        const rad = alleRader[i];
+                        const kilde = (rad.getAttribute('onclick') || '') + ' ' + (rad.innerHTML || '');
+                        const km = kilde.match(/getRequisitionDetails\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+                        if (!km || !rad.cells || !rad.cells[statusIdx]) continue;
+                        const st = (rad.cells[statusIdx].textContent || '').replace(/\s+/g, ' ').trim();
+                        if (st) statusPerBen[km[1] + '_' + km[3]] = st;
+                    }
+                }
+            } catch (_) { /* status er tilleggsinfo — oppslaget skal virke uten */ }
             console.log(`[VERKTØYKASSE] pnr ${pnr}: ${matches.length} rekvisisjon(er) funnet`);
 
             // Hent detaljer for hver (cap på 20 for å unngå lange serier)
@@ -1224,6 +1269,9 @@
                     // av en vanlig uplanlagt rekvisisjon (den har null-Reisenr, men ikke attest-tekst).
                     d.uten_reisenr = !!erAttest;
                     d.er_attest = !!erAttest && !!d.har_gyldig_attest;
+                    // v2.138: «Ny» = rekvirert, men ikke bestilt hos transportør ennå.
+                    d.status = statusPerBen[reqId + '_' + tripid] || '';
+                    d.ikke_bestilt = /^ny\b/i.test(d.status);
                     console.log(`[VERKTØYKASSE] attest-sjekk req=${reqId}: reisenr=${erAttest ? 'NULL' : 'tall'} gyldig_attest=${d.har_gyldig_attest} tur=${d.har_tur} → er_attest=${d.er_attest}`);
                     turer.push(d);
                 }
@@ -2176,6 +2224,13 @@
             return aa - bb;
         });
 
+        // v2.137: kopier-knappen brukte 📋 — SAMME emoji som rekv-badgen, bare i annen
+        // størrelse (Thomas 04.08). Nå et ekte kopi-ikon: to overlappende firkanter, der
+        // den fremste er fylt med toast-bakgrunnen så den skygger for den bakerste.
+        const KOPI_IKON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="display:block;">'
+            + '<rect x="7.5" y="2.5" width="14" height="14" rx="2.5"/>'
+            + '<rect x="2.5" y="7.5" width="14" height="14" rx="2.5" fill="#0f172a"/></svg>';
+
         // === NÆRMESTE BEHANDLINGER (v2.133, Thomas 04.08) ===
         // Toasten telte bare rekvisisjoner («📋 3 rekv»). Operatøren trenger å SE hva de
         // gjelder når pasienten ringer. Alt ligger allerede i turene sokPnrINissy henter
@@ -2211,13 +2266,21 @@
                 if (!naar) continue;
                 const nokkel = naar.getFullYear() + '-' + naar.getMonth() + '-' + naar.getDate() + '|' + sted.toLowerCase();
                 let g = grupper.get(nokkel);
-                if (!g) { g = { sted, dato: naar, tid: null, hent: '', retur: '', rekNr: t.rek_nr || null }; grupper.set(nokkel, g); }
-                if (erRetur) {
-                    g.retur = kl(t.klar_fra) || kl(t.oppmote_tid);
-                } else {
-                    g.hent = kl(t.klar_fra);
-                    // Oppmøtetidspunktet på tur-benet = selve behandlingstiden
-                    if (naar.getHours() || naar.getMinutes()) { g.tid = kl(t.oppmote_tid); g.dato = naar; }
+                if (!g) { g = { sted, dato: naar, tid: null, hent: '', rekNr: t.rek_nr || null, harRetur: false, uTur: false, uRetur: false }; grupper.set(nokkel, g); }
+                // v2.138: hold styr på hvilke ben som er REKVIRERT MEN IKKE BESTILT (status «Ny»).
+                // Grupperingen slår tur+retur sammen til én linje, så uten dette blir en ubestilt
+                // retur usynlig — nettopp det Thomas fanget 04.08 (KOSAR: retur «Ny» m/ Bestill-lenke).
+                if (erRetur) { g.harRetur = true; if (t.ikke_bestilt) g.uRetur = true; }
+                else if (t.ikke_bestilt) g.uTur = true;
+                // v2.136: RETUR-tiden er fjernet (Thomas 04.08). Detaljsiden gir samme
+                // «Pasient klar fra» for begge ben, så «↩ 14:10» var bare hentetiden om
+                // igjen — ikke en reell returtid. Vi viser hentetid + oppmøte, som er det
+                // operatøren trenger. Tur-benet har forrang; finnes bare retur-benet
+                // brukes dets tider så raden ikke blir tom.
+                if (!erRetur || !g.hent) { const h = kl(t.klar_fra); if (h) g.hent = h; }
+                if ((!erRetur || !g.tid) && (naar.getHours() || naar.getMinutes())) {
+                    const o = kl(t.oppmote_tid);
+                    if (o) { g.tid = o; g.dato = naar; }
                 }
                 if (!g.sted && sted) g.sted = sted;
             }
@@ -2248,16 +2311,26 @@
             // v2.134: ÉN grid for alle radene (ikke flex per rad) → dag/tid, sted og hentetider
             // står i flukt nedover. minmax(0,1fr) på sted-kolonnen gir ellipsis i stedet for
             // at lange navn presser toasten bred (som ga vannrett scrollbar).
+            // v2.136: kolonne 1 = dag + OPPMØTE, kolonne 3 = HENTETID (ordet «hent» er tilbake —
+            // det ble kuttet i v2.134 for å spare plass, og da sto to nakne klokkeslett igjen
+            // uten at det gikk fram hva de var). Tooltip forklarer begge.
             const celler = valgt.map(b => {
                 const dempet = b.passert;
-                const detaljer = [];
-                if (b.hent) detaljer.push('🚕 ' + b.hent);
-                if (b.retur) detaljer.push('↩ ' + b.retur);
-                const tip = b.rekNr ? ` title="Rekvisisjon ${escHtml(b.rekNr)}"` : '';
+                const tipTekst = (b.tid ? 'Oppmøte ' + b.tid : '') + (b.hent ? (b.tid ? ' · ' : '') + 'Hentes ' + b.hent : '')
+                    + (b.rekNr ? ' · Rekvisisjon ' + b.rekNr : '');
+                const tip = tipTekst ? ` title="${escHtml(tipTekst)}"` : '';
                 const dim = dempet ? 'opacity:0.5;' : '';
+                // v2.138: gult merke når et ben er rekvirert, men ikke bestilt hos transportør.
+                let merke = '';
+                if (b.uTur && b.uRetur) merke = 'ikke bestilt';
+                else if (b.uRetur) merke = 'retur ikke bestilt';
+                else if (b.uTur) merke = 'tur ikke bestilt';
+                const merkeHtml = merke
+                    ? ` <span title="Status «Ny» i NISSY — rekvirert, men ikke bestilt hos transportør" style="background:#f59e0b;color:#1e293b;padding:0 5px;border-radius:3px;font-size:9px;font-weight:700;white-space:nowrap;">⚠ ${escHtml(merke)}</span>`
+                    : '';
                 return `<span${tip} style="${dim}color:${dempet ? '#94a3b8' : '#38bdf8'};font-weight:600;white-space:nowrap;">${escHtml(fmtDag(b.dato))}${b.tid ? ' ' + escHtml(b.tid) : ''}</span>`
-                     + `<span${tip} style="${dim}color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(b.sted || '(ukjent sted)')}</span>`
-                     + `<span${tip} style="${dim}color:#94a3b8;white-space:nowrap;">${escHtml(detaljer.join(' · '))}</span>`;
+                     + `<span${tip} style="${dim}color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(b.sted || '(ukjent sted)')}${merkeHtml}</span>`
+                     + `<span${tip} style="${dim}color:#94a3b8;white-space:nowrap;">${b.hent ? '🚕 hent ' + escHtml(b.hent) : ''}</span>`;
             }).join('');
             el.innerHTML = `<div style="margin-top:5px;padding-left:7px;border-left:2px solid #334155;">
                 <div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:0.3px;margin-bottom:2px;">NÆRMESTE BEHANDLINGER</div>
@@ -2287,7 +2360,7 @@
                                 <span style="color:#cbd5e1;font-family:monospace;font-size:12px;font-weight:600;">${pnr}</span>
                                 ${alderTxt ? `<span style="color:#94a3b8;font-size:11px;">${alderTxt}</span>` : ''}
                                 ${pas._kildeTlf ? `<span title="Nummeret som ga treff i NISSY" style="color:#64748b;font-size:10px;">☎ ${formaterTlf(pas._kildeTlf)}</span>` : ''}
-                                <span data-vkt-kopier="${pnr}" title="Kopier personnummer" style="cursor:pointer;color:#64748b;font-size:13px;line-height:1;padding:1px 4px;border-radius:3px;user-select:none;">📋</span>
+                                <span data-vkt-kopier="${pnr}" title="Kopier personnummer" style="cursor:pointer;color:#64748b;line-height:1;padding:1px 4px;border-radius:3px;user-select:none;display:inline-flex;align-items:center;">${KOPI_IKON}</span>
                                 <span data-vkt-rekv="${i}" style="font-size:11px;color:#64748b;font-style:italic;">⏳ rekv...</span>
                             </div>
                             <div data-vkt-adr="${i}" style="font-size:11px;color:#f8fafc;margin-top:3px;"></div>
@@ -2419,10 +2492,12 @@
                 const pnr = el.dataset.vktKopier;
                 try {
                     await navigator.clipboard.writeText(pnr);
-                    const orig = el.textContent;
+                    // v2.137: ikonet er nå SVG — lagre/gjenopprett innerHTML (textContent
+                    // ville tømt markupen og etterlatt en blank knapp etter kvitteringen).
+                    const orig = el.innerHTML;
                     el.textContent = '✓';
                     el.style.color = '#10b981';
-                    setTimeout(() => { el.textContent = orig; el.style.color = '#64748b'; }, 1200);
+                    setTimeout(() => { el.innerHTML = orig; el.style.color = '#64748b'; }, 1200);
                 } catch (e) {
                     console.warn('[VERKTØYKASSE] kopiering feilet:', e);
                 }
