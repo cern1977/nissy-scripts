@@ -1,3 +1,23 @@
+// === WESTBYS VERKTØYKASSE v2.135-dev ===
+// v2.135-dev: behandlingslista viser KUN dagens og kommende (Thomas 04.08: «turer som har vært
+//             tidligere datoer trenger ikke være med»). Dagens allerede passerte turer beholdes
+//             dempet — det er ofte dem pasienten ringer om. Har pasienten bare gamle turer vises
+//             «Ingen kommende behandlinger (N tidligere)» i stedet for tomt felt.
+// === WESTBYS VERKTØYKASSE v2.134-dev ===
+// v2.134-dev: SKALERING i tlf-toasten (Thomas 04.08: behandlingslista ble sammenpresset + vannrett
+//             scrollbar). Rotårsak: lista lå i den SMALE flex-kolonnen ved siden av Rek/Plan/Attest,
+//             og flex-barnet manglet min-width:0 → innholdet dyttet toasten bredere enn containeren.
+//             Nå: navn/pnr/adresse + knapper i egen topprad, behandlingene i FULL bredde under, og
+//             radene i ÉN grid (max-content | minmax(0,1fr) | max-content) så kolonnene står i flukt
+//             og lange stedsnavn får ellipsis. Toast max-width 440px → min(560px, 92vw).
+// === WESTBYS VERKTØYKASSE v2.133-dev ===
+// v2.133-dev: TLF-TOASTEN VISER DE 5 NÆRMESTE BEHANDLINGENE (Thomas 04.08) — før så operatøren bare
+//             ANTALL rekvisisjoner («📋 3 rekv»), ikke hva de gjaldt. Nå listes dag/tid, behandlings-
+//             sted, hentetid og returtid per behandling. INGEN nye NISSY-kall: dataene lå allerede i
+//             turene sokPnrINissy henter (oppmote_tid m/ dato, klar_fra, fra_/til_navn, retning).
+//             Tur- og retur-benet samme dag+sted slås sammen til ÉN behandling (ellers spiser ett
+//             tur/retur-par to plasser). Kommende først; færre enn fem framover → fylles med siste
+//             passerte, dempet. Resultatfeltet fikk max-height + scroll.
 // === WESTBYS VERKTØYKASSE v2.132-dev ===
 // v2.132-dev: TLF-SØKET fikk fortsatt feil pasient (Thomas 31.07: pnr fra forrige søk lå igjen i
 //             Ssn-feltet og trumfet telefonnummeret). v2.128-blankingen traff ALDRI: NISSY legger
@@ -277,7 +297,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.132';
+    const VERSJON = '2.135';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = false;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1557,7 +1577,10 @@
             'background:rgba(15,23,42,0.9)','backdrop-filter:blur(4px)',
             'color:#f8fafc','padding:14px 16px','border-radius:10px',
             'font-family:-apple-system,BlinkMacSystemFont,sans-serif','font-size:13px',
-            'box-shadow:0 12px 36px rgba(0,0,0,0.55)','min-width:340px','max-width:440px',
+            // v2.134: behandlingslista trenger mer bredde enn 440px; min() holder den
+            // innenfor skjermen på små oppløsninger. overflow-x:hidden er sikkerhetsnett
+            // mot vannrett scrollbar hvis et enkelt felt skulle bli uventet langt.
+            'box-shadow:0 12px 36px rgba(0,0,0,0.55)','min-width:340px','max-width:min(560px, 92vw)','overflow-x:hidden',
             'border:2px solid #3b82f6','border-left-width:6px',
             'user-select:none'
         ].join(';');
@@ -1579,7 +1602,7 @@
                 <button data-vkt-handling="behandler" style="flex:1;min-width:90px;padding:8px 12px;background:#3b82f6;color:white;border:none;border-radius:6px;font-weight:600;font-size:12px;cursor:pointer;">🏥 Behandler</button>
                 <button data-vkt-handling="avvis" style="flex:1;min-width:70px;padding:8px 12px;background:#475569;color:white;border:none;border-radius:6px;font-weight:600;font-size:12px;cursor:pointer;">Avvis</button>
             </div>
-            <div data-vkt-resultat style="margin-top:10px;display:none;"></div>
+            <div data-vkt-resultat style="margin-top:10px;display:none;max-height:60vh;overflow-y:auto;"></div>
         `;
         document.body.appendChild(t);
 
@@ -2153,6 +2176,94 @@
             return aa - bb;
         });
 
+        // === NÆRMESTE BEHANDLINGER (v2.133, Thomas 04.08) ===
+        // Toasten telte bare rekvisisjoner («📋 3 rekv»). Operatøren trenger å SE hva de
+        // gjelder når pasienten ringer. Alt ligger allerede i turene sokPnrINissy henter
+        // (oppmote_tid m/ dato, klar_fra, fra_/til_navn, retning) — ingen nye kall.
+        const nissyTidTilDate = s => {
+            const m = String(s || '').match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+            if (!m) return null;
+            const aar = m[3].length === 2 ? 2000 + (+m[3]) : +m[3];
+            const d = new Date(aar, +m[2] - 1, +m[1], m[4] ? +m[4] : 0, m[5] ? +m[5] : 0);
+            return isNaN(d) ? null : d;
+        };
+        const kl = s => { const m = String(s || '').match(/(\d{1,2}:\d{2})/); return m ? m[1] : ''; };
+        const UKEDAG = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
+        const fmtDag = d => {
+            const idag = new Date(); idag.setHours(0, 0, 0, 0);
+            const dd = new Date(d); dd.setHours(0, 0, 0, 0);
+            const diff = Math.round((dd - idag) / 864e5);
+            if (diff === 0) return 'i dag';
+            if (diff === 1) return 'i morgen';
+            if (diff === -1) return 'i går';
+            return UKEDAG[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0');
+        };
+        // Slår tur- og retur-benet på samme dag+behandlingssted sammen til ÉN behandling —
+        // ellers spiser et tur/retur-par to av de fem plassene.
+        function grupperBehandlinger(turer) {
+            const grupper = new Map();
+            for (let i = 0; i < (turer || []).length; i++) {
+                const t = turer[i];
+                if (!t || !t.har_tur || t.er_attest) continue;
+                const erRetur = /fra\s+behandling/i.test(t.retning || '');
+                const sted = (erRetur ? t.fra_navn : t.til_navn) || '';
+                const naar = nissyTidTilDate(t.oppmote_tid) || nissyTidTilDate(t.klar_fra);
+                if (!naar) continue;
+                const nokkel = naar.getFullYear() + '-' + naar.getMonth() + '-' + naar.getDate() + '|' + sted.toLowerCase();
+                let g = grupper.get(nokkel);
+                if (!g) { g = { sted, dato: naar, tid: null, hent: '', retur: '', rekNr: t.rek_nr || null }; grupper.set(nokkel, g); }
+                if (erRetur) {
+                    g.retur = kl(t.klar_fra) || kl(t.oppmote_tid);
+                } else {
+                    g.hent = kl(t.klar_fra);
+                    // Oppmøtetidspunktet på tur-benet = selve behandlingstiden
+                    if (naar.getHours() || naar.getMinutes()) { g.tid = kl(t.oppmote_tid); g.dato = naar; }
+                }
+                if (!g.sted && sted) g.sted = sted;
+            }
+            return [...grupper.values()];
+        }
+        // Nærmeste FØRST — kun dagens og kommende (v2.135, Thomas: tidligere DATOER trenger
+        // ikke være med). Dagens allerede passerte turer beholdes, dempet: de er ofte nettopp
+        // det pasienten ringer om («jeg ble ikke hentet i morges»).
+        function velgNaermeste(beh, maks) {
+            const naa = new Date();
+            const idag = new Date(); idag.setHours(0, 0, 0, 0);
+            return beh.filter(b => b.dato >= idag)
+                      .sort((a, b) => a.dato - b.dato)
+                      .slice(0, maks)
+                      .map(b => ({ ...b, passert: b.dato < naa }));
+        }
+        function tegnBehandlinger(el, turer) {
+            const alle = grupperBehandlinger(turer);
+            const valgt = velgNaermeste(alle, 5);
+            if (!valgt.length) {
+                // Skille «pasienten har ingenting» fra «alt ligger bakover i tid» — uten dette
+                // ser en pasient med 7 gamle rekvisisjoner helt tom ut i toasten.
+                el.innerHTML = alle.length
+                    ? `<div style="margin-top:5px;padding-left:7px;border-left:2px solid #334155;font-size:11px;color:#64748b;">Ingen kommende behandlinger <span style="color:#475569;">(${alle.length} tidligere)</span></div>`
+                    : '';
+                return;
+            }
+            // v2.134: ÉN grid for alle radene (ikke flex per rad) → dag/tid, sted og hentetider
+            // står i flukt nedover. minmax(0,1fr) på sted-kolonnen gir ellipsis i stedet for
+            // at lange navn presser toasten bred (som ga vannrett scrollbar).
+            const celler = valgt.map(b => {
+                const dempet = b.passert;
+                const detaljer = [];
+                if (b.hent) detaljer.push('🚕 ' + b.hent);
+                if (b.retur) detaljer.push('↩ ' + b.retur);
+                const tip = b.rekNr ? ` title="Rekvisisjon ${escHtml(b.rekNr)}"` : '';
+                const dim = dempet ? 'opacity:0.5;' : '';
+                return `<span${tip} style="${dim}color:${dempet ? '#94a3b8' : '#38bdf8'};font-weight:600;white-space:nowrap;">${escHtml(fmtDag(b.dato))}${b.tid ? ' ' + escHtml(b.tid) : ''}</span>`
+                     + `<span${tip} style="${dim}color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(b.sted || '(ukjent sted)')}</span>`
+                     + `<span${tip} style="${dim}color:#94a3b8;white-space:nowrap;">${escHtml(detaljer.join(' · '))}</span>`;
+            }).join('');
+            el.innerHTML = `<div style="margin-top:5px;padding-left:7px;border-left:2px solid #334155;">
+                <div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:0.3px;margin-bottom:2px;">NÆRMESTE BEHANDLINGER</div>
+                <div style="display:grid;grid-template-columns:max-content minmax(0,1fr) max-content;column-gap:10px;row-gap:3px;align-items:baseline;font-size:11px;">${celler}</div></div>`;
+        }
+
         const rader = beriket.map((pas, i) => {
             const pnr = pas.pnr || '';
             const navn = pas.navn || '(uten navn)';
@@ -2163,22 +2274,29 @@
             } else if (flerePasienter && harAnroperTreff) {
                 merke = `<span style="background:#475569;color:#e2e8f0;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:0.5px;margin-left:6px;">👥 TILKNYTTET</span>`;
             }
+            // v2.134: behandlingslista lå inne i den SMALE kolonnen ved siden av knappene →
+            // sammenpresset tekst + vannrett scrollbar (Thomas 04.08). Nå ligger navn/pnr/adresse
+            // + knapper i en egen topprad, og behandlingene får HELE toast-bredden under.
+            // min-width:0 på flex-barnet er det som faktisk stopper overflowen.
             return `
-                <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #1e293b;${pas._erAnroper ? 'opacity:0.7;' : ''}">
-                    <div style="flex:1;font-size:12px;">
-                        <div style="color:#f8fafc;font-weight:600;">${navn}${merke}</div>
-                        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
-                            <span style="color:#cbd5e1;font-family:monospace;font-size:12px;font-weight:600;">${pnr}</span>
-                            ${alderTxt ? `<span style="color:#94a3b8;font-size:11px;">${alderTxt}</span>` : ''}
-                            ${pas._kildeTlf ? `<span title="Nummeret som ga treff i NISSY" style="color:#64748b;font-size:10px;">☎ ${formaterTlf(pas._kildeTlf)}</span>` : ''}
-                            <span data-vkt-kopier="${pnr}" title="Kopier personnummer" style="cursor:pointer;color:#64748b;font-size:13px;line-height:1;padding:1px 4px;border-radius:3px;user-select:none;">📋</span>
-                            <span data-vkt-rekv="${i}" style="font-size:11px;color:#64748b;font-style:italic;">⏳ rekv...</span>
+                <div style="padding:6px 0;border-top:1px solid #1e293b;${pas._erAnroper ? 'opacity:0.7;' : ''}">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="flex:1;min-width:0;font-size:12px;">
+                            <div style="color:#f8fafc;font-weight:600;">${navn}${merke}</div>
+                            <div style="display:flex;align-items:center;gap:6px;margin-top:2px;flex-wrap:wrap;">
+                                <span style="color:#cbd5e1;font-family:monospace;font-size:12px;font-weight:600;">${pnr}</span>
+                                ${alderTxt ? `<span style="color:#94a3b8;font-size:11px;">${alderTxt}</span>` : ''}
+                                ${pas._kildeTlf ? `<span title="Nummeret som ga treff i NISSY" style="color:#64748b;font-size:10px;">☎ ${formaterTlf(pas._kildeTlf)}</span>` : ''}
+                                <span data-vkt-kopier="${pnr}" title="Kopier personnummer" style="cursor:pointer;color:#64748b;font-size:13px;line-height:1;padding:1px 4px;border-radius:3px;user-select:none;">📋</span>
+                                <span data-vkt-rekv="${i}" style="font-size:11px;color:#64748b;font-style:italic;">⏳ rekv...</span>
+                            </div>
+                            <div data-vkt-adr="${i}" style="font-size:11px;color:#f8fafc;margin-top:3px;"></div>
                         </div>
-                        <div data-vkt-adr="${i}" style="font-size:11px;color:#f8fafc;margin-top:3px;"></div>
+                        <button data-vkt-pas="${i}" data-vkt-modul="rekvisisjon" style="padding:5px 10px;background:#0ea5e9;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">Rek</button>
+                        <button data-vkt-pas="${i}" data-vkt-modul="planlegging" style="padding:5px 10px;background:#7c3aed;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">Plan</button>
+                        <button data-vkt-attest="${pnr}" title="Åpne attest-UI + kopier pnr" style="padding:5px 10px;background:#f59e0b;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">Attest</button>
                     </div>
-                    <button data-vkt-pas="${i}" data-vkt-modul="rekvisisjon" style="padding:5px 10px;background:#0ea5e9;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">Rek</button>
-                    <button data-vkt-pas="${i}" data-vkt-modul="planlegging" style="padding:5px 10px;background:#7c3aed;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">Plan</button>
-                    <button data-vkt-attest="${pnr}" title="Åpne attest-UI + kopier pnr" style="padding:5px 10px;background:#f59e0b;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;">Attest</button>
+                    <div data-vkt-beh="${i}"></div>
                 </div>
             `;
         }).join('');
@@ -2245,6 +2363,9 @@
                         }
                     } catch (_) {}
                 }
+                // v2.133: list de fem nærmeste behandlingene (samme data som telleren over).
+                const behEl = resultatEl.querySelector(`[data-vkt-beh="${i}"]`);
+                if (behEl) { try { tegnBehandlinger(behEl, res.turer); } catch (e) { console.warn('[VERKTØYKASSE] behandlingsliste:', e.message); } }
                 // Adresse + «vår pasient?»-varsel.
                 // Primært fra rekvisisjonen (pasient_adresse m/ postnr). Mangler den
                 // (pasient uten rekv, f.eks. ringer for å bestille) → fall tilbake til
