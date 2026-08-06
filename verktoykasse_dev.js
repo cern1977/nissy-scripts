@@ -1,3 +1,9 @@
+// === WESTBYS VERKTØYKASSE v2.140-dev ===
+// v2.140-dev: HØSTER behandlingssted-registeret fra NISSY — __verktoykasseDev.host() i konsollen.
+//             Søkesiden trengs ikke: hver adminTCDetails-side peker både oppover («Overordnet nivå»)
+//             og nedover («Underenheter»), så bredde-først-vandring fra ett frø dekker hele treet.
+//             Frø: 6184 (Vestre Viken HF) + 11574 («privat»). Tre samtidige kall, batcher på 100 til
+//             behandlingssted_lagre.php. OUS' egne data, ingen personopplysninger → server-side OK.
 // === WESTBYS VERKTØYKASSE v2.139-dev ===
 // v2.139-dev: BEHANDLINGSSTED I TOASTEN (Thomas' idé 06.08). Kort kan nå bære NISSYs
 //             behandlingssted-id (oid fra adminTCDetails?id=…, felt i zisson-kortet). Ringer en
@@ -322,7 +328,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.139-dev';
+    const VERSJON = '2.140-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1308,6 +1314,59 @@
         }
         _bhsCache.set(id, ut);
         return ut;
+    }
+
+    // === HØSTING AV BEHANDLINGSSTED-REGISTERET (v2.140, dev-verktøy) ===
+    // Kjøres manuelt fra konsollen:  __verktoykasseDev.host()
+    // Vi trenger IKKE søkesiden: hver adminTCDetails-side peker både oppover
+    // («Overordnet nivå») og nedover («Underenheter»), så en bredde-først-vandring
+    // fra et vilkårlig utgangspunkt dekker hele treet det tilhører. Frøene under er
+    // de to store greinene. Resultatet POSTes til behandlingssted_lagre.php — OUS'
+    // egne data uten personopplysninger, derfor greit å lagre server-side.
+    const HOST_FROE = [6184, 11574];   // Vestre Viken HF, «privat»
+    async function hostBehandlingssteder(froe) {
+        const ko = (froe && froe.length ? froe : HOST_FROE).map(n => String(n));
+        const sett = new Set(ko);
+        const samlet = [];
+        let sendt = 0, feilet = 0;
+        const send = async (ferdig) => {
+            if (!samlet.length || (samlet.length < 100 && !ferdig)) return;
+            const bunt = samlet.splice(0, samlet.length);
+            try {
+                const r = await fetch('https://thomaswestby.no/skript/behandlingssted_lagre.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steder: bunt, av: window.__vkt_brukernavn || '' })
+                }).then(x => x.json());
+                sendt += (r && r.lagret) || 0;
+                console.log('[' + NAVN + '] høsting: ' + sendt + ' lagret · ' + ko.length + ' i kø · ' + sett.size + ' funnet');
+            } catch (e) { console.warn('[' + NAVN + '] høsting: sending feilet —', e.message); }
+        };
+        console.log('[' + NAVN + '] høsting startet fra ' + ko.join(', ') + ' — dette tar noen minutter');
+        while (ko.length) {
+            // Tre om gangen: raskt nok, uten å hamre NISSY-admin.
+            const gruppe = ko.splice(0, 3);
+            const svar = await Promise.all(gruppe.map(id => hentBehandlingssted(id)));
+            for (let i = 0; i < svar.length; i++) {
+                const b = svar[i];
+                if (!b) { feilet++; continue; }
+                samlet.push({
+                    id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
+                    adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
+                    orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                    parent_id: b.foreldre ? b.foreldre.id : null
+                });
+                // Både opp og ned — slik finner vi roten selv om vi starter midt i treet.
+                if (b.foreldre && b.foreldre.id && !sett.has(b.foreldre.id)) { sett.add(b.foreldre.id); ko.push(b.foreldre.id); }
+                for (let j = 0; j < (b.underenheter || []).length; j++) {
+                    const u = b.underenheter[j];
+                    if (u.id && !sett.has(u.id)) { sett.add(u.id); ko.push(u.id); }
+                }
+            }
+            await send(false);
+        }
+        await send(true);
+        console.log('[' + NAVN + '] høsting FERDIG: ' + sendt + ' steder lagret · ' + feilet + ' feilet · ' + sett.size + ' id-er besøkt');
+        return { lagret: sendt, feilet: feilet, besokt: sett.size };
     }
 
     // === PNR-OPPSLAG — ssnSearch i admin, returnerer alle kommende/aktive rekvisisjoner ===
@@ -3138,6 +3197,9 @@ document.addEventListener("visibilitychange",inj);
         pollNissyNaviger: pollNissyNavigerVentende,
         sokTlfINissy,
         sokPnrINissy,
+        hentBehandlingssted,
+        // Manuell høsting av behandlingssted-registeret: __verktoykasseDev.host()
+        host: hostBehandlingssteder,
         hentTurDetaljer,
         hentTurDetaljerViaRekvnr,
         hentRekvisisjon,
