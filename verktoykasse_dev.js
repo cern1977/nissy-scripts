@@ -1,3 +1,9 @@
+// === WESTBYS VERKTØYKASSE v2.143-dev ===
+// v2.143-dev: høsteren starter nå på ROTEN (id 1, «Rotnivå» — hele det nasjonale treet henger under
+//             den, med de fem RHF-ene rett under). Første kjøring sådde midt i treet og lot
+//             vandringen finne roten selv. + UTLOGGET-VERN: alle innloggede admin-sider har
+//             «Logg ut»-lenken; mangler den, stopper høstingen med tydelig melding i stedet for å
+//             male seg gjennom tusenvis av tomme svar (som da kjøringen stanset på 5753 uforklart).
 // === WESTBYS VERKTØYKASSE v2.142-dev ===
 // v2.142-dev: FIX høstingen lagret ingenting («0 lagret» i det uendelige). Rå JSON.stringify på
 //             {steder:[…]} traff Prototype/ricos Array.prototype.toJSON → arrayet ble en STRENG →
@@ -337,7 +343,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.142-dev';
+    const VERSJON = '2.143-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1235,6 +1241,10 @@
     // Oid er en stabil nøkkel; navnematching mot «Skårer Legesenter» ville vært skjørt.
     // Siden er UTF-8 (ikke iso-8859-1 som dispatch.jsp) → r.text() holder.
     const _bhsCache = new Map();
+    // v2.143: settes når admin-sesjonen har falt. Uten dette maler høsteren seg
+    // gjennom tusenvis av id-er med tomme svar og «lagrer» ingenting — akkurat det
+    // som skjedde 06.08 da kjøringen stanset på 5753 uten forklaring.
+    let _bhsUtlogget = false;
     async function hentBehandlingssted(oid) {
         const id = String(oid || '').replace(/\D/g, '');
         if (!id) return null;
@@ -1249,6 +1259,9 @@
                 html = r.ok ? await r.text() : null;
             } finally { clearTimeout(timer); }
             if (html) {
+                // Alle innloggede admin-sider har «Logg ut»-lenken i headeren. Mangler den,
+                // er vi kastet ut — da nytter det ikke å fortsette.
+                if (html.indexOf('/admin/logout') === -1) _bhsUtlogget = true;
                 const doc = new DOMParser().parseFromString(html, 'text/html');
                 // Fieldsettene identifiseres på legend-teksten, ikke rekkefølge — NISSY
                 // utelater «Overordnet nivå» på rot-noder, så indeksering ville forskjøvet seg.
@@ -1332,7 +1345,10 @@
     // fra et vilkårlig utgangspunkt dekker hele treet det tilhører. Frøene under er
     // de to store greinene. Resultatet POSTes til behandlingssted_lagre.php — OUS'
     // egne data uten personopplysninger, derfor greit å lagre server-side.
-    const HOST_FROE = [6184, 11574];   // Vestre Viken HF, «privat»
+    // v2.143: hele det nasjonale treet henger under ÉN rot (id 1, «Rotnivå», med de fem
+    // RHF-ene under). Første kjøring sådde vi midt i treet og lot vandringen finne roten
+    // selv; nå starter vi der den er. Raskere og garantert komplett.
+    const HOST_FROE = [1];
     async function hostBehandlingssteder(froe) {
         const ko = (froe && froe.length ? froe : HOST_FROE).map(n => String(n));
         const sett = new Set(ko);
@@ -1361,8 +1377,13 @@
         };
         console.log('[VERKTØYKASSE] høsting startet fra ' + ko.join(', ') + ' — sett __vkt_hostStopp = true for å avbryte');
         window.__vkt_hostStopp = false;
+        _bhsUtlogget = false;
         while (ko.length) {
             if (window.__vkt_hostStopp) { console.log('[VERKTØYKASSE] høsting avbrutt av bruker'); break; }
+            if (_bhsUtlogget) {
+                console.warn('[VERKTØYKASSE] høsting STOPPET: admin-sesjonen har falt. Logg inn i admin og kjør host() på nytt — det som alt er lagret beholdes.');
+                break;
+            }
             // Tre om gangen: raskt nok, uten å hamre NISSY-admin.
             const gruppe = ko.splice(0, 3);
             const svar = await Promise.all(gruppe.map(id => hentBehandlingssted(id)));
