@@ -1,3 +1,10 @@
+// === WESTBYS VERKTØYKASSE v2.139-dev ===
+// v2.139-dev: BEHANDLINGSSTED I TOASTEN (Thomas' idé 06.08). Kort kan nå bære NISSYs
+//             behandlingssted-id (oid fra adminTCDetails?id=…, felt i zisson-kortet). Ringer en
+//             bedrift, slår toasten opp stedet i NISSY og viser fasit: navn, adresse, telefon,
+//             sektor, HER-id/org.nr og utvidbar liste over underenheter (fastleger/avdelinger).
+//             Oid er stabil nøkkel — navnematching mot stedsnavn ville vært skjør. Rent tillegg:
+//             feiler oppslaget forsvinner blokka, resten av toasten er urørt. Cachet per økt.
 // === WESTBYS VERKTØYKASSE v2.138-dev ===
 // v2.138-dev: «IKKE BESTILT»-merke i behandlingslista (Thomas 04.08). searchStatus-tabellen har en
 //             Status-kolonne — «Bekreftet» = bestilt hos transportør, «Ny» = rekvirert men IKKE
@@ -315,7 +322,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.138-dev';
+    const VERSJON = '2.139-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1206,6 +1213,103 @@
         return data;
     }
 
+    // === BEHANDLINGSSTED — adminTCDetails (v2.139, Thomas' idé 06.08) ===
+    // Kortet kan bære NISSYs behandlingssted-id (oid fra adminTCDetails?id=…). Da slår
+    // toasten opp stedet direkte i NISSY og viser fasit-adresse, telefon, sektor og
+    // underenheter (fastleger/avdelinger) — i stedet for det operatøren måtte huske selv.
+    // Oid er en stabil nøkkel; navnematching mot «Skårer Legesenter» ville vært skjørt.
+    // Siden er UTF-8 (ikke iso-8859-1 som dispatch.jsp) → r.text() holder.
+    const _bhsCache = new Map();
+    async function hentBehandlingssted(oid) {
+        const id = String(oid || '').replace(/\D/g, '');
+        if (!id) return null;
+        if (_bhsCache.has(id)) return _bhsCache.get(id);
+        let ut = null;
+        try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 10000);
+            let html;
+            try {
+                const r = await fetch(`${ADMIN_BASE}/adminTCDetails?id=${id}`, { credentials: 'same-origin', signal: ctrl.signal });
+                html = r.ok ? await r.text() : null;
+            } finally { clearTimeout(timer); }
+            if (html) {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                // Fieldsettene identifiseres på legend-teksten, ikke rekkefølge — NISSY
+                // utelater «Overordnet nivå» på rot-noder, så indeksering ville forskjøvet seg.
+                let hoved = null, over = null, under = null;
+                const alle = doc.querySelectorAll('fieldset');
+                for (let i = 0; i < alle.length; i++) {
+                    const lg = ((alle[i].querySelector('legend') || {}).textContent || '').trim().toLowerCase();
+                    if (lg.indexOf('behandlingssted') === 0) hoved = alle[i];
+                    else if (lg.indexOf('overordnet') === 0) over = alle[i];
+                    else if (lg.indexOf('underenhet') === 0) under = alle[i];
+                }
+                // «Navn:» → «navn». Feltnavn-cellen bærer kolon og vilkårlig whitespace.
+                const lesFelt = rot => {
+                    const ut2 = {};
+                    if (!rot) return ut2;
+                    const rader = rot.querySelectorAll('tr');
+                    for (let i = 0; i < rader.length; i++) {
+                        const c = rader[i].cells;
+                        if (!c || c.length < 2) continue;
+                        const n = (c[0].textContent || '').replace(/\s+/g, ' ').replace(/:\s*$/, '').trim().toLowerCase();
+                        const v = (c[1].textContent || '').replace(/\s+/g, ' ').trim();
+                        if (n && !(n in ut2)) ut2[n] = v;
+                    }
+                    return ut2;
+                };
+                const f = lesFelt(hoved);
+                const underenheter = [];
+                if (under) {
+                    const rader = under.querySelectorAll('tr');
+                    for (let i = 0; i < rader.length; i++) {
+                        const lenke = rader[i].querySelector('a[href*="adminTCDetails"]');
+                        if (!lenke) continue;  // hopper over headerraden
+                        const c = rader[i].cells || [];
+                        const idM = (lenke.getAttribute('href') || '').match(/id=(\d+)/);
+                        underenheter.push({
+                            id: idM ? idM[1] : null,
+                            navn: (lenke.textContent || '').replace(/\s+/g, ' ').trim(),
+                            type: c[2] ? (c[2].textContent || '').replace(/\s+/g, ' ').trim() : '',
+                            adresse: c[4] ? (c[4].textContent || '').replace(/\s+/g, ' ').trim() : ''
+                        });
+                    }
+                }
+                let foreldre = null;
+                if (over) {
+                    const l = over.querySelector('a[href*="adminTCDetails"]');
+                    if (l) {
+                        const idM = (l.getAttribute('href') || '').match(/id=(\d+)/);
+                        foreldre = { id: idM ? idM[1] : null, navn: (l.textContent || '').replace(/\s+/g, ' ').trim() };
+                    }
+                }
+                if (f['navn']) {
+                    ut = {
+                        id: id,
+                        navn: f['navn'],
+                        type: f['type'] || '',
+                        sektor: f['sektor'] || '',
+                        e_rekvirering: f['e.rekvirering'] || '',
+                        her_id: f['her id'] || '',
+                        orgnr: f['organisasjonsnummer'] || '',
+                        adresse: f['adresse'] || '',
+                        postnr_sted: f['postnr/sted'] || '',
+                        telefon: f['telefon'] || '',
+                        kommentar: f['kommentar'] || '',
+                        posisjon: f['posisjon x/y'] || '',   // UTM nord/øst — NISSYs egen fasit
+                        foreldre: foreldre,
+                        underenheter: underenheter
+                    };
+                }
+            }
+        } catch (e) {
+            if (ER_DEV) console.warn('[VERKTØYKASSE] hentBehandlingssted(' + id + '):', e.message);
+        }
+        _bhsCache.set(id, ut);
+        return ut;
+    }
+
     // === PNR-OPPSLAG — ssnSearch i admin, returnerer alle kommende/aktive rekvisisjoner ===
     async function sokPnrINissy(pnr) {
         try {
@@ -1901,6 +2005,44 @@
             kortEl.style.fontStyle = '';
             kortEl.style.color = '#cbd5e1';
             kortEl.innerHTML = linje1 + linje2;
+
+            // v2.139: bærer kortet en NISSY behandlingssted-id, hent fasit fra NISSY og
+            // vis den under kortlinja. Rent tillegg — feiler oppslaget, skjer ingenting.
+            if (k.nissy_tc_id) {
+                const bhsEl = document.createElement('div');
+                bhsEl.style.cssText = 'margin-top:6px;padding-left:7px;border-left:2px solid #334155;font-size:11px;color:#94a3b8;';
+                bhsEl.textContent = 'Slår opp behandlingsstedet…';
+                kortEl.appendChild(bhsEl);
+                hentBehandlingssted(k.nissy_tc_id).then(b => {
+                    if (!bhsEl.isConnected) return;
+                    if (!b) { trygtFjern(bhsEl); return; }
+                    const adr = [b.adresse, b.postnr_sted].filter(Boolean).join(', ');
+                    const nokler = [];
+                    if (b.her_id) nokler.push('HER ' + b.her_id);
+                    if (b.orgnr) nokler.push('org.nr ' + b.orgnr);
+                    const antUnder = (b.underenheter || []).length;
+                    bhsEl.innerHTML =
+                        '<div style="font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:0.3px;">NISSY-BEHANDLINGSSTED</div>'
+                        + '<div style="color:#f8fafc;font-weight:600;">' + escHtml(b.navn) + '</div>'
+                        + (adr ? '<div style="color:#cbd5e1;">📍 ' + escHtml(adr) + '</div>' : '')
+                        + (b.telefon ? '<div style="color:#cbd5e1;font-family:monospace;">☎ ' + escHtml(b.telefon) + '</div>' : '')
+                        + (b.sektor ? '<div>' + escHtml(b.sektor) + (b.type ? ' · ' + escHtml(b.type) : '') + '</div>' : '')
+                        + (nokler.length ? '<div style="color:#64748b;font-size:10px;">' + escHtml(nokler.join(' · ')) + '</div>' : '')
+                        + (antUnder ? '<div style="margin-top:2px;"><span data-vkt-bhs-under style="cursor:pointer;color:#38bdf8;">▸ ' + antUnder + ' underenhet' + (antUnder === 1 ? '' : 'er') + '</span><div data-vkt-bhs-liste style="display:none;margin-top:2px;"></div></div>' : '');
+                    const bryter = bhsEl.querySelector('[data-vkt-bhs-under]');
+                    if (bryter) bryter.onclick = () => {
+                        const liste = bhsEl.querySelector('[data-vkt-bhs-liste]');
+                        const apen = liste.style.display !== 'none';
+                        if (!apen && !liste.innerHTML) {
+                            liste.innerHTML = b.underenheter.map(u =>
+                                '<div style="color:#cbd5e1;padding:1px 0;">· ' + escHtml(u.navn)
+                                + (u.type ? ' <span style="color:#64748b;">' + escHtml(u.type) + '</span>' : '') + '</div>').join('');
+                        }
+                        liste.style.display = apen ? 'none' : 'block';
+                        bryter.textContent = (apen ? '▸ ' : '▾ ') + antUnder + ' underenhet' + (antUnder === 1 ? '' : 'er');
+                    };
+                });
+            }
 
             // Pasient-rad: vises hvis kortet har lagret pasient og pasient-tlf er annet enn anrops-tlf
             const tlfRen = (tlf || '').replace(/\D/g, '');
