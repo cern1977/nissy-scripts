@@ -1,3 +1,9 @@
+// === WESTBYS VERKTØYKASSE v2.142-dev ===
+// v2.142-dev: FIX høstingen lagret ingenting («0 lagret» i det uendelige). Rå JSON.stringify på
+//             {steder:[…]} traff Prototype/ricos Array.prototype.toJSON → arrayet ble en STRENG →
+//             PHP så ingen liste → «tom steder-liste». Bruker nå jsonStringifyTrygt, som allerede
+//             finnes og brukes av kjørekontor-høsteren. Serverens avvisning logges nå eksplisitt i
+//             stedet for å se ut som «0 lagret», og __vkt_hostStopp = true avbryter uten reload.
 // === WESTBYS VERKTØYKASSE v2.141-dev ===
 // v2.141-dev: FIX høsteren krasjet umiddelbart — «NAVN is not defined». Logg-prefikset NAVN finnes
 //             i basic_tools, ikke i verktøykassen, som bruker literalen [VERKTØYKASSE].
@@ -331,7 +337,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.141-dev';
+    const VERSJON = '2.142-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1338,14 +1344,25 @@
             try {
                 const r = await fetch('https://thomaswestby.no/skript/behandlingssted_lagre.php', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ steder: bunt, av: window.__vkt_brukernavn || '' })
+                    // v2.142: MÅ være jsonStringifyTrygt. Prototype/rico definerer
+                    // Array.prototype.toJSON, og rå JSON.stringify gjør da arrayet om til en
+                    // STRENG → PHP ser ingen liste → «tom steder-liste» → 0 lagret, stille.
+                    // Samme felle som søkeloggen og beregnReisetid.
+                    body: jsonStringifyTrygt({ steder: bunt, av: window.__vkt_brukernavn || '' })
                 }).then(x => x.json());
-                sendt += (r && r.lagret) || 0;
+                if (!r || typeof r.lagret !== 'number') {
+                    // Ikke la en avvisning fra serveren se ut som «0 lagret».
+                    console.warn('[VERKTØYKASSE] høsting: serveren avviste bunten —', JSON.stringify(r));
+                    return;
+                }
+                sendt += r.lagret;
                 console.log('[VERKTØYKASSE] høsting: ' + sendt + ' lagret · ' + ko.length + ' i kø · ' + sett.size + ' funnet');
             } catch (e) { console.warn('[VERKTØYKASSE] høsting: sending feilet —', e.message); }
         };
-        console.log('[VERKTØYKASSE] høsting startet fra ' + ko.join(', ') + ' — dette tar noen minutter');
+        console.log('[VERKTØYKASSE] høsting startet fra ' + ko.join(', ') + ' — sett __vkt_hostStopp = true for å avbryte');
+        window.__vkt_hostStopp = false;
         while (ko.length) {
+            if (window.__vkt_hostStopp) { console.log('[VERKTØYKASSE] høsting avbrutt av bruker'); break; }
             // Tre om gangen: raskt nok, uten å hamre NISSY-admin.
             const gruppe = ko.splice(0, 3);
             const svar = await Promise.all(gruppe.map(id => hentBehandlingssted(id)));
