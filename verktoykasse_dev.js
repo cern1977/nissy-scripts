@@ -1,3 +1,6 @@
+// === WESTBYS VERKTØYKASSE v2.141-dev ===
+// v2.141-dev: FIX høsteren krasjet umiddelbart — «NAVN is not defined». Logg-prefikset NAVN finnes
+//             i basic_tools, ikke i verktøykassen, som bruker literalen [VERKTØYKASSE].
 // === WESTBYS VERKTØYKASSE v2.140-dev ===
 // v2.140-dev: HØSTER behandlingssted-registeret fra NISSY — __verktoykasseDev.host() i konsollen.
 //             Søkesiden trengs ikke: hver adminTCDetails-side peker både oppover («Overordnet nivå»)
@@ -328,7 +331,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.140-dev';
+    const VERSJON = '2.141-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1338,10 +1341,10 @@
                     body: JSON.stringify({ steder: bunt, av: window.__vkt_brukernavn || '' })
                 }).then(x => x.json());
                 sendt += (r && r.lagret) || 0;
-                console.log('[' + NAVN + '] høsting: ' + sendt + ' lagret · ' + ko.length + ' i kø · ' + sett.size + ' funnet');
-            } catch (e) { console.warn('[' + NAVN + '] høsting: sending feilet —', e.message); }
+                console.log('[VERKTØYKASSE] høsting: ' + sendt + ' lagret · ' + ko.length + ' i kø · ' + sett.size + ' funnet');
+            } catch (e) { console.warn('[VERKTØYKASSE] høsting: sending feilet —', e.message); }
         };
-        console.log('[' + NAVN + '] høsting startet fra ' + ko.join(', ') + ' — dette tar noen minutter');
+        console.log('[VERKTØYKASSE] høsting startet fra ' + ko.join(', ') + ' — dette tar noen minutter');
         while (ko.length) {
             // Tre om gangen: raskt nok, uten å hamre NISSY-admin.
             const gruppe = ko.splice(0, 3);
@@ -1365,7 +1368,7 @@
             await send(false);
         }
         await send(true);
-        console.log('[' + NAVN + '] høsting FERDIG: ' + sendt + ' steder lagret · ' + feilet + ' feilet · ' + sett.size + ' id-er besøkt');
+        console.log('[VERKTØYKASSE] høsting FERDIG: ' + sendt + ' steder lagret · ' + feilet + ' feilet · ' + sett.size + ' id-er besøkt');
         return { lagret: sendt, feilet: feilet, besokt: sett.size };
     }
 
