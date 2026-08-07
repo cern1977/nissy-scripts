@@ -50,7 +50,36 @@ try {
                             JOIN ovr_behandlingssted b ON b.id = t.bhs_id
                             WHERE t.tlf_norm = ? ORDER BY b.navn LIMIT 20");
         $s->execute([$d]);
-        echo json_encode(['ok' => true, 'tlf' => $d, 'steder' => $s->fetchAll(PDO::FETCH_ASSOC)]);
+        $steder = $s->fetchAll(PDO::FETCH_ASSOC);
+        // OPPHAVSREGELEN (Kurbadet-saken 07.08): flere treff betyr ikke nødvendigvis et
+        // uklart fellesnummer. 23 35 30 50 ga fem treff — men det var Kurbadet Legesenter
+        // med sine fire fastleger, altså ETT sted. Ligger alle kandidatene i samme gren,
+        // returnerer vi den øverste som svaret; bare urelaterte steder er ekte tvetydighet.
+        $topp = null;
+        if (count($steder) === 1) {
+            $topp = $steder[0];
+        } elseif (count($steder) > 1) {
+            $forel = [];
+            $qf = $pdo->prepare("SELECT parent_id FROM ovr_behandlingssted WHERE id = ?");
+            $hentForel = function ($id) use (&$forel, $qf) {
+                if (!array_key_exists($id, $forel)) { $qf->execute([$id]); $v = $qf->fetchColumn(); $forel[$id] = ($v !== false && $v !== null) ? (int)$v : null; }
+                return $forel[$id];
+            };
+            $erForfader = function ($a, $b) use ($hentForel) {
+                $c = $b; $n = 0;
+                while ($c !== null && $n++ < 12) { $c = $hentForel($c); if ($c === $a) return true; }
+                return false;
+            };
+            foreach ($steder as $kand) {
+                $alle = true;
+                foreach ($steder as $annen) {
+                    if ((int)$annen['id'] !== (int)$kand['id'] && !$erForfader((int)$kand['id'], (int)$annen['id'])) { $alle = false; break; }
+                }
+                if ($alle) { $topp = $kand; break; }
+            }
+        }
+        echo json_encode(['ok' => true, 'tlf' => $d, 'steder' => $steder, 'topp' => $topp,
+                          'under' => $topp ? count($steder) - 1 : 0]);
         exit;
     }
 

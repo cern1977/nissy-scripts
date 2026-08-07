@@ -1,3 +1,9 @@
+// === WESTBYS VERKTØYKASSE v2.145-dev ===
+// v2.145-dev: OPPHAVSREGELEN i registeroppslaget (Kurbadet-saken 07.08). 23 35 30 50 ga fem treff
+//             og ble merket «sentralbord» — men det var Kurbadet Legesenter med sine fire fastleger,
+//             altså ETT sted. Serveren avgjør nå: ligger alle treffene i samme gren, er den øverste
+//             svaret (behandlingssted.php returnerer `topp` + `under`). Bare urelaterte steder
+//             merkes som fellesnummer. Antall treff sier ingenting alene — strukturen gjør det.
 // === WESTBYS VERKTØYKASSE v2.144-dev ===
 // v2.144-dev: TOASTEN IDENTIFISERER UKJENTE NUMRE fra det høstede NISSY-registeret. Målt 07.08:
 //             14 % av anropene kjennes via kort, men ytterligere 16 % ligger i registeret uten at
@@ -350,7 +356,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.144-dev';
+    const VERSJON = '2.145-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1732,23 +1738,24 @@
         try {
             const d = await fetch(BHS_OPPSLAG_URL + '?tlf=' + encodeURIComponent(tlf)).then(r => r.json());
             if (!d || !d.ok || !d.steder || !d.steder.length || !el.isConnected) return;
-            const s = d.steder, n = s.length;
+            const s = d.steder, n = s.length, topp = d.topp, under = d.under || 0;
             const boks = document.createElement('div');
             boks.style.cssText = 'margin-top:5px;padding-left:7px;border-left:2px solid #334155;font-size:11px;';
             const adr = st => [st.adresse, [st.postnr, st.poststed].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-            if (n === 1) {
+            if (topp) {
+                // Serveren har brukt opphavsregelen: ligger alle treffene i samme gren, er
+                // den øverste svaret. Fem treff på Kurbadet var legesenteret + fire fastleger,
+                // ikke fem ulike steder (07.08).
                 boks.innerHTML = '<div style="font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:.3px;">FRA NISSY-REGISTERET</div>'
-                    + '<div style="color:#f8fafc;font-weight:600;">' + escHtml(s[0].navn) + '</div>'
-                    + (adr(s[0]) ? '<div style="color:#cbd5e1;">📍 ' + escHtml(adr(s[0])) + '</div>' : '');
-            } else if (n <= 4) {
-                boks.innerHTML = '<div style="font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:.3px;">FRA NISSY-REGISTERET — ' + n + ' STEDER</div>'
-                    + s.map(x => '<div style="color:#cbd5e1;">· ' + escHtml(x.navn) + '</div>').join('');
+                    + '<div style="color:#f8fafc;font-weight:600;">' + escHtml(topp.navn) + '</div>'
+                    + (adr(topp) ? '<div style="color:#cbd5e1;">📍 ' + escHtml(adr(topp)) + '</div>' : '')
+                    + (under ? '<div style="color:#64748b;font-size:10px;">Nummeret deles med ' + under + ' enhet' + (under === 1 ? '' : 'er') + ' under stedet.</div>' : '');
             } else {
-                // Mange treff = fellesnummer. Da er stedsnavnet det eneste sikre,
-                // ikke hvilken enhet det er — si det rett ut.
-                boks.innerHTML = '<div style="font-size:9.5px;color:#f59e0b;font-weight:700;letter-spacing:.3px;">SENTRALBORD — ' + n + ' ENHETER I NISSY</div>'
-                    + '<div style="color:#cbd5e1;">' + escHtml(s[0].navn) + ' m.fl.</div>'
-                    + '<div style="color:#64748b;font-size:10px;">Nummeret peker ikke ut én enhet — spør hvem som ringer.</div>';
+                // Ingen felles opphav = ekte fellesnummer på tvers av urelaterte steder.
+                boks.innerHTML = '<div style="font-size:9.5px;color:#f59e0b;font-weight:700;letter-spacing:.3px;">FELLESNUMMER — ' + n + ' URELATERTE STEDER</div>'
+                    + s.slice(0, 3).map(x => '<div style="color:#cbd5e1;">· ' + escHtml(x.navn) + '</div>').join('')
+                    + (n > 3 ? '<div style="color:#64748b;">…og ' + (n - 3) + ' til</div>' : '')
+                    + '<div style="color:#64748b;font-size:10px;">Nummeret peker ikke ut ett sted — spør hvem som ringer.</div>';
             }
             el.appendChild(boks);
         } catch (_) { /* rent tillegg — 🪪-symbolet står igjen som før */ }
