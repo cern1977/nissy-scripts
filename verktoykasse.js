@@ -1,3 +1,38 @@
+// === WESTBYS VERKTØYKASSE v2.144-dev ===
+// v2.144-dev: TOASTEN IDENTIFISERER UKJENTE NUMRE fra det høstede NISSY-registeret. Målt 07.08:
+//             14 % av anropene kjennes via kort, men ytterligere 16 % ligger i registeret uten at
+//             noen har registrert noe — «Bruddkontroll Aker» hadde ringt 37 ganger som ukjent.
+//             Slår opp behandlingssted.php?tlf= når kortet mangler ELLER mangler NISSY-kobling.
+//             Skiller presist treff fra sentralbord: 19 293 steder deler nummer, så mange treff
+//             merkes «SENTRALBORD — N enheter» framfor å se ut som et presist svar.
+// === WESTBYS VERKTØYKASSE v2.143-dev ===
+// v2.143-dev: høsteren starter nå på ROTEN (id 1, «Rotnivå» — hele det nasjonale treet henger under
+//             den, med de fem RHF-ene rett under). Første kjøring sådde midt i treet og lot
+//             vandringen finne roten selv. + UTLOGGET-VERN: alle innloggede admin-sider har
+//             «Logg ut»-lenken; mangler den, stopper høstingen med tydelig melding i stedet for å
+//             male seg gjennom tusenvis av tomme svar (som da kjøringen stanset på 5753 uforklart).
+// === WESTBYS VERKTØYKASSE v2.142-dev ===
+// v2.142-dev: FIX høstingen lagret ingenting («0 lagret» i det uendelige). Rå JSON.stringify på
+//             {steder:[…]} traff Prototype/ricos Array.prototype.toJSON → arrayet ble en STRENG →
+//             PHP så ingen liste → «tom steder-liste». Bruker nå jsonStringifyTrygt, som allerede
+//             finnes og brukes av kjørekontor-høsteren. Serverens avvisning logges nå eksplisitt i
+//             stedet for å se ut som «0 lagret», og __vkt_hostStopp = true avbryter uten reload.
+// === WESTBYS VERKTØYKASSE v2.141-dev ===
+// v2.141-dev: FIX høsteren krasjet umiddelbart — «NAVN is not defined». Logg-prefikset NAVN finnes
+//             i basic_tools, ikke i verktøykassen, som bruker literalen [VERKTØYKASSE].
+// === WESTBYS VERKTØYKASSE v2.140-dev ===
+// v2.140-dev: HØSTER behandlingssted-registeret fra NISSY — __verktoykasseDev.host() i konsollen.
+//             Søkesiden trengs ikke: hver adminTCDetails-side peker både oppover («Overordnet nivå»)
+//             og nedover («Underenheter»), så bredde-først-vandring fra ett frø dekker hele treet.
+//             Frø: 6184 (Vestre Viken HF) + 11574 («privat»). Tre samtidige kall, batcher på 100 til
+//             behandlingssted_lagre.php. OUS' egne data, ingen personopplysninger → server-side OK.
+// === WESTBYS VERKTØYKASSE v2.139-dev ===
+// v2.139-dev: BEHANDLINGSSTED I TOASTEN (Thomas' idé 06.08). Kort kan nå bære NISSYs
+//             behandlingssted-id (oid fra adminTCDetails?id=…, felt i zisson-kortet). Ringer en
+//             bedrift, slår toasten opp stedet i NISSY og viser fasit: navn, adresse, telefon,
+//             sektor, HER-id/org.nr og utvidbar liste over underenheter (fastleger/avdelinger).
+//             Oid er stabil nøkkel — navnematching mot stedsnavn ville vært skjør. Rent tillegg:
+//             feiler oppslaget forsvinner blokka, resten av toasten er urørt. Cachet per økt.
 // === WESTBYS VERKTØYKASSE v2.138-dev ===
 // v2.138-dev: «IKKE BESTILT»-merke i behandlingslista (Thomas 04.08). searchStatus-tabellen har en
 //             Status-kolonne — «Bekreftet» = bestilt hos transportør, «Ny» = rekvirert men IKKE
@@ -315,7 +350,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.138';
+    const VERSJON = '2.144';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = false;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1206,6 +1241,182 @@
         return data;
     }
 
+    // === BEHANDLINGSSTED — adminTCDetails (v2.139, Thomas' idé 06.08) ===
+    // Kortet kan bære NISSYs behandlingssted-id (oid fra adminTCDetails?id=…). Da slår
+    // toasten opp stedet direkte i NISSY og viser fasit-adresse, telefon, sektor og
+    // underenheter (fastleger/avdelinger) — i stedet for det operatøren måtte huske selv.
+    // Oid er en stabil nøkkel; navnematching mot «Skårer Legesenter» ville vært skjørt.
+    // Siden er UTF-8 (ikke iso-8859-1 som dispatch.jsp) → r.text() holder.
+    const _bhsCache = new Map();
+    // v2.143: settes når admin-sesjonen har falt. Uten dette maler høsteren seg
+    // gjennom tusenvis av id-er med tomme svar og «lagrer» ingenting — akkurat det
+    // som skjedde 06.08 da kjøringen stanset på 5753 uten forklaring.
+    let _bhsUtlogget = false;
+    async function hentBehandlingssted(oid) {
+        const id = String(oid || '').replace(/\D/g, '');
+        if (!id) return null;
+        if (_bhsCache.has(id)) return _bhsCache.get(id);
+        let ut = null;
+        try {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 10000);
+            let html;
+            try {
+                const r = await fetch(`${ADMIN_BASE}/adminTCDetails?id=${id}`, { credentials: 'same-origin', signal: ctrl.signal });
+                html = r.ok ? await r.text() : null;
+            } finally { clearTimeout(timer); }
+            if (html) {
+                // Alle innloggede admin-sider har «Logg ut»-lenken i headeren. Mangler den,
+                // er vi kastet ut — da nytter det ikke å fortsette.
+                if (html.indexOf('/admin/logout') === -1) _bhsUtlogget = true;
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                // Fieldsettene identifiseres på legend-teksten, ikke rekkefølge — NISSY
+                // utelater «Overordnet nivå» på rot-noder, så indeksering ville forskjøvet seg.
+                let hoved = null, over = null, under = null;
+                const alle = doc.querySelectorAll('fieldset');
+                for (let i = 0; i < alle.length; i++) {
+                    const lg = ((alle[i].querySelector('legend') || {}).textContent || '').trim().toLowerCase();
+                    if (lg.indexOf('behandlingssted') === 0) hoved = alle[i];
+                    else if (lg.indexOf('overordnet') === 0) over = alle[i];
+                    else if (lg.indexOf('underenhet') === 0) under = alle[i];
+                }
+                // «Navn:» → «navn». Feltnavn-cellen bærer kolon og vilkårlig whitespace.
+                const lesFelt = rot => {
+                    const ut2 = {};
+                    if (!rot) return ut2;
+                    const rader = rot.querySelectorAll('tr');
+                    for (let i = 0; i < rader.length; i++) {
+                        const c = rader[i].cells;
+                        if (!c || c.length < 2) continue;
+                        const n = (c[0].textContent || '').replace(/\s+/g, ' ').replace(/:\s*$/, '').trim().toLowerCase();
+                        const v = (c[1].textContent || '').replace(/\s+/g, ' ').trim();
+                        if (n && !(n in ut2)) ut2[n] = v;
+                    }
+                    return ut2;
+                };
+                const f = lesFelt(hoved);
+                const underenheter = [];
+                if (under) {
+                    const rader = under.querySelectorAll('tr');
+                    for (let i = 0; i < rader.length; i++) {
+                        const lenke = rader[i].querySelector('a[href*="adminTCDetails"]');
+                        if (!lenke) continue;  // hopper over headerraden
+                        const c = rader[i].cells || [];
+                        const idM = (lenke.getAttribute('href') || '').match(/id=(\d+)/);
+                        underenheter.push({
+                            id: idM ? idM[1] : null,
+                            navn: (lenke.textContent || '').replace(/\s+/g, ' ').trim(),
+                            type: c[2] ? (c[2].textContent || '').replace(/\s+/g, ' ').trim() : '',
+                            adresse: c[4] ? (c[4].textContent || '').replace(/\s+/g, ' ').trim() : ''
+                        });
+                    }
+                }
+                let foreldre = null;
+                if (over) {
+                    const l = over.querySelector('a[href*="adminTCDetails"]');
+                    if (l) {
+                        const idM = (l.getAttribute('href') || '').match(/id=(\d+)/);
+                        foreldre = { id: idM ? idM[1] : null, navn: (l.textContent || '').replace(/\s+/g, ' ').trim() };
+                    }
+                }
+                if (f['navn']) {
+                    ut = {
+                        id: id,
+                        navn: f['navn'],
+                        type: f['type'] || '',
+                        sektor: f['sektor'] || '',
+                        e_rekvirering: f['e.rekvirering'] || '',
+                        her_id: f['her id'] || '',
+                        orgnr: f['organisasjonsnummer'] || '',
+                        adresse: f['adresse'] || '',
+                        postnr_sted: f['postnr/sted'] || '',
+                        telefon: f['telefon'] || '',
+                        kommentar: f['kommentar'] || '',
+                        posisjon: f['posisjon x/y'] || '',   // UTM nord/øst — NISSYs egen fasit
+                        foreldre: foreldre,
+                        underenheter: underenheter
+                    };
+                }
+            }
+        } catch (e) {
+            if (ER_DEV) console.warn('[VERKTØYKASSE] hentBehandlingssted(' + id + '):', e.message);
+        }
+        _bhsCache.set(id, ut);
+        return ut;
+    }
+
+    // === HØSTING AV BEHANDLINGSSTED-REGISTERET (v2.140, dev-verktøy) ===
+    // Kjøres manuelt fra konsollen:  __verktoykasseDev.host()
+    // Vi trenger IKKE søkesiden: hver adminTCDetails-side peker både oppover
+    // («Overordnet nivå») og nedover («Underenheter»), så en bredde-først-vandring
+    // fra et vilkårlig utgangspunkt dekker hele treet det tilhører. Frøene under er
+    // de to store greinene. Resultatet POSTes til behandlingssted_lagre.php — OUS'
+    // egne data uten personopplysninger, derfor greit å lagre server-side.
+    // v2.143: hele det nasjonale treet henger under ÉN rot (id 1, «Rotnivå», med de fem
+    // RHF-ene under). Første kjøring sådde vi midt i treet og lot vandringen finne roten
+    // selv; nå starter vi der den er. Raskere og garantert komplett.
+    const HOST_FROE = [1];
+    async function hostBehandlingssteder(froe) {
+        const ko = (froe && froe.length ? froe : HOST_FROE).map(n => String(n));
+        const sett = new Set(ko);
+        const samlet = [];
+        let sendt = 0, feilet = 0;
+        const send = async (ferdig) => {
+            if (!samlet.length || (samlet.length < 100 && !ferdig)) return;
+            const bunt = samlet.splice(0, samlet.length);
+            try {
+                const r = await fetch('https://thomaswestby.no/skript/behandlingssted_lagre.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    // v2.142: MÅ være jsonStringifyTrygt. Prototype/rico definerer
+                    // Array.prototype.toJSON, og rå JSON.stringify gjør da arrayet om til en
+                    // STRENG → PHP ser ingen liste → «tom steder-liste» → 0 lagret, stille.
+                    // Samme felle som søkeloggen og beregnReisetid.
+                    body: jsonStringifyTrygt({ steder: bunt, av: window.__vkt_brukernavn || '' })
+                }).then(x => x.json());
+                if (!r || typeof r.lagret !== 'number') {
+                    // Ikke la en avvisning fra serveren se ut som «0 lagret».
+                    console.warn('[VERKTØYKASSE] høsting: serveren avviste bunten —', JSON.stringify(r));
+                    return;
+                }
+                sendt += r.lagret;
+                console.log('[VERKTØYKASSE] høsting: ' + sendt + ' lagret · ' + ko.length + ' i kø · ' + sett.size + ' funnet');
+            } catch (e) { console.warn('[VERKTØYKASSE] høsting: sending feilet —', e.message); }
+        };
+        console.log('[VERKTØYKASSE] høsting startet fra ' + ko.join(', ') + ' — sett __vkt_hostStopp = true for å avbryte');
+        window.__vkt_hostStopp = false;
+        _bhsUtlogget = false;
+        while (ko.length) {
+            if (window.__vkt_hostStopp) { console.log('[VERKTØYKASSE] høsting avbrutt av bruker'); break; }
+            if (_bhsUtlogget) {
+                console.warn('[VERKTØYKASSE] høsting STOPPET: admin-sesjonen har falt. Logg inn i admin og kjør host() på nytt — det som alt er lagret beholdes.');
+                break;
+            }
+            // Tre om gangen: raskt nok, uten å hamre NISSY-admin.
+            const gruppe = ko.splice(0, 3);
+            const svar = await Promise.all(gruppe.map(id => hentBehandlingssted(id)));
+            for (let i = 0; i < svar.length; i++) {
+                const b = svar[i];
+                if (!b) { feilet++; continue; }
+                samlet.push({
+                    id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
+                    adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
+                    orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                    parent_id: b.foreldre ? b.foreldre.id : null
+                });
+                // Både opp og ned — slik finner vi roten selv om vi starter midt i treet.
+                if (b.foreldre && b.foreldre.id && !sett.has(b.foreldre.id)) { sett.add(b.foreldre.id); ko.push(b.foreldre.id); }
+                for (let j = 0; j < (b.underenheter || []).length; j++) {
+                    const u = b.underenheter[j];
+                    if (u.id && !sett.has(u.id)) { sett.add(u.id); ko.push(u.id); }
+                }
+            }
+            await send(false);
+        }
+        await send(true);
+        console.log('[VERKTØYKASSE] høsting FERDIG: ' + sendt + ' steder lagret · ' + feilet + ' feilet · ' + sett.size + ' id-er besøkt');
+        return { lagret: sendt, feilet: feilet, besokt: sett.size };
+    }
+
     // === PNR-OPPSLAG — ssnSearch i admin, returnerer alle kommende/aktive rekvisisjoner ===
     async function sokPnrINissy(pnr) {
         try {
@@ -1510,6 +1721,38 @@
     // Operatør velger Pasient/Behandler/Avvis. Pnr forlater aldri verktøykassen.
     const visteToasterIds = new Set();  // hindrer duplikat-toast for samme jobb
     const ZISSON_OPPSLAG_URL = 'https://thomaswestby.no/skript/zisson_oppslag.php';
+    const BHS_OPPSLAG_URL = 'https://thomaswestby.no/skript/behandlingssted.php';
+
+    // === HVEM RINGER? — oppslag i det høstede NISSY-registeret (v2.144) ===
+    // Brukes når innringeren ikke har kort. 19 293 av stedene deler nummer med andre,
+    // så ett treff og tjue treff betyr helt forskjellige ting: det første peker ut ett
+    // sted, det andre er et sentralbord for et helt hus. Skillet MÅ vises, ellers
+    // behandler operatøren et upresist svar som presist.
+    async function visRegisterTreff(el, tlf) {
+        try {
+            const d = await fetch(BHS_OPPSLAG_URL + '?tlf=' + encodeURIComponent(tlf)).then(r => r.json());
+            if (!d || !d.ok || !d.steder || !d.steder.length || !el.isConnected) return;
+            const s = d.steder, n = s.length;
+            const boks = document.createElement('div');
+            boks.style.cssText = 'margin-top:5px;padding-left:7px;border-left:2px solid #334155;font-size:11px;';
+            const adr = st => [st.adresse, [st.postnr, st.poststed].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+            if (n === 1) {
+                boks.innerHTML = '<div style="font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:.3px;">FRA NISSY-REGISTERET</div>'
+                    + '<div style="color:#f8fafc;font-weight:600;">' + escHtml(s[0].navn) + '</div>'
+                    + (adr(s[0]) ? '<div style="color:#cbd5e1;">📍 ' + escHtml(adr(s[0])) + '</div>' : '');
+            } else if (n <= 4) {
+                boks.innerHTML = '<div style="font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:.3px;">FRA NISSY-REGISTERET — ' + n + ' STEDER</div>'
+                    + s.map(x => '<div style="color:#cbd5e1;">· ' + escHtml(x.navn) + '</div>').join('');
+            } else {
+                // Mange treff = fellesnummer. Da er stedsnavnet det eneste sikre,
+                // ikke hvilken enhet det er — si det rett ut.
+                boks.innerHTML = '<div style="font-size:9.5px;color:#f59e0b;font-weight:700;letter-spacing:.3px;">SENTRALBORD — ' + n + ' ENHETER I NISSY</div>'
+                    + '<div style="color:#cbd5e1;">' + escHtml(s[0].navn) + ' m.fl.</div>'
+                    + '<div style="color:#64748b;font-size:10px;">Nummeret peker ikke ut én enhet — spør hvem som ringer.</div>';
+            }
+            el.appendChild(boks);
+        } catch (_) { /* rent tillegg — 🪪-symbolet står igjen som før */ }
+    }
 
     async function pollTlfVentende() {
         if (!erAktivEier()) return;  // én-instans: kun aktiv eier poller (hindrer spøkelses-dobbeltkjøring)
@@ -1884,6 +2127,11 @@
                     // Bare et lite dempet symbol med tooltip (Thomas 2026-07-01).
                     kortEl.innerHTML = '<span title="Ingen kontaktkort lagret på dette nummeret" style="cursor:help;color:#64748b;font-size:13px;">🪪</span>';
                     kortEl.style.color = '';
+                    // v2.144: uten kort vet vi likevel ofte hvem som ringer — det høstede
+                    // NISSY-registeret kjenner 16 % av anropene våre uten at noen har
+                    // registrert noe (målt 07.08). Rent tillegg: feiler oppslaget står
+                    // 🪪-symbolet igjen som før.
+                    visRegisterTreff(kortEl, tlf);
                 } else {
                     kortEl.textContent = '(oppslag feilet)';
                     kortEl.style.color = '#fbbf24';
@@ -1901,6 +2149,47 @@
             kortEl.style.fontStyle = '';
             kortEl.style.color = '#cbd5e1';
             kortEl.innerHTML = linje1 + linje2;
+
+            // v2.144: kortet finnes, men er ikke koblet til NISSY (82 avdelingskort var i
+            // den situasjonen 07.08). Da kan registeret likevel si hvor nummeret hører hjemme.
+            if (!k.nissy_tc_id) visRegisterTreff(kortEl, tlf);
+            // v2.139: bærer kortet en NISSY behandlingssted-id, hent fasit fra NISSY og
+            // vis den under kortlinja. Rent tillegg — feiler oppslaget, skjer ingenting.
+            if (k.nissy_tc_id) {
+                const bhsEl = document.createElement('div');
+                bhsEl.style.cssText = 'margin-top:6px;padding-left:7px;border-left:2px solid #334155;font-size:11px;color:#94a3b8;';
+                bhsEl.textContent = 'Slår opp behandlingsstedet…';
+                kortEl.appendChild(bhsEl);
+                hentBehandlingssted(k.nissy_tc_id).then(b => {
+                    if (!bhsEl.isConnected) return;
+                    if (!b) { trygtFjern(bhsEl); return; }
+                    const adr = [b.adresse, b.postnr_sted].filter(Boolean).join(', ');
+                    const nokler = [];
+                    if (b.her_id) nokler.push('HER ' + b.her_id);
+                    if (b.orgnr) nokler.push('org.nr ' + b.orgnr);
+                    const antUnder = (b.underenheter || []).length;
+                    bhsEl.innerHTML =
+                        '<div style="font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:0.3px;">NISSY-BEHANDLINGSSTED</div>'
+                        + '<div style="color:#f8fafc;font-weight:600;">' + escHtml(b.navn) + '</div>'
+                        + (adr ? '<div style="color:#cbd5e1;">📍 ' + escHtml(adr) + '</div>' : '')
+                        + (b.telefon ? '<div style="color:#cbd5e1;font-family:monospace;">☎ ' + escHtml(b.telefon) + '</div>' : '')
+                        + (b.sektor ? '<div>' + escHtml(b.sektor) + (b.type ? ' · ' + escHtml(b.type) : '') + '</div>' : '')
+                        + (nokler.length ? '<div style="color:#64748b;font-size:10px;">' + escHtml(nokler.join(' · ')) + '</div>' : '')
+                        + (antUnder ? '<div style="margin-top:2px;"><span data-vkt-bhs-under style="cursor:pointer;color:#38bdf8;">▸ ' + antUnder + ' underenhet' + (antUnder === 1 ? '' : 'er') + '</span><div data-vkt-bhs-liste style="display:none;margin-top:2px;"></div></div>' : '');
+                    const bryter = bhsEl.querySelector('[data-vkt-bhs-under]');
+                    if (bryter) bryter.onclick = () => {
+                        const liste = bhsEl.querySelector('[data-vkt-bhs-liste]');
+                        const apen = liste.style.display !== 'none';
+                        if (!apen && !liste.innerHTML) {
+                            liste.innerHTML = b.underenheter.map(u =>
+                                '<div style="color:#cbd5e1;padding:1px 0;">· ' + escHtml(u.navn)
+                                + (u.type ? ' <span style="color:#64748b;">' + escHtml(u.type) + '</span>' : '') + '</div>').join('');
+                        }
+                        liste.style.display = apen ? 'none' : 'block';
+                        bryter.textContent = (apen ? '▸ ' : '▾ ') + antUnder + ' underenhet' + (antUnder === 1 ? '' : 'er');
+                    };
+                });
+            }
 
             // Pasient-rad: vises hvis kortet har lagret pasient og pasient-tlf er annet enn anrops-tlf
             const tlfRen = (tlf || '').replace(/\D/g, '');
@@ -2996,6 +3285,9 @@ document.addEventListener("visibilitychange",inj);
         pollNissyNaviger: pollNissyNavigerVentende,
         sokTlfINissy,
         sokPnrINissy,
+        hentBehandlingssted,
+        // Manuell høsting av behandlingssted-registeret: __verktoykasseDev.host()
+        host: hostBehandlingssteder,
         hentTurDetaljer,
         hentTurDetaljerViaRekvnr,
         hentRekvisisjon,
