@@ -1,3 +1,7 @@
+// === WESTBYS VERKTØYKASSE v2.146-dev ===
+// v2.146-dev: badgen i pasientlista sier «📞 INNRINGER» i stedet for «ANROPER» (Thomas 10.08) —
+//             innringer er ordet som faktisk brukes. Kun visningstekst; interne variabelnavn
+//             (_erAnroper o.l.) er urørt.
 // === WESTBYS VERKTØYKASSE v2.145-dev ===
 // v2.145-dev: OPPHAVSREGELEN i registeroppslaget (Kurbadet-saken 07.08). 23 35 30 50 ga fem treff
 //             og ble merket «sentralbord» — men det var Kurbadet Legesenter med sine fire fastleger,
@@ -356,7 +360,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.145-dev';
+    const VERSJON = '2.146-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -2639,7 +2643,7 @@
             const alderTxt = pas._alder != null ? `${pas._alder} år` : '';
             let merke = '';
             if (pas._erAnroper) {
-                merke = `<span style="background:#f59e0b;color:#1e293b;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:0.5px;margin-left:6px;">📞 ANROPER</span>`;
+                merke = `<span style="background:#f59e0b;color:#1e293b;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:0.5px;margin-left:6px;">📞 INNRINGER</span>`;
             } else if (flerePasienter && harAnroperTreff) {
                 merke = `<span style="background:#475569;color:#e2e8f0;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:0.5px;margin-left:6px;">👥 TILKNYTTET</span>`;
             }
