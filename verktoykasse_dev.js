@@ -1,3 +1,9 @@
+// === WESTBYS VERKTØYKASSE v2.147-dev ===
+// v2.147-dev: OPERATØRVARSEL i toasten — rød trekant (samme konvensjon som AMIS/NISSY). Én operatør
+//             kan varsle de andre om en innringer fra zisson; varselet festes på NUMMERET, så det
+//             vises også når innringeren ikke har kort. Thomas' tilfelle 11.08: en attest han ikke
+//             fikk slettet, og han visste hun kom til å ringe igjen. Alltid utløpsdato — en advarsel
+//             som blir hengende i årevis er både unyttig og urimelig. Toasten får rød ramme.
 // === WESTBYS VERKTØYKASSE v2.146-dev ===
 // v2.146-dev: badgen i pasientlista sier «📞 INNRINGER» i stedet for «ANROPER» (Thomas 10.08) —
 //             innringer er ordet som faktisk brukes. Kun visningstekst; interne variabelnavn
@@ -360,7 +366,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.146-dev';
+    const VERSJON = '2.147-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -2132,6 +2138,28 @@
             }
         };
         hentOppslag().then(d => {
+            // === OPERATØRVARSEL (v2.147) — rød trekant, samme konvensjon som AMIS/NISSY ===
+            // Én operatør varsler de andre om en innringer. Vises ØVERST og uavhengig av
+            // om innringeren har kort: varselet gjelder nummeret, ikke kortet.
+            if (d && d.varsler && d.varsler.length) {
+                const v = document.createElement('div');
+                v.style.cssText = 'margin:-4px 0 10px;display:flex;flex-direction:column;gap:6px;';
+                v.innerHTML = d.varsler.map(x =>
+                    '<div style="display:flex;gap:8px;align-items:flex-start;padding:9px 11px;'
+                    + 'background:rgba(220,38,38,.16);border:1px solid rgba(220,38,38,.6);'
+                    + 'border-left:4px solid #dc2626;border-radius:8px;">'
+                    + '<span style="font-size:16px;line-height:1.1;">🔺</span>'
+                    + '<div style="flex:1;min-width:0;">'
+                    + '<div style="font-size:12.5px;font-weight:600;color:#fecaca;">' + escHtml(x.tekst) + '</div>'
+                    + '<div style="font-size:10px;color:#94a3b8;margin-top:2px;">' + escHtml(x.opprettet_av || 'ukjent')
+                    + ' · ' + escHtml(String(x.opprettet || '').slice(0, 16)) + '</div></div></div>').join('');
+                // Rett under tittelen, over nummeret — dette skal leses først.
+                const tlfBlokk = t.querySelector('[data-vkt-drag]');
+                if (tlfBlokk && tlfBlokk.nextSibling) t.insertBefore(v, tlfBlokk.nextSibling);
+                else kortEl.parentNode.insertBefore(v, kortEl);
+                // Rød ramme på hele toasten så den skiller seg fra et vanlig anrop.
+                t.style.borderColor = '#dc2626';
+            }
             if (!d.ok || !d.kort) {
                 if (d.kort === null) {
                     // Ingen kort lagret på innringeren → IKKE skremmende «ingen kort funnet»-tekst (forvirrer operatøren).
