@@ -1,3 +1,8 @@
+// === WESTBYS VERKTØYKASSE v2.150-dev ===
+// v2.150-dev: registeroppslaget slås KUN opp for behandlere. Registeret er behandlingssteder, så
+//             oppslag på en privatperson gir enten ingenting eller et misvisende treff — og på
+//             zisson-siden fylte navnesøket forslagslista med navngitte fastleger mens operatøren
+//             registrerte en pasient (Thomas 12.08). Hopper også over på pasientlinjene.
 // === WESTBYS VERKTØYKASSE v2.149-dev ===
 // v2.149-dev: «Fake anrop» merket som det den er — den sender kort_id=1 hardkodet, slår derfor opp
 //             kort #1 og ikke nummeret du taster. Den tester ikke ekte flyt. Nytt testanrop i
@@ -377,7 +382,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.149-dev';
+    const VERSJON = '2.150-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -2188,7 +2193,9 @@
                     // NISSY-registeret kjenner 16 % av anropene våre uten at noen har
                     // registrert noe (målt 07.08). Rent tillegg: feiler oppslaget står
                     // 🪪-symbolet igjen som før.
-                    visRegisterTreff(kortEl, tlf);
+                    // v2.150: ikke på pasientlinjene — der er innringeren per definisjon en
+                    // privatperson, og et treff i behandlingsstedsregisteret er misvisende.
+                    if (!erPasientlinje) visRegisterTreff(kortEl, tlf);
                 } else {
                     kortEl.textContent = '(oppslag feilet)';
                     kortEl.style.color = '#fbbf24';
@@ -2209,7 +2216,9 @@
 
             // v2.144: kortet finnes, men er ikke koblet til NISSY (82 avdelingskort var i
             // den situasjonen 07.08). Da kan registeret likevel si hvor nummeret hører hjemme.
-            if (!k.nissy_tc_id) visRegisterTreff(kortEl, tlf);
+            // v2.150: KUN for behandler-kort. Registeret er behandlingssteder, så oppslag på
+            // en privatperson gir enten ingenting eller et misvisende treff (Thomas 12.08).
+            if (!k.nissy_tc_id && (k.type === 'behandler' || !k.type)) visRegisterTreff(kortEl, tlf);
             // v2.139: bærer kortet en NISSY behandlingssted-id, hent fasit fra NISSY og
             // vis den under kortlinja. Rent tillegg — feiler oppslaget, skjer ingenting.
             if (k.nissy_tc_id) {
