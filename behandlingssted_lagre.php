@@ -34,6 +34,8 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS ovr_behandlingssted (
     telefon VARCHAR(80) DEFAULT NULL,
     orgnr VARCHAR(12) DEFAULT NULL,
     her_id VARCHAR(20) DEFAULT NULL,
+    kortnavn VARCHAR(60) DEFAULT NULL,
+    alias VARCHAR(120) DEFAULT NULL,
     parent_id INT DEFAULT NULL,
     utm_n INT DEFAULT NULL,
     utm_o INT DEFAULT NULL,
@@ -67,9 +69,16 @@ $normTlf = function ($raa) {
     return strlen($d) >= 8 ? substr($d, 0, 15) : null;
 };
 
+// Idempotent for baser som ble laget før kortnavn/alias kom til
+foreach (['kortnavn' => 'VARCHAR(60)', 'alias' => 'VARCHAR(120)'] as $kol => $type) {
+    try {
+        if (!$pdo->query("SHOW COLUMNS FROM ovr_behandlingssted LIKE '$kol'")->fetchAll())
+            $pdo->exec("ALTER TABLE ovr_behandlingssted ADD COLUMN $kol $type DEFAULT NULL");
+    } catch (Throwable $e) {}
+}
 $st = $pdo->prepare("REPLACE INTO ovr_behandlingssted
-    (id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, parent_id, utm_n, utm_o, oppdatert, av)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?)");
+    (id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, kortnavn, alias, parent_id, utm_n, utm_o, oppdatert, av)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?)");
 $slettTlf = $pdo->prepare("DELETE FROM ovr_behandlingssted_tlf WHERE bhs_id = ?");
 $settTlf  = $pdo->prepare("INSERT IGNORE INTO ovr_behandlingssted_tlf (tlf_norm, bhs_id) VALUES (?,?)");
 
@@ -100,6 +109,8 @@ foreach ($steder as $s) {
         substr(trim((string)($s['telefon'] ?? '')), 0, 80) ?: null,
         preg_replace('/\D/', '', (string)($s['orgnr'] ?? '')) ?: null,
         substr(preg_replace('/\D/', '', (string)($s['her_id'] ?? '')), 0, 20) ?: null,
+        substr(trim((string)($s['kortnavn'] ?? '')), 0, 60) ?: null,
+        substr(trim((string)($s['alias'] ?? '')), 0, 120) ?: null,
         isset($s['parent_id']) && is_numeric($s['parent_id']) ? (int)$s['parent_id'] : null,
         $utmN, $utmO,
         $av,

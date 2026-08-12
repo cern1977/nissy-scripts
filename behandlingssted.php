@@ -89,13 +89,26 @@ try {
         // ?under=<id> begrenser til enheter UNDER en node — brukes når operatøren
         // oppretter en avdeling under et bestemt sted og nasjonale treff bare er støy.
         $under = isset($_GET['under']) ? (int)$_GET['under'] : 0;
+        // SØKEORD: forkortelser operatørene bruker muntlig, som ikke står i navnet.
+        // «DNR» → Radiumhospital, «SØK» → Kalnes (Thomas 12.08). Slår til på HELE
+        // søket, ikke delstrenger — ellers ville «sok» inni et navn utvidet seg.
+        try {
+            $so = $pdo->prepare("SELECT betyr FROM ovr_sokeord WHERE slettet IS NULL AND LOWER(ord) = LOWER(?) LIMIT 1");
+            $so->execute([$q]);
+            $betyr = $so->fetchColumn();
+            if ($betyr) $q = $betyr;
+        } catch (Throwable $e) { /* tabellen finnes ikke ennå — søk på ordet som skrevet */ }
         if ($under) {
             $s = $pdo->prepare("SELECT $FELT FROM ovr_behandlingssted
-                                WHERE parent_id = ? AND navn LIKE ? ORDER BY navn LIMIT 25");
-            $s->execute([$under, '%' . $q . '%']);
+                                WHERE parent_id = ? AND (navn LIKE ? OR kortnavn LIKE ? OR alias LIKE ?)
+                                ORDER BY navn LIMIT 25");
+            $s->execute([$under, '%' . $q . '%', $q, '%' . $q . '%']);
         } else {
-        $s = $pdo->prepare("SELECT $FELT FROM ovr_behandlingssted WHERE navn LIKE ? ORDER BY navn LIMIT 25");
-        $s->execute(['%' . $q . '%']);
+            // kortnavn matches EKSAKT: «sab» skal ikke treffe midt inne i et annet kortnavn.
+            $s = $pdo->prepare("SELECT $FELT FROM ovr_behandlingssted
+                                WHERE navn LIKE ? OR kortnavn LIKE ? OR alias LIKE ?
+                                ORDER BY (kortnavn LIKE ?) DESC, navn LIMIT 25");
+            $s->execute(['%' . $q . '%', $q, '%' . $q . '%', $q]);
         }
         echo json_encode(['ok' => true, 'steder' => $s->fetchAll(PDO::FETCH_ASSOC)]);
         exit;

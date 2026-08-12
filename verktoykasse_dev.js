@@ -1,3 +1,7 @@
+// === WESTBYS VERKTØYKASSE v2.151-dev ===
+// v2.151-dev: høsteren tar med NISSYs KORTNAVN og ALIAS («sab» = Bærum Sykehus). Det er de
+//             formene operatørene bruker muntlig, og de gjør navnesøket langt bedre. Krever
+//             ny host()-kjøring for å fylles inn.
 // === WESTBYS VERKTØYKASSE v2.150-dev ===
 // v2.150-dev: registeroppslaget slås KUN opp for behandlere. Registeret er behandlingssteder, så
 //             oppslag på en privatperson gir enten ingenting eller et misvisende treff — og på
@@ -382,7 +386,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.150-dev';
+    const VERSJON = '2.151-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1363,6 +1367,10 @@
                         sektor: f['sektor'] || '',
                         e_rekvirering: f['e.rekvirering'] || '',
                         her_id: f['her id'] || '',
+                        // NISSY har egne kortformer operatørene bruker muntlig
+                        // («sab» = Bærum Sykehus). De gjør navnesøket langt bedre.
+                        kortnavn: f['kortnavn'] || '',
+                        alias: f['alias'] || '',
                         orgnr: f['organisasjonsnummer'] || '',
                         adresse: f['adresse'] || '',
                         postnr_sted: f['postnr/sted'] || '',
@@ -1437,6 +1445,7 @@
                     id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
                     adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
                     orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                    kortnavn: b.kortnavn, alias: b.alias,
                     parent_id: b.foreldre ? b.foreldre.id : null
                 });
                 // Både opp og ned — slik finner vi roten selv om vi starter midt i treet.
