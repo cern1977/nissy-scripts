@@ -86,8 +86,17 @@ try {
     if (isset($_GET['sok'])) {
         $q = trim((string)$_GET['sok']);
         if (mb_strlen($q) < 3) { echo json_encode(['ok' => false, 'feil' => 'minst 3 tegn']); exit; }
+        // ?under=<id> begrenser til enheter UNDER en node — brukes når operatøren
+        // oppretter en avdeling under et bestemt sted og nasjonale treff bare er støy.
+        $under = isset($_GET['under']) ? (int)$_GET['under'] : 0;
+        if ($under) {
+            $s = $pdo->prepare("SELECT $FELT FROM ovr_behandlingssted
+                                WHERE parent_id = ? AND navn LIKE ? ORDER BY navn LIMIT 25");
+            $s->execute([$under, '%' . $q . '%']);
+        } else {
         $s = $pdo->prepare("SELECT $FELT FROM ovr_behandlingssted WHERE navn LIKE ? ORDER BY navn LIMIT 25");
         $s->execute(['%' . $q . '%']);
+        }
         echo json_encode(['ok' => true, 'steder' => $s->fetchAll(PDO::FETCH_ASSOC)]);
         exit;
     }
