@@ -1,3 +1,69 @@
+// === WESTBYS VERKTØYKASSE v2.157-dev ===
+// v2.157-dev: behandlingsstedsregisteret i NISSY krever ADMIN-tilgang, og den har de færreste
+//             operatørene (Thomas 13.08). Toasten fyrte likevel et live-oppslag ved hvert anrop
+//             mot et NISSY-koblet kort — dømt til å feile, med et blaff av «Slår opp
+//             behandlingsstedet…» som forsvant igjen. Nå skjer det ingenting uten tilgang.
+//             Alt annet i toasten går via vår egen server og virker som før. Bakgrunnshøstingen
+//             var allerede stille: pollingen krever adminStatus === ok.
+
+// === WESTBYS VERKTØYKASSE v2.156-dev ===
+// v2.156-dev: «høst nå» for ETT sted. Jobben kan nå bære en kjent NISSY-id i stedet for et
+//             søkeord — da hoppes søket over og stedet + avdelingene hentes direkte. Cachen
+//             tømmes først, ellers ville en manuell oppfriskning levert det vi alt hadde.
+
+// === WESTBYS VERKTØYKASSE v2.155-dev ===
+// v2.155-dev: søket tar med UNDERAVDELINGENE (to nivåer, tak 120). Det er de som bærer
+//             direktenumrene — Grue Sykehjem har seks, og uten dem satt vi igjen med
+//             sentralbordet alene. Nummeret operatøren trenger er som regel avdelingens.
+
+// === WESTBYS VERKTØYKASSE v2.154-dev ===
+// v2.154-dev: SØK BEHANDLINGSSTED I NISSY PÅ FORESPØRSEL. Registeret manglet Grue Sykehjem og
+//             Grue Helsestasjon — årsaken står i NISSYs egen kode: barnelista bygges ikke når
+//             en forelder har 500 barn eller mer («childrenCount < 500»), så bredde-først-
+//             vandringen ser en forelder uten barn og går videre uten å merke noe. Ingen brutte
+//             grener, bare usynlige steder. Søkesiden har ikke den grensen. Nettsiden legger en
+//             jobb (bhs_sok), verktøykassen kjører søket over alle fem regioner — regionId er en
+//             radio med Helse Øst som standard — henter detaljene og skriver dem inn i registeret.
+//             Hullet tettes av den som trengte stedet, ikke ved neste seks-minutters høsting.
+
+// === WESTBYS VERKTØYKASSE v2.153-dev ===
+// v2.153-dev: NISSY-søket tar med forbindelsenes numre. Toasten fant faren, men ikke turen hans:
+//             søket gikk på datterens nummer, og pasientens eget nummer stod bare i forbindelsen.
+//             Nå søkes begge veier (den hun ringer for, og de som ringer for henne), og søket
+//             starter av seg selv når en forbindelse har nummer — vi vet jo hvem pasienten er.
+//             Treff-linja viser hvilket nummer som traff, så operatøren ser at turen er farens.
+// === WESTBYS VERKTØYKASSE v2.152-dev ===
+// v2.152-dev: FORBINDELSER i toasten. Line sto som «Line Brager-Larsen (Datter)» — datter av HVEM?
+//             Rollen hører til forbindelsen, ikke til personen, så den alene sier ingenting. Toasten
+//             viser nå «Datter til Tor Johansen · 922 52 196», og motsatt vei «Ringer på vegne av
+//             denne» når det er pasienten som er på tråden. Kortets egen `rolle` skjules når en
+//             forbindelse sier det samme bedre — den er en rest fra den gamle modellen.
+// === WESTBYS VERKTØYKASSE v2.151-dev ===
+// v2.151-dev: høsteren tar med NISSYs KORTNAVN og ALIAS («sab» = Bærum Sykehus). Det er de
+//             formene operatørene bruker muntlig, og de gjør navnesøket langt bedre. Krever
+//             ny host()-kjøring for å fylles inn.
+// === WESTBYS VERKTØYKASSE v2.150-dev ===
+// v2.150-dev: registeroppslaget slås KUN opp for behandlere. Registeret er behandlingssteder, så
+//             oppslag på en privatperson gir enten ingenting eller et misvisende treff — og på
+//             zisson-siden fylte navnesøket forslagslista med navngitte fastleger mens operatøren
+//             registrerte en pasient (Thomas 12.08). Hopper også over på pasientlinjene.
+// === WESTBYS VERKTØYKASSE v2.149-dev ===
+// v2.149-dev: «Fake anrop» merket som det den er — den sender kort_id=1 hardkodet, slår derfor opp
+//             kort #1 og ikke nummeret du taster. Den tester ikke ekte flyt. Nytt testanrop i
+//             zisson-sidens DEV-boks fyrer samme jobb som et reelt anrop (ko_navn + numre[], uten
+//             kort_id) og går gjennom dedup og poller som i drift.
+// === WESTBYS VERKTØYKASSE v2.148-dev ===
+// v2.148-dev: FIX operatørvarselet var usynlig for KJENTE innringere. Når zisson kjenner kortet
+//             sender jobben kort_id, og toasten slo da opp uten telefonnummer — men varselet
+//             henger på nummeret. Nå sendes tlf alltid med. (zisson_oppslag.php matcher i tillegg
+//             på kortets egne numre, så begge nøkler virker.) Avdekket via Fake anrop, som sender
+//             kort_id=1 hardkodet — testveien traff samme hull som ekte anrop.
+// === WESTBYS VERKTØYKASSE v2.147-dev ===
+// v2.147-dev: OPERATØRVARSEL i toasten — rød trekant (samme konvensjon som AMIS/NISSY). Én operatør
+//             kan varsle de andre om en innringer fra zisson; varselet festes på NUMMERET, så det
+//             vises også når innringeren ikke har kort. Thomas' tilfelle 11.08: en attest han ikke
+//             fikk slettet, og han visste hun kom til å ringe igjen. Alltid utløpsdato — en advarsel
+//             som blir hengende i årevis er både unyttig og urimelig. Toasten får rød ramme.
 // === WESTBYS VERKTØYKASSE v2.146-dev ===
 // v2.146-dev: badgen i pasientlista sier «📞 INNRINGER» i stedet for «ANROPER» (Thomas 10.08) —
 //             innringer er ordet som faktisk brukes. Kun visningstekst; interne variabelnavn
@@ -360,7 +426,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.146';
+    const VERSJON = '2.157';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = false;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -846,9 +912,13 @@
             devSep.style.cssText = 'padding:6px 10px 2px;font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:0.5px;border-top:1px solid #334155;margin-top:2px;';
             meny.appendChild(devSep);
 
-            // Fake anrop — for å teste tlf-toast uten reell innkommende
+            // Fake anrop — snarvei uten zisson. NB: sender kort_id=1 hardkodet, så toasten
+            // slår opp KORT #1 og ikke nummeret du taster — den viser altså feil kort og
+            // tester ikke den ekte veien (avdekket 12.08 da et operatørvarsel «ikke virket»).
+            // Bruk «🎲 Fyr til toasten» i zisson-siden når du skal teste på ordentlig.
             const fakeLenke = document.createElement('div');
-            fakeLenke.textContent = '🎲 Fake anrop';
+            fakeLenke.textContent = '🎲 Fake anrop (rå — ser bort fra nummeret)';
+            fakeLenke.title = 'Rask røyktest av selve toasten. Slår opp kort #1, ikke nummeret — bruk testanrop i zisson for ekte flyt.';
             fakeLenke.style.cssText = 'padding:5px 10px;color:#fbbf24;cursor:pointer;border-radius:4px;font-size:11px;';
             fakeLenke.onmouseover = () => fakeLenke.style.background = '#334155';
             fakeLenke.onmouseout = () => fakeLenke.style.background = '';
@@ -1337,6 +1407,10 @@
                         sektor: f['sektor'] || '',
                         e_rekvirering: f['e.rekvirering'] || '',
                         her_id: f['her id'] || '',
+                        // NISSY har egne kortformer operatørene bruker muntlig
+                        // («sab» = Bærum Sykehus). De gjør navnesøket langt bedre.
+                        kortnavn: f['kortnavn'] || '',
+                        alias: f['alias'] || '',
                         orgnr: f['organisasjonsnummer'] || '',
                         adresse: f['adresse'] || '',
                         postnr_sted: f['postnr/sted'] || '',
@@ -1411,6 +1485,7 @@
                     id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
                     adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
                     orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                    kortnavn: b.kortnavn, alias: b.alias,
                     parent_id: b.foreldre ? b.foreldre.id : null
                 });
                 // Både opp og ned — slik finner vi roten selv om vi starter midt i treet.
@@ -1425,6 +1500,151 @@
         await send(true);
         console.log('[VERKTØYKASSE] høsting FERDIG: ' + sendt + ' steder lagret · ' + feilet + ' feilet · ' + sett.size + ' id-er besøkt');
         return { lagret: sendt, feilet: feilet, besokt: sett.size };
+    }
+
+    // === SØK BEHANDLINGSSTED I NISSY PÅ FORESPØRSEL (v2.154) ===
+    // Bredde-først-vandringen bommer på steder hvis forelderen har mange nok barn:
+    // NISSYs egen kode bygger ikke barnelista når childrenCount >= 500
+    // (`organization.childrenCount < 500` i adminTCForm). Da står forelderen der uten
+    // synlige barn, vandringen ser ingenting galt, og stedet blir usynlig for oss —
+    // uten et eneste brudd i treet. Grue Sykehjem (15463) og Grue Helsestasjon (23383)
+    // er to slike (Thomas 13.08).
+    //
+    // Søkesiden har ikke den begrensningen. Den POSTer til seg selv; regionId er en
+    // RADIO med Helse Øst som standard, så et nasjonalt søk må gå gjennom alle fem.
+    const TC_SOK_URL = ADMIN_BASE + '/adminTCForm?searchType=admin';
+    async function sokBehandlingsstedINissy(q) {
+        const treff = new Map();
+        for (let region = 1; region <= 5; region++) {
+            const felt = new URLSearchParams({
+                previousSearch: '', onlySelectable: 'false', advancedSearch: 'false',
+                altReq: 'false', reqTemp: 'false', idx: '',
+                regionId: String(region), name: q,
+                sector: '-1', profession: '-1', dispatchCenter: '-1',
+                councilNr: '', councilName: '', address: '', postalPlace: '',
+                eRek: '0', submit_action: '', submit: 'Søk'
+            });
+            let html;
+            try {
+                const r = await fetch(TC_SOK_URL, {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: felt.toString()
+                });
+                if (!r.ok) continue;
+                html = await r.text();
+            } catch (e) { continue; }
+            if (html.indexOf('/admin/logout') === -1) return { utlogget: true, steder: [] };
+
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const lenker = doc.querySelectorAll('a[href*="adminTCDetails"][name="tcdata"]');
+            for (let i = 0; i < lenker.length; i++) {
+                const m = /[?&]id=(\d+)/.exec(lenker[i].getAttribute('href') || '');
+                if (!m) continue;
+                const rad = lenker[i].closest('tr');
+                const c = rad ? rad.cells : null;
+                // Kolonner: Navn, E.rek., Type, Sektor, Profesjon, Adresse, Poststed, Kommune
+                const tekst = j => (c && c[j] ? (c[j].textContent || '').replace(/\s+/g, ' ').trim() : '');
+                if (!treff.has(m[1])) treff.set(m[1], {
+                    id: m[1],
+                    navn: (lenker[i].parentNode.textContent || '').replace(/\s+/g, ' ').trim(),
+                    type: tekst(2), sektor: tekst(3), profesjon: tekst(4),
+                    adresse: tekst(5), postnr_sted: tekst(6), kommune: tekst(7)
+                });
+            }
+        }
+        return { utlogget: false, steder: [...treff.values()] };
+    }
+
+    // Treffene hentes i full detalj og skrives inn i registeret vårt. Poenget er at
+    // hullet tettes av den som faktisk trengte stedet — ikke ved neste fulle høsting,
+    // som tar seks minutter man ikke har midt i et anrop.
+    // nissyId satt = «høst nå» på ett kjent sted: da hopper vi over søket. Cachen tømmes
+    // først, ellers ville en manuell oppfriskning levert nøyaktig det vi hadde fra før.
+    async function sokOgLagreBehandlingssteder(q, nissyId) {
+        let ider;
+        if (nissyId) {
+            _bhsCache.delete(String(nissyId));
+            ider = [String(nissyId)];
+        } else {
+            const funn = await sokBehandlingsstedINissy(q);
+            if (funn.utlogget) return { feil: 'utlogget' };
+            ider = funn.steder.slice(0, 20).map(s => s.id);
+        }
+        if (!ider.length) return { antall: 0, steder: [] };
+
+        // Underavdelingene MÅ med: det er de som bærer direktenumrene. Grue Sykehjem har
+        // seks («1 etg - Demens avd», «Kortidsavdeling 2 etg» …), og uten dem satt vi igjen
+        // med sentralbordet alene — nummeret operatøren trenger er ofte avdelingens
+        // (Thomas 13.08). To nivåer ned, med tak, så ett søk ikke drar med et helt
+        // helseforetak.
+        const MAKS_HENT = 120;
+        const detaljer = [];
+        const besokt = new Set();
+        let ko = ider.slice();
+        let dybde = 0;
+        while (ko.length && detaljer.length < MAKS_HENT && dybde <= 2) {
+            const neste = [];
+            for (let i = 0; i < ko.length && detaljer.length < MAKS_HENT; i += 3) {
+                const bunt = await Promise.all(ko.slice(i, i + 3).map(id => hentBehandlingssted(id)));
+                for (const b of bunt) {
+                    if (!b || besokt.has(String(b.id))) continue;
+                    besokt.add(String(b.id));
+                    detaljer.push({
+                        id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
+                        adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
+                        orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                        kortnavn: b.kortnavn, alias: b.alias,
+                        parent_id: b.foreldre ? b.foreldre.id : null
+                    });
+                    for (const u of (b.underenheter || [])) {
+                        if (u.id && !besokt.has(String(u.id))) neste.push(u.id);
+                    }
+                }
+            }
+            ko = neste;
+            dybde++;
+        }
+        if (!detaljer.length) return { antall: 0, steder: [] };
+        const r = await fetch('https://thomaswestby.no/skript/behandlingssted_lagre.php', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: jsonStringifyTrygt({ steder: detaljer, av: window.__vkt_brukernavn || '' })
+        }).then(x => x.json());
+        return {
+            antall: (r && typeof r.lagret === 'number') ? r.lagret : 0,
+            steder: detaljer.map(d => ({ id: d.id, navn: d.navn }))
+        };
+    }
+
+    async function pollBhsSokVentende() {
+        if (!erAktivEier()) return;
+        if (adminStatus !== 'ok') return;
+        const nissy = hentNissyBrukernavn();
+        if (!nissy) return;
+        try {
+            const r = await fetch(`${JOBS_URL}?handling=bhs_sok_pending&nissy=${encodeURIComponent(nissy)}`);
+            const d = await r.json();
+            if (!d.ok || !Array.isArray(d.oppslag) || !d.oppslag.length) return;
+            const o = d.oppslag[0];
+            const p = o.parametre || {};
+            const nissyId = p.nissy_id || 0;
+            const q = p.q || (nissyId ? '' : (o.nokkel || ''));
+            if (!q && !nissyId) return;
+            console.log('[VERKTØYKASSE] ' + (nissyId ? 'høster behandlingssted #' + nissyId : 'søker behandlingssted i NISSY: ' + q));
+            let res = null, feil = null;
+            try {
+                res = await sokOgLagreBehandlingssteder(q, nissyId);
+                if (res.feil === 'utlogget') { feil = 'Ikke logget inn i NISSY admin'; res = null; }
+            } catch (e) { feil = e.message; }
+            const fd = new FormData();
+            fd.append('id', o.id);
+            if (res) fd.append('resultat', jsonStringifyTrygt(res));
+            if (feil) fd.append('feil', feil);
+            await fetch(`${JOBS_URL}?handling=bhs_sok_svar`, { method: 'POST', body: fd });
+            if (res) console.log('[VERKTØYKASSE] behandlingssted-søk «' + q + '»: ' + res.antall + ' lagret');
+        } catch (e) {
+            console.warn('[VERKTØYKASSE] bhs_sok-poll feil:', e.message);
+        }
     }
 
     // === PNR-OPPSLAG — ssnSearch i admin, returnerer alle kommende/aktive rekvisisjoner ===
@@ -1954,6 +2174,10 @@
 
         // Kort-info brukes også av Pasient-knappen for dual NISSY-søk
         let kortInfo = null;
+        // v2.152: forbindelsene bærer pasientens eget nummer. Ringer en datter for faren
+        // sin, er det HANS tur operatøren skal finne — og det nummeret står ingen andre
+        // steder i jobben. Uten dette fant toasten faren, men ikke turen hans.
+        let forbInfo = null;
 
         // Auto-søk: klikk Pasient-knappen programmatisk (guard mot dobbel-trigger).
         let autoSokStartet = false;
@@ -2120,8 +2344,11 @@
         // (sjaforOppslag er async → kjører ETTER at knappe-handlerne under er koblet; Avvis virker.)
         if (erSjaforlinje) sjaforOppslag();
         else {
+        // v2.148: send ALLTID nummeret med, også når kortet er kjent. Kortet slås fortsatt
+        // opp på kort_id, men operatørvarselet henger på NUMMERET — uten tlf her ble varselet
+        // usynlig for nettopp de innringerne vi kjenner (funnet 12.08).
         const oppslagUrl = kortId
-            ? `${ZISSON_OPPSLAG_URL}?kort_id=${kortId}`
+            ? `${ZISSON_OPPSLAG_URL}?kort_id=${kortId}${tlf ? '&tlf=' + encodeURIComponent(tlf) : ''}`
             : `${ZISSON_OPPSLAG_URL}?tlf=${encodeURIComponent(tlf)}`;
         // v2.130: retry ved forbigående nettverksglipp («Failed to fetch» i toasten 03.07 mens
         // NISSY-søket funket fint) — ett nytt forsøk etter kort pause før vi gir oss.
@@ -2132,6 +2359,28 @@
             }
         };
         hentOppslag().then(d => {
+            // === OPERATØRVARSEL (v2.147) — rød trekant, samme konvensjon som AMIS/NISSY ===
+            // Én operatør varsler de andre om en innringer. Vises ØVERST og uavhengig av
+            // om innringeren har kort: varselet gjelder nummeret, ikke kortet.
+            if (d && d.varsler && d.varsler.length) {
+                const v = document.createElement('div');
+                v.style.cssText = 'margin:-4px 0 10px;display:flex;flex-direction:column;gap:6px;';
+                v.innerHTML = d.varsler.map(x =>
+                    '<div style="display:flex;gap:8px;align-items:flex-start;padding:9px 11px;'
+                    + 'background:rgba(220,38,38,.16);border:1px solid rgba(220,38,38,.6);'
+                    + 'border-left:4px solid #dc2626;border-radius:8px;">'
+                    + '<span style="font-size:16px;line-height:1.1;">🔺</span>'
+                    + '<div style="flex:1;min-width:0;">'
+                    + '<div style="font-size:12.5px;font-weight:600;color:#fecaca;">' + escHtml(x.tekst) + '</div>'
+                    + '<div style="font-size:10px;color:#94a3b8;margin-top:2px;">' + escHtml(x.opprettet_av || 'ukjent')
+                    + ' · ' + escHtml(String(x.opprettet || '').slice(0, 16)) + '</div></div></div>').join('');
+                // Rett under tittelen, over nummeret — dette skal leses først.
+                const tlfBlokk = t.querySelector('[data-vkt-drag]');
+                if (tlfBlokk && tlfBlokk.nextSibling) t.insertBefore(v, tlfBlokk.nextSibling);
+                else kortEl.parentNode.insertBefore(v, kortEl);
+                // Rød ramme på hele toasten så den skiller seg fra et vanlig anrop.
+                t.style.borderColor = '#dc2626';
+            }
             if (!d.ok || !d.kort) {
                 if (d.kort === null) {
                     // Ingen kort lagret på innringeren → IKKE skremmende «ingen kort funnet»-tekst (forvirrer operatøren).
@@ -2142,7 +2391,9 @@
                     // NISSY-registeret kjenner 16 % av anropene våre uten at noen har
                     // registrert noe (målt 07.08). Rent tillegg: feiler oppslaget står
                     // 🪪-symbolet igjen som før.
-                    visRegisterTreff(kortEl, tlf);
+                    // v2.150: ikke på pasientlinjene — der er innringeren per definisjon en
+                    // privatperson, og et treff i behandlingsstedsregisteret er misvisende.
+                    if (!erPasientlinje) visRegisterTreff(kortEl, tlf);
                 } else {
                     kortEl.textContent = '(oppslag feilet)';
                     kortEl.style.color = '#fbbf24';
@@ -2154,19 +2405,50 @@
             kortInfo = k;
             const bc = (d.breadcrumb || []).map(b => b.navn).join(' › ');
             const inst = d.institusjon ? ` · 🏢 ${d.institusjon.navn}` : '';
-            const linje1 = `<span style="color:#f8fafc;font-weight:600;">${k.navn}</span>`
-                         + (k.rolle ? ` <span style="color:#94a3b8;">(${k.rolle})</span>` : '');
+            // v2.152: rollen hører til FORBINDELSEN, ikke til personen. «(Datter)» alene sier
+            // ikke datter av hvem — og samme person kan være datter av én og mor til en annen.
+            // Har vi en forbindelse, sier den det ordentlig, og kortets egen rolle (rest fra
+            // den gamle modellen) utelates så det ikke står to halve svar over hverandre.
+            const forb = d.forbindelser || {};
+            forbInfo = forb;
+            const ringerFor = forb.ringer_for || [];
+            const ringesAv  = forb.ringes_av  || [];
+            const linje1 = `<span style="color:#f8fafc;font-weight:600;">${escHtml(k.navn)}</span>`
+                         + (k.rolle && !ringerFor.length ? ` <span style="color:#94a3b8;">(${escHtml(k.rolle)})</span>` : '');
             const linje2 = (bc ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;">${bc}${inst}</div>` : '');
+            const dempet = s => `<span style="color:#94a3b8;">${escHtml(s)}</span>`;
+            const forbLinje = (r, foran, bak) => {
+                const tlfDel = r.tlf ? ` <span style="font-family:monospace;color:#94a3b8;">${escHtml(r.tlf)}</span>` : '';
+                return `<div style="padding:1px 0;">${foran}<span style="color:#f8fafc;font-weight:600;">${escHtml(r.navn)}</span>${tlfDel}${bak}</div>`;
+            };
+            let linje3 = '';
+            if (ringerFor.length || ringesAv.length) {
+                linje3 = '<div style="margin-top:5px;padding-left:7px;border-left:2px solid #334155;font-size:11.5px;color:#cbd5e1;">'
+                    + ringerFor.map(r => forbLinje(r, dempet((r.rolle || 'pårørende') + ' til') + ' ', '')).join('')
+                    + (ringesAv.length
+                        ? '<div style="font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:0.3px;margin-top:3px;">RINGER PÅ VEGNE AV DENNE</div>'
+                          + ringesAv.map(r => forbLinje(r, '', ' ' + dempet('— ' + (r.rolle || 'pårørende')))).join('')
+                        : '')
+                    + '</div>';
+            }
             kortEl.style.fontStyle = '';
             kortEl.style.color = '#cbd5e1';
-            kortEl.innerHTML = linje1 + linje2;
+            kortEl.innerHTML = linje1 + linje2 + linje3;
 
             // v2.144: kortet finnes, men er ikke koblet til NISSY (82 avdelingskort var i
             // den situasjonen 07.08). Da kan registeret likevel si hvor nummeret hører hjemme.
-            if (!k.nissy_tc_id) visRegisterTreff(kortEl, tlf);
+            // v2.150: KUN for behandler-kort. Registeret er behandlingssteder, så oppslag på
+            // en privatperson gir enten ingenting eller et misvisende treff (Thomas 12.08).
+            if (!k.nissy_tc_id && (k.type === 'behandler' || !k.type)) visRegisterTreff(kortEl, tlf);
             // v2.139: bærer kortet en NISSY behandlingssted-id, hent fasit fra NISSY og
             // vis den under kortlinja. Rent tillegg — feiler oppslaget, skjer ingenting.
-            if (k.nissy_tc_id) {
+            // v2.157: behandlingsstedsregisteret i NISSY krever ADMIN-tilgang, og den har
+            // de færreste operatørene (Thomas 13.08). Uten denne sjekken fyrte toasten et
+            // oppslag som var dømt til å feile ved hvert eneste anrop, og operatøren fikk
+            // et blaff av «Slår opp behandlingsstedet…» som forsvant igjen. Har man ikke
+            // tilgang, skal det ikke skje noe i det hele tatt — alt annet i toasten
+            // (kortet, forbindelser, registertreff) går via vår egen server og virker som før.
+            if (k.nissy_tc_id && adminStatus === 'ok') {
                 const bhsEl = document.createElement('div');
                 bhsEl.style.cssText = 'margin-top:6px;padding-left:7px;border-left:2px solid #334155;font-size:11px;color:#94a3b8;';
                 bhsEl.textContent = 'Slår opp behandlingsstedet…';
@@ -2224,9 +2506,12 @@
             const pasientTlfK   = (k.pasient_telefon || '').replace(/\D/g, '');
             const harPasientTlf = pasientTlfK && pasientTlfK !== (tlf || '').replace(/\D/g, '');
             const erSelv = (k.rolle || '').toLowerCase() === 'pasient (selv)';
+            // v2.152: en forbindelse med eget nummer er samme situasjon — vi vet hvem
+            // pasienten er, så søket skal gå av seg selv.
+            const harForbTlf = [...ringerFor, ...ringesAv].some(r => (r.tlf || '').replace(/\D/g, ''));
             // Auto-søk også når en pårørende har oppgitt pasientens eget nr — da vet vi
             // hvem pasienten er, og søket dekker både anroper og pasient.
-            if (erSelv || harPasientPnr || harPasientTlf) autoKlikkPasient('kort: pasient kjent');
+            if (erSelv || harPasientPnr || harPasientTlf || harForbTlf) autoKlikkPasient('kort: pasient kjent');
             else if (erPasientlinje)     autoKlikkPasient('pasientlinje');
         }).catch(e => {
             // Dempet melding — kortoppslaget er tilleggsinfo; NISSY-søket går sin gang uansett.
@@ -2269,6 +2554,10 @@
                     leggTilNr(tlf);
                     (numre || []).forEach(n => leggTilNr(n && n.tlf));
                     leggTilNr(kortInfo?.pasient_telefon);
+                    // Forbindelsene: pasienten datteren ringer for, og — ringer pasienten
+                    // selv — de pårørende som kan stå oppført på turen i stedet for henne.
+                    (forbInfo?.ringer_for || []).forEach(r => leggTilNr(r && r.tlf));
+                    (forbInfo?.ringes_av  || []).forEach(r => leggTilNr(r && r.tlf));
                     const oppgaver = [...kandidater.values()].map(raw => sokTlfINissy(raw));
                     const resultater = await Promise.all(oppgaver);
                     const feilet = resultater.find(r => r.feil);
@@ -3673,5 +3962,6 @@ document.addEventListener("visibilitychange",inj);
         setInterval(pollPnrVentende, TURID_POLL_MS);
         setInterval(pollTlfVentende, TURID_POLL_MS);
         setInterval(pollNissyNavigerVentende, TURID_POLL_MS);
+        setInterval(pollBhsSokVentende, TURID_POLL_MS);
     });
 })();
