@@ -1,3 +1,9 @@
+// === WESTBYS VERKTØYKASSE v2.153-dev ===
+// v2.153-dev: NISSY-søket tar med forbindelsenes numre. Toasten fant faren, men ikke turen hans:
+//             søket gikk på datterens nummer, og pasientens eget nummer stod bare i forbindelsen.
+//             Nå søkes begge veier (den hun ringer for, og de som ringer for henne), og søket
+//             starter av seg selv når en forbindelse har nummer — vi vet jo hvem pasienten er.
+//             Treff-linja viser hvilket nummer som traff, så operatøren ser at turen er farens.
 // === WESTBYS VERKTØYKASSE v2.152-dev ===
 // v2.152-dev: FORBINDELSER i toasten. Line sto som «Line Brager-Larsen (Datter)» — datter av HVEM?
 //             Rollen hører til forbindelsen, ikke til personen, så den alene sier ingenting. Toasten
@@ -392,7 +398,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.152-dev';
+    const VERSJON = '2.153-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1995,6 +2001,10 @@
 
         // Kort-info brukes også av Pasient-knappen for dual NISSY-søk
         let kortInfo = null;
+        // v2.152: forbindelsene bærer pasientens eget nummer. Ringer en datter for faren
+        // sin, er det HANS tur operatøren skal finne — og det nummeret står ingen andre
+        // steder i jobben. Uten dette fant toasten faren, men ikke turen hans.
+        let forbInfo = null;
 
         // Auto-søk: klikk Pasient-knappen programmatisk (guard mot dobbel-trigger).
         let autoSokStartet = false;
@@ -2227,6 +2237,7 @@
             // Har vi en forbindelse, sier den det ordentlig, og kortets egen rolle (rest fra
             // den gamle modellen) utelates så det ikke står to halve svar over hverandre.
             const forb = d.forbindelser || {};
+            forbInfo = forb;
             const ringerFor = forb.ringer_for || [];
             const ringesAv  = forb.ringes_av  || [];
             const linje1 = `<span style="color:#f8fafc;font-weight:600;">${escHtml(k.navn)}</span>`
@@ -2316,9 +2327,12 @@
             const pasientTlfK   = (k.pasient_telefon || '').replace(/\D/g, '');
             const harPasientTlf = pasientTlfK && pasientTlfK !== (tlf || '').replace(/\D/g, '');
             const erSelv = (k.rolle || '').toLowerCase() === 'pasient (selv)';
+            // v2.152: en forbindelse med eget nummer er samme situasjon — vi vet hvem
+            // pasienten er, så søket skal gå av seg selv.
+            const harForbTlf = [...ringerFor, ...ringesAv].some(r => (r.tlf || '').replace(/\D/g, ''));
             // Auto-søk også når en pårørende har oppgitt pasientens eget nr — da vet vi
             // hvem pasienten er, og søket dekker både anroper og pasient.
-            if (erSelv || harPasientPnr || harPasientTlf) autoKlikkPasient('kort: pasient kjent');
+            if (erSelv || harPasientPnr || harPasientTlf || harForbTlf) autoKlikkPasient('kort: pasient kjent');
             else if (erPasientlinje)     autoKlikkPasient('pasientlinje');
         }).catch(e => {
             // Dempet melding — kortoppslaget er tilleggsinfo; NISSY-søket går sin gang uansett.
@@ -2361,6 +2375,10 @@
                     leggTilNr(tlf);
                     (numre || []).forEach(n => leggTilNr(n && n.tlf));
                     leggTilNr(kortInfo?.pasient_telefon);
+                    // Forbindelsene: pasienten datteren ringer for, og — ringer pasienten
+                    // selv — de pårørende som kan stå oppført på turen i stedet for henne.
+                    (forbInfo?.ringer_for || []).forEach(r => leggTilNr(r && r.tlf));
+                    (forbInfo?.ringes_av  || []).forEach(r => leggTilNr(r && r.tlf));
                     const oppgaver = [...kandidater.values()].map(raw => sokTlfINissy(raw));
                     const resultater = await Promise.all(oppgaver);
                     const feilet = resultater.find(r => r.feil);
