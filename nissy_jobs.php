@@ -321,4 +321,79 @@ if ($handling === 'nissy_naviger_status') {
     svar(['ok' => true, 'oppslag' => $r ?: null]);
 }
 
+// ================= BHS_SOK (søk behandlingssted i NISSY på forespørsel) =================
+// Registeret vårt er et øyeblikksbilde, og en full høsting tar seks minutter — den tiden
+// har man ikke midt i et anrop (Thomas 13.08). Mangler stedet, skal operatøren kunne be om
+// ETT søk der og da: zisson.php legger jobben, verktøykassen i NISSY-fanen kjører NISSYs
+// egen søkeside og leverer treffene tilbake. Nettsiden kan ikke spørre NISSY selv — annet
+// origin, samme sperre som på attest.
+//
+// Treffene skrives inn i ovr_behandlingssted når operatøren velger ett, så hullet tettes
+// av den som faktisk trengte stedet.
+
+// BHS_SOK_NY: opprett søkejobb
+if ($handling === 'bhs_sok_ny' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $q  = trim($_POST['q'] ?? '');
+    $av = trim($_POST['av'] ?? 'ukjent');
+    if (mb_strlen($q) < 3) svar(['ok' => false, 'feil' => 'søkeordet må ha minst 3 tegn']);
+    // Dedup per mottaker (samme regel som tlf_ny): trykker operatøren to ganger, skal det
+    // ikke bli to jobber — men en annen operatørs jobb skal aldri blokkere din.
+    $s = $pdo->prepare("SELECT id FROM nissy_oppslag WHERE type = 'bhs_sok' AND nokkel = ? AND etterspurt_av = ?
+                        AND ferdig = 0 AND etterspurt_tid >= DATE_SUB(NOW(), INTERVAL 2 MINUTE) ORDER BY id DESC LIMIT 1");
+    $s->execute([mb_substr($q, 0, 100), $av]);
+    if ($eks = $s->fetchColumn()) svar(['ok' => true, 'id' => (int)$eks, 'cached' => true]);
+
+    $pdo->prepare("INSERT INTO nissy_oppslag (type, nokkel, parametre, etterspurt_av) VALUES ('bhs_sok', ?, ?, ?)")
+        ->execute([mb_substr($q, 0, 100), json_encode(['q' => $q], JSON_UNESCAPED_UNICODE), $av]);
+    svar(['ok' => true, 'id' => (int)$pdo->lastInsertId(), 'cached' => false]);
+}
+
+// BHS_SOK_PENDING: verktøykassen henter sine egne ventende søk
+if ($handling === 'bhs_sok_pending') {
+    $nissy = strtolower(trim($_GET['nissy'] ?? ''));
+    if (!$nissy) svar(['ok' => true, 'oppslag' => []]);
+    $aliaser = [];
+    $s = $pdo->prepare("SELECT brukernavn, nissy_brukernavn, navn, epost FROM dp_ansatte WHERE nissy_brukernavn = ? OR ((nissy_brukernavn IS NULL OR nissy_brukernavn = '') AND (brukernavn = ? OR SUBSTRING_INDEX(epost, '@', 1) = ?)) ORDER BY (nissy_brukernavn = ?) DESC LIMIT 1");
+    $s->execute([$nissy, $nissy, $nissy, $nissy]);
+    if ($r = $s->fetch(PDO::FETCH_ASSOC)) {
+        foreach (['brukernavn','nissy_brukernavn','navn','epost'] as $k) if ($r[$k]) $aliaser[] = $r[$k];
+        if ($r['epost']) { $p = explode('@', $r['epost'])[0]; if ($p) $aliaser[] = $p; }
+    }
+    $aliaser = array_values(array_unique(array_filter($aliaser)));
+    if (empty($aliaser)) svar(['ok' => true, 'oppslag' => []]);
+    $ph = implode(',', array_fill(0, count($aliaser), '?'));
+    $stmt = $pdo->prepare("SELECT id, nokkel, parametre FROM nissy_oppslag WHERE type = 'bhs_sok' AND ferdig = 0
+                           AND etterspurt_tid >= DATE_SUB(NOW(), INTERVAL 3 MINUTE) AND etterspurt_av IN ($ph)
+                           ORDER BY etterspurt_tid ASC LIMIT 3");
+    $stmt->execute($aliaser);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as &$r) $r['parametre'] = $r['parametre'] ? json_decode($r['parametre'], true) : null;
+    svar(['ok' => true, 'oppslag' => $rows]);
+}
+
+// BHS_SOK_SVAR: verktøykassen leverer treffene [{id, navn, type, adresse, postnr_sted, telefon}]
+if ($handling === 'bhs_sok_svar' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $id   = (int)($_POST['id'] ?? 0);
+    $res  = $_POST['resultat'] ?? null;
+    $feil = $_POST['feil'] ?? null;
+    if (!$id) svar(['ok' => false, 'feil' => 'mangler id']);
+    if ($res !== null && json_decode($res, true) === null && json_last_error() !== JSON_ERROR_NONE) {
+        svar(['ok' => false, 'feil' => 'ugyldig JSON']);
+    }
+    $pdo->prepare("UPDATE nissy_oppslag SET ferdig = 1, svart_tid = NOW(), resultat = ?, feil = ? WHERE id = ? AND type = 'bhs_sok'")
+        ->execute([$res, $feil, $id]);
+    svar(['ok' => true, 'id' => $id]);
+}
+
+// BHS_SOK_STATUS: zisson.php poller på svaret
+if ($handling === 'bhs_sok_status') {
+    $id = (int)($_GET['id'] ?? 0);
+    if (!$id) svar(['ok' => false, 'feil' => 'mangler id']);
+    $s = $pdo->prepare("SELECT id, ferdig, resultat, feil, etterspurt_tid, svart_tid FROM nissy_oppslag WHERE id = ? AND type = 'bhs_sok'");
+    $s->execute([$id]);
+    $r = $s->fetch(PDO::FETCH_ASSOC);
+    if ($r && $r['resultat']) $r['resultat'] = json_decode($r['resultat'], true);
+    svar(['ok' => true, 'oppslag' => $r ?: null]);
+}
+
 svar(['ok' => false, 'feil' => 'ugyldig handling: ' . $handling]);

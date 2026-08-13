@@ -1,3 +1,13 @@
+// === WESTBYS VERKTØYKASSE v2.154-dev ===
+// v2.154-dev: SØK BEHANDLINGSSTED I NISSY PÅ FORESPØRSEL. Registeret manglet Grue Sykehjem og
+//             Grue Helsestasjon — årsaken står i NISSYs egen kode: barnelista bygges ikke når
+//             en forelder har 500 barn eller mer («childrenCount < 500»), så bredde-først-
+//             vandringen ser en forelder uten barn og går videre uten å merke noe. Ingen brutte
+//             grener, bare usynlige steder. Søkesiden har ikke den grensen. Nettsiden legger en
+//             jobb (bhs_sok), verktøykassen kjører søket over alle fem regioner — regionId er en
+//             radio med Helse Øst som standard — henter detaljene og skriver dem inn i registeret.
+//             Hullet tettes av den som trengte stedet, ikke ved neste seks-minutters høsting.
+
 // === WESTBYS VERKTØYKASSE v2.153-dev ===
 // v2.153-dev: NISSY-søket tar med forbindelsenes numre. Toasten fant faren, men ikke turen hans:
 //             søket gikk på datterens nummer, og pasientens eget nummer stod bare i forbindelsen.
@@ -398,7 +408,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.153-dev';
+    const VERSJON = '2.154-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1472,6 +1482,123 @@
         await send(true);
         console.log('[VERKTØYKASSE] høsting FERDIG: ' + sendt + ' steder lagret · ' + feilet + ' feilet · ' + sett.size + ' id-er besøkt');
         return { lagret: sendt, feilet: feilet, besokt: sett.size };
+    }
+
+    // === SØK BEHANDLINGSSTED I NISSY PÅ FORESPØRSEL (v2.154) ===
+    // Bredde-først-vandringen bommer på steder hvis forelderen har mange nok barn:
+    // NISSYs egen kode bygger ikke barnelista når childrenCount >= 500
+    // (`organization.childrenCount < 500` i adminTCForm). Da står forelderen der uten
+    // synlige barn, vandringen ser ingenting galt, og stedet blir usynlig for oss —
+    // uten et eneste brudd i treet. Grue Sykehjem (15463) og Grue Helsestasjon (23383)
+    // er to slike (Thomas 13.08).
+    //
+    // Søkesiden har ikke den begrensningen. Den POSTer til seg selv; regionId er en
+    // RADIO med Helse Øst som standard, så et nasjonalt søk må gå gjennom alle fem.
+    const TC_SOK_URL = ADMIN_BASE + '/adminTCForm?searchType=admin';
+    async function sokBehandlingsstedINissy(q) {
+        const treff = new Map();
+        for (let region = 1; region <= 5; region++) {
+            const felt = new URLSearchParams({
+                previousSearch: '', onlySelectable: 'false', advancedSearch: 'false',
+                altReq: 'false', reqTemp: 'false', idx: '',
+                regionId: String(region), name: q,
+                sector: '-1', profession: '-1', dispatchCenter: '-1',
+                councilNr: '', councilName: '', address: '', postalPlace: '',
+                eRek: '0', submit_action: '', submit: 'Søk'
+            });
+            let html;
+            try {
+                const r = await fetch(TC_SOK_URL, {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: felt.toString()
+                });
+                if (!r.ok) continue;
+                html = await r.text();
+            } catch (e) { continue; }
+            if (html.indexOf('/admin/logout') === -1) return { utlogget: true, steder: [] };
+
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const lenker = doc.querySelectorAll('a[href*="adminTCDetails"][name="tcdata"]');
+            for (let i = 0; i < lenker.length; i++) {
+                const m = /[?&]id=(\d+)/.exec(lenker[i].getAttribute('href') || '');
+                if (!m) continue;
+                const rad = lenker[i].closest('tr');
+                const c = rad ? rad.cells : null;
+                // Kolonner: Navn, E.rek., Type, Sektor, Profesjon, Adresse, Poststed, Kommune
+                const tekst = j => (c && c[j] ? (c[j].textContent || '').replace(/\s+/g, ' ').trim() : '');
+                if (!treff.has(m[1])) treff.set(m[1], {
+                    id: m[1],
+                    navn: (lenker[i].parentNode.textContent || '').replace(/\s+/g, ' ').trim(),
+                    type: tekst(2), sektor: tekst(3), profesjon: tekst(4),
+                    adresse: tekst(5), postnr_sted: tekst(6), kommune: tekst(7)
+                });
+            }
+        }
+        return { utlogget: false, steder: [...treff.values()] };
+    }
+
+    // Treffene hentes i full detalj og skrives inn i registeret vårt. Poenget er at
+    // hullet tettes av den som faktisk trengte stedet — ikke ved neste fulle høsting,
+    // som tar seks minutter man ikke har midt i et anrop.
+    async function sokOgLagreBehandlingssteder(q) {
+        const funn = await sokBehandlingsstedINissy(q);
+        if (funn.utlogget) return { feil: 'utlogget' };
+        const ider = funn.steder.slice(0, 20).map(s => s.id);
+        if (!ider.length) return { antall: 0, steder: [] };
+
+        const detaljer = [];
+        for (let i = 0; i < ider.length; i += 3) {
+            const bunt = await Promise.all(ider.slice(i, i + 3).map(id => hentBehandlingssted(id)));
+            for (const b of bunt) {
+                if (!b) continue;
+                detaljer.push({
+                    id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
+                    adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
+                    orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                    kortnavn: b.kortnavn, alias: b.alias,
+                    parent_id: b.foreldre ? b.foreldre.id : null
+                });
+            }
+        }
+        if (!detaljer.length) return { antall: 0, steder: [] };
+        const r = await fetch('https://thomaswestby.no/skript/behandlingssted_lagre.php', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: jsonStringifyTrygt({ steder: detaljer, av: window.__vkt_brukernavn || '' })
+        }).then(x => x.json());
+        return {
+            antall: (r && typeof r.lagret === 'number') ? r.lagret : 0,
+            steder: detaljer.map(d => ({ id: d.id, navn: d.navn }))
+        };
+    }
+
+    async function pollBhsSokVentende() {
+        if (!erAktivEier()) return;
+        if (adminStatus !== 'ok') return;
+        const nissy = hentNissyBrukernavn();
+        if (!nissy) return;
+        try {
+            const r = await fetch(`${JOBS_URL}?handling=bhs_sok_pending&nissy=${encodeURIComponent(nissy)}`);
+            const d = await r.json();
+            if (!d.ok || !Array.isArray(d.oppslag) || !d.oppslag.length) return;
+            const o = d.oppslag[0];
+            const q = (o.parametre && o.parametre.q) || o.nokkel || '';
+            if (!q) return;
+            console.log('[VERKTØYKASSE] søker behandlingssted i NISSY:', q);
+            let res = null, feil = null;
+            try {
+                res = await sokOgLagreBehandlingssteder(q);
+                if (res.feil === 'utlogget') { feil = 'Ikke logget inn i NISSY admin'; res = null; }
+            } catch (e) { feil = e.message; }
+            const fd = new FormData();
+            fd.append('id', o.id);
+            if (res) fd.append('resultat', jsonStringifyTrygt(res));
+            if (feil) fd.append('feil', feil);
+            await fetch(`${JOBS_URL}?handling=bhs_sok_svar`, { method: 'POST', body: fd });
+            if (res) console.log('[VERKTØYKASSE] behandlingssted-søk «' + q + '»: ' + res.antall + ' lagret');
+        } catch (e) {
+            console.warn('[VERKTØYKASSE] bhs_sok-poll feil:', e.message);
+        }
     }
 
     // === PNR-OPPSLAG — ssnSearch i admin, returnerer alle kommende/aktive rekvisisjoner ===
@@ -3783,5 +3910,6 @@ document.addEventListener("visibilitychange",inj);
         setInterval(pollPnrVentende, TURID_POLL_MS);
         setInterval(pollTlfVentende, TURID_POLL_MS);
         setInterval(pollNissyNavigerVentende, TURID_POLL_MS);
+        setInterval(pollBhsSokVentende, TURID_POLL_MS);
     });
 })();
