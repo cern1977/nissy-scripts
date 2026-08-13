@@ -1,3 +1,13 @@
+// === BASIC TOOLS v1.126-dev ===
+// v1.126-dev: ENDRE TID — deltaet i trip.comment ankres i den opprinnelige tiden:
+//             «-39 Opprinnelig tid 09:04». Før akkumulerte vi, og «denne endringen» ble regnet mot
+//             tiden lest fra RADEN da popupen ble åpnet. NISSY re-rendrer aggressivt, så ved andre
+//             endring viste raden fortsatt den opprinnelige tiden og deltaet ble telt to ganger:
+//             09:04→08:30 ga «-34», så 08:25 ga −34 + −39 = «-73» (operatørsak 13.08), der riktig
+//             svar er −39. Nå står ankeret i kommentaren selv og regnes ABSOLUTT — den stale raden
+//             kan ikke lyve lenger. Gammelt format uten anker regnes tilbake fra deltaet som står
+//             der, operatørens egen tekst bevares, og delta over midnatt tar korteste vei.
+
 // === BASIC TOOLS v1.125-dev ===
 // v1.125-dev: TOOLTIP-PRESISERING (Thomas): «reisetid 1 t 0 min» var egentlig VENTETIDEN (maks(reisetid,
 //             60 min-gulvet)) — reisetid og ventetid er forskjellige ting. Nå vises begge når gulvet
@@ -343,7 +353,7 @@
     //             → «07:09»), så turer en ANNEN dag ble evaluert som i dag → falsk blink. Beholder nå
     //             tidRaw m/ dato-prefiks; utvOppdater hopper over turer med dato ≠ i dag.
     // v1.92-dev: fix popup-frysing under geokoding — geo()-timeout + parallell geocodeAlle.
-    const VERSJON = '1.125-dev';
+    const VERSJON = '1.126-dev';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -368,6 +378,13 @@
     function tidTilMin(t) {
         const m = String(t || '').match(/^(\d{1,2}):(\d{2})$/);
         return m ? +m[1] * 60 + +m[2] : null;
+    }
+
+    // Motsatt vei. Brukes til å regne ankeret tilbake fra et gammelt delta i trip.comment.
+    // Modulo døgnet, så en tur som flyttes over midnatt ikke gir «-1:30».
+    function minTilTid(min) {
+        const m = ((Math.round(min) % 1440) + 1440) % 1440;
+        return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
     }
 
     function lesAlleVRader() {
@@ -714,25 +731,54 @@
         fd.set('departureTime', nyTid);
         fd.set('trip.startDateManuallySet', 'true');
 
-        // Auto-logg total tids-forskyvning i trip.comment.
-        // Eksempel: opprinnelig 14:00 → 13:45 (-15), så 13:45 → 13:35 (-10) gir total -25.
-        // Hvis comment starter med "+N" eller "-N", legges denne nye endringen til.
-        // Hvis total blir 0, fjernes delta-markøren helt (men bevarer evt. resten av meldingen).
-        const gMin = tidTilMin(gammelTid);
+        // Auto-logg total tids-forskyvning i trip.comment, ANKRET i opprinnelig tid:
+        //   «-34 Opprinnelig tid 09:04»
+        //
+        // v1.126: før akkumulerte vi (eksisterende delta + denne endringen), og «denne
+        // endringen» ble regnet mot tiden lest fra RADEN da popupen ble åpnet. NISSY
+        // re-rendrer aggressivt, og ved andre endring på samme tur viste raden fortsatt
+        // den opprinnelige tiden — så deltaet ble telt to ganger. Operatørsak 13.08:
+        // 09:04 → 08:30 ga «-34», så 08:25 ga −34 + (08:25 − 09:04 = −39) = «-73»,
+        // der riktig svar er −39.
+        //
+        // Nå står den opprinnelige tiden i kommentaren selv. Andre endring leser ankeret
+        // derfra og regner ABSOLUTT — da spiller det ingen rolle om raden er utdatert.
+        // Mangler ankeret (tom kommentar, eller noen har redigert den bort), faller vi
+        // tilbake til tiden fra raden og setter ankeret for neste gang.
         const nMin = tidTilMin(nyTid);
-        if (gMin !== null && nMin !== null) {
-            const denneDelta = nMin - gMin;
+        if (nMin !== null) {
             const eksisterende = (fd.get('trip.comment') || '').trim();
-            // Plukk ut evt. eksisterende delta foran (f.eks. "-15" eller "+22")
-            const m = eksisterende.match(/^([+-]\d+)(?:\s+(.*))?$/);
-            const eksisterendeDelta = m ? parseInt(m[1], 10) : 0;
-            const resten = m ? (m[2] || '') : eksisterende;
-            const total = eksisterendeDelta + denneDelta;
-            const merketTotal = total === 0 ? '' : (total > 0 ? '+' : '') + total;
-            const deler = [];
-            if (merketTotal) deler.push(merketTotal);
-            if (resten) deler.push(resten);
-            fd.set('trip.comment', deler.join(' ').slice(0, 255));
+            // «-34 Opprinnelig tid 09:04 resten av meldingen»
+            const mAnker = eksisterende.match(/^([+-]\d+)\s+Opprinnelig tid (\d{1,2}:\d{2})(?:\s+(.*))?$/);
+            // Eldre format uten anker: «-34 resten»
+            const mGammel = mAnker ? null : eksisterende.match(/^([+-]\d+)(?:\s+(.*))?$/);
+
+            let origTid, resten;
+            if (mAnker) {
+                origTid = mAnker[2];
+                resten  = mAnker[3] || '';
+            } else if (mGammel) {
+                // Gammelt format: regn ankeret tilbake fra deltaet som står der.
+                const gm = tidTilMin(gammelTid);
+                origTid = gm !== null ? minTilTid(gm - parseInt(mGammel[1], 10)) : gammelTid;
+                resten  = mGammel[2] || '';
+            } else {
+                origTid = gammelTid;
+                resten  = eksisterende;
+            }
+
+            const oMin = tidTilMin(origTid);
+            if (oMin !== null) {
+                // Over midnatt: 00:10 → 23:50 er 20 minutter tidligere, ikke 1420 senere.
+                // Ingen legitim endring her er over 12 timer, så korteste vei er alltid rett.
+                let total = nMin - oMin;
+                if (total >  720) total -= 1440;
+                if (total < -720) total += 1440;
+                const deler = [];
+                if (total !== 0) deler.push(((total > 0 ? '+' : '') + total) + ' Opprinnelig tid ' + origTid);
+                if (resten) deler.push(resten);
+                fd.set('trip.comment', deler.join(' ').slice(0, 255));
+            }
         }
 
         const body = [...fd].map(([k, v]) => latin1Form(k) + '=' + latin1Form(String(v))).join('&');
