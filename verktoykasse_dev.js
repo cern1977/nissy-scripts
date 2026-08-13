@@ -1,3 +1,16 @@
+// === WESTBYS VERKTØYKASSE v2.157-dev ===
+// v2.157-dev: behandlingsstedsregisteret i NISSY krever ADMIN-tilgang, og den har de færreste
+//             operatørene (Thomas 13.08). Toasten fyrte likevel et live-oppslag ved hvert anrop
+//             mot et NISSY-koblet kort — dømt til å feile, med et blaff av «Slår opp
+//             behandlingsstedet…» som forsvant igjen. Nå skjer det ingenting uten tilgang.
+//             Alt annet i toasten går via vår egen server og virker som før. Bakgrunnshøstingen
+//             var allerede stille: pollingen krever adminStatus === ok.
+
+// === WESTBYS VERKTØYKASSE v2.156-dev ===
+// v2.156-dev: «høst nå» for ETT sted. Jobben kan nå bære en kjent NISSY-id i stedet for et
+//             søkeord — da hoppes søket over og stedet + avdelingene hentes direkte. Cachen
+//             tømmes først, ellers ville en manuell oppfriskning levert det vi alt hadde.
+
 // === WESTBYS VERKTØYKASSE v2.155-dev ===
 // v2.155-dev: søket tar med UNDERAVDELINGENE (to nivåer, tak 120). Det er de som bærer
 //             direktenumrene — Grue Sykehjem har seks, og uten dem satt vi igjen med
@@ -413,7 +426,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.155-dev';
+    const VERSJON = '2.157-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1546,10 +1559,18 @@
     // Treffene hentes i full detalj og skrives inn i registeret vårt. Poenget er at
     // hullet tettes av den som faktisk trengte stedet — ikke ved neste fulle høsting,
     // som tar seks minutter man ikke har midt i et anrop.
-    async function sokOgLagreBehandlingssteder(q) {
-        const funn = await sokBehandlingsstedINissy(q);
-        if (funn.utlogget) return { feil: 'utlogget' };
-        const ider = funn.steder.slice(0, 20).map(s => s.id);
+    // nissyId satt = «høst nå» på ett kjent sted: da hopper vi over søket. Cachen tømmes
+    // først, ellers ville en manuell oppfriskning levert nøyaktig det vi hadde fra før.
+    async function sokOgLagreBehandlingssteder(q, nissyId) {
+        let ider;
+        if (nissyId) {
+            _bhsCache.delete(String(nissyId));
+            ider = [String(nissyId)];
+        } else {
+            const funn = await sokBehandlingsstedINissy(q);
+            if (funn.utlogget) return { feil: 'utlogget' };
+            ider = funn.steder.slice(0, 20).map(s => s.id);
+        }
         if (!ider.length) return { antall: 0, steder: [] };
 
         // Underavdelingene MÅ med: det er de som bærer direktenumrene. Grue Sykehjem har
@@ -1605,12 +1626,14 @@
             const d = await r.json();
             if (!d.ok || !Array.isArray(d.oppslag) || !d.oppslag.length) return;
             const o = d.oppslag[0];
-            const q = (o.parametre && o.parametre.q) || o.nokkel || '';
-            if (!q) return;
-            console.log('[VERKTØYKASSE] søker behandlingssted i NISSY:', q);
+            const p = o.parametre || {};
+            const nissyId = p.nissy_id || 0;
+            const q = p.q || (nissyId ? '' : (o.nokkel || ''));
+            if (!q && !nissyId) return;
+            console.log('[VERKTØYKASSE] ' + (nissyId ? 'høster behandlingssted #' + nissyId : 'søker behandlingssted i NISSY: ' + q));
             let res = null, feil = null;
             try {
-                res = await sokOgLagreBehandlingssteder(q);
+                res = await sokOgLagreBehandlingssteder(q, nissyId);
                 if (res.feil === 'utlogget') { feil = 'Ikke logget inn i NISSY admin'; res = null; }
             } catch (e) { feil = e.message; }
             const fd = new FormData();
@@ -2419,7 +2442,13 @@
             if (!k.nissy_tc_id && (k.type === 'behandler' || !k.type)) visRegisterTreff(kortEl, tlf);
             // v2.139: bærer kortet en NISSY behandlingssted-id, hent fasit fra NISSY og
             // vis den under kortlinja. Rent tillegg — feiler oppslaget, skjer ingenting.
-            if (k.nissy_tc_id) {
+            // v2.157: behandlingsstedsregisteret i NISSY krever ADMIN-tilgang, og den har
+            // de færreste operatørene (Thomas 13.08). Uten denne sjekken fyrte toasten et
+            // oppslag som var dømt til å feile ved hvert eneste anrop, og operatøren fikk
+            // et blaff av «Slår opp behandlingsstedet…» som forsvant igjen. Har man ikke
+            // tilgang, skal det ikke skje noe i det hele tatt — alt annet i toasten
+            // (kortet, forbindelser, registertreff) går via vår egen server og virker som før.
+            if (k.nissy_tc_id && adminStatus === 'ok') {
                 const bhsEl = document.createElement('div');
                 bhsEl.style.cssText = 'margin-top:6px;padding-left:7px;border-left:2px solid #334155;font-size:11px;color:#94a3b8;';
                 bhsEl.textContent = 'Slår opp behandlingsstedet…';

@@ -335,6 +335,19 @@ if ($handling === 'nissy_naviger_status') {
 if ($handling === 'bhs_sok_ny' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $q  = trim($_POST['q'] ?? '');
     $av = trim($_POST['av'] ?? 'ukjent');
+    // Kjent NISSY-id: hopp over søket og hent stedet direkte. Brukes av «🔄 høst nå» på
+    // kortet — registeret er en cache, og da må man kunne friske opp ETT sted uten å
+    // vente på en full høsting (Thomas 13.08).
+    $nissyId = (int)($_POST['nissy_id'] ?? 0);
+    if ($nissyId > 0) {
+        $s = $pdo->prepare("SELECT id FROM nissy_oppslag WHERE type = 'bhs_sok' AND nokkel = ? AND etterspurt_av = ?
+                            AND ferdig = 0 AND etterspurt_tid >= DATE_SUB(NOW(), INTERVAL 2 MINUTE) ORDER BY id DESC LIMIT 1");
+        $s->execute(['#' . $nissyId, $av]);
+        if ($eks = $s->fetchColumn()) svar(['ok' => true, 'id' => (int)$eks, 'cached' => true]);
+        $pdo->prepare("INSERT INTO nissy_oppslag (type, nokkel, parametre, etterspurt_av) VALUES ('bhs_sok', ?, ?, ?)")
+            ->execute(['#' . $nissyId, json_encode(['nissy_id' => $nissyId], JSON_UNESCAPED_UNICODE), $av]);
+        svar(['ok' => true, 'id' => (int)$pdo->lastInsertId(), 'cached' => false]);
+    }
     if (mb_strlen($q) < 3) svar(['ok' => false, 'feil' => 'søkeordet må ha minst 3 tegn']);
     // Dedup per mottaker (samme regel som tlf_ny): trykker operatøren to ganger, skal det
     // ikke bli to jobber — men en annen operatørs jobb skal aldri blokkere din.
