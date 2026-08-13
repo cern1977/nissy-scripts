@@ -1,3 +1,8 @@
+// === WESTBYS VERKTØYKASSE v2.155-dev ===
+// v2.155-dev: søket tar med UNDERAVDELINGENE (to nivåer, tak 120). Det er de som bærer
+//             direktenumrene — Grue Sykehjem har seks, og uten dem satt vi igjen med
+//             sentralbordet alene. Nummeret operatøren trenger er som regel avdelingens.
+
 // === WESTBYS VERKTØYKASSE v2.154-dev ===
 // v2.154-dev: SØK BEHANDLINGSSTED I NISSY PÅ FORESPØRSEL. Registeret manglet Grue Sykehjem og
 //             Grue Helsestasjon — årsaken står i NISSYs egen kode: barnelista bygges ikke når
@@ -408,7 +413,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.154-dev';
+    const VERSJON = '2.155-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1547,19 +1552,37 @@
         const ider = funn.steder.slice(0, 20).map(s => s.id);
         if (!ider.length) return { antall: 0, steder: [] };
 
+        // Underavdelingene MÅ med: det er de som bærer direktenumrene. Grue Sykehjem har
+        // seks («1 etg - Demens avd», «Kortidsavdeling 2 etg» …), og uten dem satt vi igjen
+        // med sentralbordet alene — nummeret operatøren trenger er ofte avdelingens
+        // (Thomas 13.08). To nivåer ned, med tak, så ett søk ikke drar med et helt
+        // helseforetak.
+        const MAKS_HENT = 120;
         const detaljer = [];
-        for (let i = 0; i < ider.length; i += 3) {
-            const bunt = await Promise.all(ider.slice(i, i + 3).map(id => hentBehandlingssted(id)));
-            for (const b of bunt) {
-                if (!b) continue;
-                detaljer.push({
-                    id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
-                    adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
-                    orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
-                    kortnavn: b.kortnavn, alias: b.alias,
-                    parent_id: b.foreldre ? b.foreldre.id : null
-                });
+        const besokt = new Set();
+        let ko = ider.slice();
+        let dybde = 0;
+        while (ko.length && detaljer.length < MAKS_HENT && dybde <= 2) {
+            const neste = [];
+            for (let i = 0; i < ko.length && detaljer.length < MAKS_HENT; i += 3) {
+                const bunt = await Promise.all(ko.slice(i, i + 3).map(id => hentBehandlingssted(id)));
+                for (const b of bunt) {
+                    if (!b || besokt.has(String(b.id))) continue;
+                    besokt.add(String(b.id));
+                    detaljer.push({
+                        id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
+                        adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
+                        orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                        kortnavn: b.kortnavn, alias: b.alias,
+                        parent_id: b.foreldre ? b.foreldre.id : null
+                    });
+                    for (const u of (b.underenheter || [])) {
+                        if (u.id && !besokt.has(String(u.id))) neste.push(u.id);
+                    }
+                }
             }
+            ko = neste;
+            dybde++;
         }
         if (!detaljer.length) return { antall: 0, steder: [] };
         const r = await fetch('https://thomaswestby.no/skript/behandlingssted_lagre.php', {
