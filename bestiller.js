@@ -1,12 +1,28 @@
 // ############################################################
-// # Snippets: NissyBestillNåAuto v5.5                       #
+// # Snippets: NissyBestillNåAuto v5.9                       #
 // # Skrevet av Jan R. Jørgensen, Pasientreiser Østfold       #
-// # Skrevet av Thomas Westby, Pasientreiser Oslo og Akershus #
+// # Skrevet av Thomas Westby, Oslo og Akershus #
 // # v5.4: Floating draggable panel, kun fetch-modus          #
 // # v5.5: Rett rekkefølge i 19142-intervall, 19284 = dato+4  #
+// # v5.6: Web Worker som timer — bestLoop blir ikke throttled #
+// # v5.7: Henter filtre fra backend (ovr_bestiller_filtre)   #
+// #       per kjorekontor. dato+N template-ekspanderes.      #
+// #       Tom navn_mal → bruker NISSY-DOM-filternavn.        #
+// # v5.8: fail-closed — ingen hardkodet Oslo-fallback.       #
+// #       Ingen filtre i backend → "Ingen filter" + Start    #
+// #       låst. Hindrer at nytt kontor uten config           #
+// #       auto-sender med feil rfilter-IDer.                 #
+// # v5.9: BESTILLER_FILTRE_URL flyttet fra /OUS/ til         #
+// #       /pasientreiser/ (kanonisk URL etter mappeflyt).    #
+// # v6.0: Melder økt til Sesjoner (live_sesjon.php,          #
+// #       skript='Bestiller') + antall bestilt (stats.sent). #
+// # v6.1: Fjernet Nullstill-knappen — antallet rapporteres   #
+// #       nå, så manuell nulling av egen telling tas bort.   #
+// # v6.2: Forhåndsviser antall ventende turer i valgt filter #
+// #       (ved åpning + filterbytte) før man trykker play.   #
 // ############################################################
 
-const VERSION = '5.5';
+const VERSION = '6.3';
 
 (() => {
   // Rydd localStorage så panelet alltid vises ved kjøring
@@ -19,19 +35,50 @@ const VERSION = '5.5';
   const PAUSE_NAR_TOM_SEK = 5;
 
   // === Fetch-oppsett ===
-  const FETCH_BASE = 'https://pastrans-sorost.mq.nhn.no/planlegging/ajax-dispatch';
+  // Host-agnostisk: bruk operatørens faktiske NISSY-origin (pastrans / nissy6 / …) → unngår CORS-blokk.
+  const NISSY_ORIGIN = (typeof location !== 'undefined' && /\.nhn\.no$/i.test(location.hostname || '')) ? location.origin : 'https://pastrans-sorost.mq.nhn.no';
+  const FETCH_BASE = NISSY_ORIGIN + '/planlegging/ajax-dispatch';
   const DEFAULT_RFILTER = 19138;
   function datoNavn(dagerFrem) {
     var d = new Date(); d.setDate(d.getDate() + dagerFrem);
     return String(d.getDate()).padStart(2,'0') + '.' + String(d.getMonth()+1).padStart(2,'0');
   }
-  const FILTRE = [
-    { id: 19142, navn: datoNavn(4) + '-' + datoNavn(6) },
-    { id: 19284, navn: datoNavn(4) },
-    { id: 19138, navn: datoNavn(3) },
-    { id: 19176, navn: datoNavn(2) },
-    { id: 19274, navn: datoNavn(1) },
-  ];
+  // Filtre fylles fra backend (ovr_bestiller_filtre per kjorekontor) ved init.
+  // SIKKERHET: ingen hardkodet fallback — auto-dispatch må aldri kjøre med feil
+  // rfilter-IDer hvis backend feiler eller kontoret mangler config. Start-knapp
+  // forblir låst til vi har gyldig liste fra backend.
+  let FILTRE = [];
+
+  // === KJOREKONTOR + FILTER-FETCH ===
+  function hentKjorekontor() {
+    try {
+      const ov = (localStorage.getItem('vkt_kjorekontor_override') || '').trim();
+      if (ov) return ov;
+    } catch (_) {}
+    function ekstrakt(s) {
+      // Strip også "Pasientreiser "-prefiks så vi får kort form: "Oslo og Akershus" / "Innlandet"
+      const m = String(s || '').match(/Pasientreisekontor\s+(?:for\s+)?(?:Pasientreiser\s+)?([^\-—|<\n\r]+?)(?:\s*[-—|<\n\r]|\s*$)/i);
+      return m ? m[1].trim() : '';
+    }
+    return ekstrakt(document.title)
+        || (document.body ? ekstrakt(document.body.innerText) : '')
+        || 'Oslo og Akershus';
+  }
+
+  // Ekspander "dato+N" til reell dato; tom mal → hent fra NISSY-filter-dropdown
+  function ekspanderNavn(mal, rfilterId) {
+    if (!mal || !String(mal).trim()) {
+      const sel = document.querySelector('select[name="filter-ventende-oppdrag"]');
+      if (sel) {
+        const opt = Array.from(sel.options).find(o => +o.value === +rfilterId);
+        if (opt) return opt.textContent.trim();
+      }
+      return String(rfilterId);
+    }
+    return String(mal).replace(/dato\+(\d+)/g, (_, n) => datoNavn(+n));
+  }
+
+  const BESTILLER_FILTRE_URL = 'https://thomaswestby.no/pasientreiser/bestiller_filtre.php';
 
   // === IndexedDB Oppsett ===
   const DB_NAME = 'NissyBestillStats';
@@ -211,9 +258,6 @@ const VERSION = '5.5';
         <div class="${P}-action-btns">
           <button class="${P}-btn ${P}-btn-play" id="${P}Toggle" title="Start">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
-          </button>
-          <button class="${P}-btn ${P}-btn-reset" id="${P}Reset" title="Nullstill">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M3 12a9 9 0 1 1 3 6.7"/><polyline points="3 20 3 14 9 14"/></svg>
           </button>
         </div>
       </div>
@@ -422,9 +466,6 @@ const VERSION = '5.5';
       border-color: rgba(248,113,113,.4);
     }
 
-    .${P}-btn-reset {
-      width: 28px; height: 28px;
-    }
     .${P}-btn-close {
       width: 28px; height: 28px;
     }
@@ -557,22 +598,86 @@ const VERSION = '5.5';
     status: panel.querySelector('#' + P + 'Status'),
     filter: panel.querySelector('#' + P + 'Filter'),
     btnToggle: panel.querySelector('#' + P + 'Toggle'),
-    btnReset: panel.querySelector('#' + P + 'Reset'),
     btnClose: panel.querySelector('#' + P + 'Close'),
     btnMin: panel.querySelector('#' + P + 'Min'),
     fabCount: fab.querySelector('#' + P + 'FabCount')
   };
 
-  // Populer filter-dropdown
-  FILTRE.forEach(f => {
+  // Placeholder mens filtre lastes
+  function settPlaceholder(tekst) {
+    el.filter.innerHTML = '';
     const opt = document.createElement('option');
-    opt.value = f.id;
-    opt.textContent = f.navn;
+    opt.value = '';
+    opt.textContent = tekst;
+    opt.disabled = true;
     el.filter.appendChild(opt);
-  });
-  const lagretFilter = localState.rfilter || DEFAULT_RFILTER;
-  el.filter.value = lagretFilter;
-  let aktivtFilter = +el.filter.value || DEFAULT_RFILTER;
+    el.filter.value = '';
+    el.btnToggle.disabled = true;
+    el.btnToggle.title = tekst;
+  }
+  settPlaceholder('⏳ Henter filtre…');
+  let aktivtFilter = 0;
+
+  function populerFilterDropdown() {
+    const beholdt = el.filter.value;
+    el.filter.innerHTML = '';
+    FILTRE.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.id;
+      opt.textContent = f.navn;
+      el.filter.appendChild(opt);
+    });
+    if (beholdt && FILTRE.some(f => +f.id === +beholdt)) el.filter.value = beholdt;
+  }
+
+  // Hent backend-filtre. Ingen filtre → Start-knapp forblir låst (fail-closed).
+  (async () => {
+    const kontor = hentKjorekontor();
+    try {
+      const r = await fetch(`${BESTILLER_FILTRE_URL}?action=aktive&kontor=${encodeURIComponent(kontor)}`, { cache: 'no-store' });
+      const d = await r.json();
+      if (d && d.ok && Array.isArray(d.filtre) && d.filtre.length > 0) {
+        FILTRE = d.filtre.map(f => ({
+          id: +f.rfilter_id,
+          navn: ekspanderNavn(f.navn_mal, +f.rfilter_id)
+        }));
+        populerFilterDropdown();
+        const lagretFilter = localState.rfilter || FILTRE[0].id;
+        el.filter.value = FILTRE.some(f => f.id === +lagretFilter) ? lagretFilter : FILTRE[0].id;
+        aktivtFilter = +el.filter.value;
+        if (+lagretFilter !== aktivtFilter) saveLocalState({ rfilter: aktivtFilter });
+        el.btnToggle.disabled = false;
+        el.btnToggle.title = 'Start';
+        console.log(`[Bestiller] Hentet ${FILTRE.length} filter(e) fra backend for ${kontor}:`, FILTRE.map(f => `${f.id}=${f.navn}`).join(', '));
+        forhandsvisAntall();   // vis antall ventende turer med en gang, før play
+      } else {
+        settPlaceholder(`⚠ Ingen filtre konfigurert for ${kontor}`);
+        console.warn(`[Bestiller] Ingen aktive filtre for ${kontor} — Start låst. Legg til filtre på admin → Bestiller.`);
+      }
+    } catch (e) {
+      settPlaceholder('⚠ Backend ikke tilgjengelig');
+      console.warn('[Bestiller] Filter-fetch feilet — Start låst (fail-closed):', e.message);
+    }
+  })();
+
+  // Forhåndsvis antall ventende turer i valgt filter — UTEN å starte bestilling,
+  // så man ser hvor mange som ligger der før man trykker play.
+  let forhandsvisToken = 0;
+  async function forhandsvisAntall() {
+    const token = ++forhandsvisToken;
+    setText(el.teller, '…');
+    try {
+      const { bestillListe, bestillSet } = await hentRessurser(aktivtFilter);
+      if (token !== forhandsvisToken) return;        // et nyere filtervalg har overtatt
+      eligibleSorted = bestillListe;
+      eligibleIds.clear();
+      bestillSet.forEach(id => eligibleIds.add(id));
+      updateStatsUI();
+    } catch (e) {
+      if (token === forhandsvisToken) setText(el.teller, '?');
+      console.warn('[Bestiller] Forhåndsvisning feilet:', e.message);
+    }
+  }
 
   el.filter.addEventListener('change', () => {
     aktivtFilter = +el.filter.value || DEFAULT_RFILTER;
@@ -580,11 +685,49 @@ const VERSION = '5.5';
     eligibleSorted = [];
     eligibleIds.clear();
     dispatchedIds.clear();
-    setText(el.teller, 0);
+    if (sStatus === 'Startet') setText(el.teller, '…');   // loopen oppdaterer ved neste tick
+    else forhandsvisAntall();
   });
 
   let sStatus = 'Stoppet';
   let loopTimeout = null;
+
+  // === Worker-basert timer (ikke throttled i bakgrunnen) ===
+  let keeperWorker = null;
+  try {
+    const kode = `
+      let tid = null;
+      self.onmessage = function(e) {
+        if (e.data === 'avbryt') {
+          if (tid !== null) { clearTimeout(tid); tid = null; }
+          return;
+        }
+        if (typeof e.data === 'number') {
+          if (tid !== null) clearTimeout(tid);
+          tid = setTimeout(function(){ tid = null; self.postMessage('tick'); }, e.data);
+        }
+      };
+    `;
+    const blob = new Blob([kode], { type: 'application/javascript' });
+    keeperWorker = new Worker(URL.createObjectURL(blob));
+    keeperWorker.onmessage = function() { if (sStatus === 'Startet') bestLoop(); };
+    console.log('[Bestiller] worker-timer aktiv (uthrottlet i bakgrunnen)');
+  } catch (e) {
+    console.warn('[Bestiller] kunne ikke starte worker-timer:', e.message);
+  }
+
+  function planLoop(delayMs) {
+    if (keeperWorker) {
+      keeperWorker.postMessage(delayMs);
+    } else {
+      loopTimeout = setTimeout(bestLoop, delayMs);
+    }
+  }
+
+  function avbrytLoop() {
+    if (keeperWorker) keeperWorker.postMessage('avbryt');
+    if (loopTimeout) { clearTimeout(loopTimeout); loopTimeout = null; }
+  }
 
   const setText = (node, val) => { if (node) node.textContent = val; };
 
@@ -717,13 +860,13 @@ const VERSION = '5.5';
 
       if (nyeIds.length > 0) {
         triggerRun();
-        loopTimeout = setTimeout(bestLoop, PAUSE_ETTER_DISPATCH_SEK * 1000);
+        planLoop(PAUSE_ETTER_DISPATCH_SEK * 1000);
       } else {
-        loopTimeout = setTimeout(bestLoop, PAUSE_NAR_TOM_SEK * 1000);
+        planLoop(PAUSE_NAR_TOM_SEK * 1000);
       }
     } catch (err) {
       console.error('[Bestiller] Loop feilet:', err.message);
-      loopTimeout = setTimeout(bestLoop, PAUSE_NAR_TOM_SEK * 1000);
+      planLoop(PAUSE_NAR_TOM_SEK * 1000);
     }
   }
 
@@ -752,7 +895,7 @@ const VERSION = '5.5';
   // Toggle
   el.btnToggle.addEventListener('click', () => {
     if (sStatus === 'Startet') {
-      if (loopTimeout) { clearTimeout(loopTimeout); loopTimeout = null; }
+      avbrytLoop();
       setStatusUI('Stoppet');
     } else {
       setStatusUI('Startet');
@@ -760,23 +903,79 @@ const VERSION = '5.5';
     }
   });
 
-  el.btnReset.addEventListener('click', () => {
-    if (confirm('Nullstille dagens statistikk?')) {
-      stats = { firstDispatch: null, sent: 0 };
-      trackedOngoing.clear();
-      dispatchedIds.clear();
-      saveStats(stats);
-      updateStatsUI();
-    }
-  });
-
   el.btnClose.addEventListener('click', () => {
-    if (loopTimeout) { clearTimeout(loopTimeout); loopTimeout = null; }
+    avbrytLoop();
+    if (keeperWorker) { try { keeperWorker.terminate(); } catch (_) {} keeperWorker = null; }
+    if (avsluttSesjon) avsluttSesjon();
     saveLocalState({ enabled: false });
     panel.remove();
     fab.remove();
     css.remove();
   });
+
+  // === Sesjon-logging → OUS Dashboard (Sesjoner) ===
+  // Melder Bestiller-økta + antall bestilte turer (stats.sent) til live_sesjon.php,
+  // på samme måte som Overvåker Live/Avvik. Egen try/catch — påvirker aldri bestillings-loopen.
+  const SESJON_URL = 'https://thomaswestby.no/skript/live_sesjon.php';
+  let sesjonId = 0;
+  let avsluttSesjon = null;
+
+  function hentNissyBrukernavn() {
+    try {
+      const cookies = document.cookie.split(';').map(c => c.trim());
+      const suffikser = ['efilter', 'vfilter', 'rfilter', 'popp', 'vopp'];
+      for (const c of cookies) {
+        const navn = c.split('=')[0];
+        for (const s of suffikser) {
+          if (navn.endsWith(s) && navn.length > s.length) return navn.slice(0, -s.length).toLowerCase();
+        }
+      }
+    } catch (_) {}
+    return '';
+  }
+  function hentSignatur() {
+    try {
+      const m = document.body.innerHTML.match(/Pasientreisekontor[^<]*(?:\s|&nbsp;)-\s*(?:&nbsp;\s*)*([^<]+)/);
+      if (m) {
+        const fullNavn = m[1].trim().replace(/&nbsp;/g, '').trim();
+        const deler = fullNavn.split(',').map(s => s.trim());
+        if (deler.length === 2) return `${deler[1]} ${deler[0].charAt(0)}.`;
+        return fullNavn;
+      }
+    } catch (_) {}
+    return 'Ukjent';
+  }
+  async function startSesjon() {
+    try {
+      const res = await fetch(SESJON_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          handling: 'start',
+          nissy_id: hentNissyBrukernavn(), signatur: hentSignatur(),
+          versjon: VERSION, skript: 'Bestiller',
+          kjorekontor: hentKjorekontor(), antall: stats.sent
+        })
+      });
+      const j = await res.json();
+      if (j && j.ok && j.id) sesjonId = j.id;
+    } catch (_) { /* offline / endpoint nede — la bestiller gå uansett */ }
+    if (!sesjonId) return;
+    // Heartbeat hvert 60 sek — sender oppdatert antall bestilt
+    setInterval(() => {
+      fetch(SESJON_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          handling: 'heartbeat', id: sesjonId,
+          versjon: VERSION, kjorekontor: hentKjorekontor(), antall: stats.sent
+        })
+      }).catch(() => {});
+    }, 60000);
+    avsluttSesjon = () => {
+      try { navigator.sendBeacon(SESJON_URL, new Blob([JSON.stringify({ handling: 'slutt', id: sesjonId })], { type: 'application/json' })); } catch (_) {}
+    };
+    window.addEventListener('beforeunload', avsluttSesjon);
+    window.addEventListener('pagehide', avsluttSesjon);
+  }
 
   // === Init ===
   async function init() {
@@ -789,6 +988,7 @@ const VERSION = '5.5';
     }
     updateStatsUI();
     setStatusUI('Stoppet');
+    startSesjon();
     console.log(`[Bestiller v${VERSION}] Klar (filter: ${aktivtFilter}) — floating panel`);
   }
 

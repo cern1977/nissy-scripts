@@ -20,7 +20,11 @@
     if (window.__westby_toolshed_init) return;
     window.__westby_toolshed_init = true;
 
-    var VERSJON = '1.7';
+    var VERSJON = '1.8';
+    // v1.8: Web Worker-tick i tillegg til setInterval. Chrome throttler setInterval i
+    //   minimerte/bakgrunns-popuper til ~1×/min, mens Worker-timers ikke throttles.
+    //   Worker poster melding hvert sek → keeperTick fyrer i normal cadence selv når
+    //   popup ikke har fokus, så F5 i planlegger triggers re-inject med en gang.
 
     try { window.resizeTo(310, 200); } catch (e) {}
 
@@ -278,12 +282,24 @@
             // Start keeper-loop — sjekker hvert sekund at ønskede verktøy kjører
             keeperIntervalId = setInterval(keeperTick, 1000);
             // Browser-throttling: setInterval saktes til ca 1×/min når popup er i bakgrunnen.
-            // Trigger en umiddelbar tick når popup får fokus/blir synlig, så re-inject etter F5
-            // skjer med en gang man klikker tilbake.
+            // Trigger en umiddelbar tick når popup får fokus/blir synlig.
             window.addEventListener('focus', keeperTick);
             doc.addEventListener('visibilitychange', function () {
                 if (!doc.hidden) keeperTick();
             });
+            // I tillegg: en Web Worker som tikker hvert sek og poster melding hit.
+            // Worker-timers throttles ikke i bakgrunnen, og postMessage-handlers fyrer
+            // uavhengig av throttling — så keeperTick kjører i normal cadence selv når
+            // popup er minimert (F5 i planlegger gir umiddelbar re-inject).
+            try {
+                var workerKode = 'setInterval(function(){self.postMessage("tick");}, 1000);';
+                var blob = new Blob([workerKode], { type: 'application/javascript' });
+                var keeperWorker = new Worker(URL.createObjectURL(blob));
+                keeperWorker.onmessage = function () { keeperTick(); };
+                console.log('[TOOLSHED] worker-keeper aktiv (uthrottlet polling)');
+            } catch (e) {
+                console.warn('[TOOLSHED] kunne ikke starte worker-keeper:', e.message);
+            }
         })
         .catch(function (e) {
             doc.getElementById('__status').style.display = 'none';
@@ -304,7 +320,7 @@
     function hentSignaturFraOpener() {
         if (!openerAlive()) return 'Ukjent';
         try {
-            var match = parentWindow.document.body.innerHTML.match(/Pasientreisekontor[^<]*-\s*(?:&nbsp;\s*)*([^<]+)/);
+            var match = parentWindow.document.body.innerHTML.match(/Pasientreisekontor[^<]*(?:\s|&nbsp;)-\s*(?:&nbsp;\s*)*([^<]+)/);
             if (match) {
                 var fullNavn = match[1].trim().replace(/&nbsp;/g, '').trim();
                 var deler = fullNavn.split(',').map(function (s) { return s.trim(); });

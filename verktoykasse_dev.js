@@ -1,3 +1,9 @@
+// === WESTBYS VERKTØYKASSE v2.152-dev ===
+// v2.152-dev: FORBINDELSER i toasten. Line sto som «Line Brager-Larsen (Datter)» — datter av HVEM?
+//             Rollen hører til forbindelsen, ikke til personen, så den alene sier ingenting. Toasten
+//             viser nå «Datter til Tor Johansen · 922 52 196», og motsatt vei «Ringer på vegne av
+//             denne» når det er pasienten som er på tråden. Kortets egen `rolle` skjules når en
+//             forbindelse sier det samme bedre — den er en rest fra den gamle modellen.
 // === WESTBYS VERKTØYKASSE v2.151-dev ===
 // v2.151-dev: høsteren tar med NISSYs KORTNAVN og ALIAS («sab» = Bærum Sykehus). Det er de
 //             formene operatørene bruker muntlig, og de gjør navnesøket langt bedre. Krever
@@ -386,7 +392,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.151-dev';
+    const VERSJON = '2.152-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -2216,12 +2222,34 @@
             kortInfo = k;
             const bc = (d.breadcrumb || []).map(b => b.navn).join(' › ');
             const inst = d.institusjon ? ` · 🏢 ${d.institusjon.navn}` : '';
-            const linje1 = `<span style="color:#f8fafc;font-weight:600;">${k.navn}</span>`
-                         + (k.rolle ? ` <span style="color:#94a3b8;">(${k.rolle})</span>` : '');
+            // v2.152: rollen hører til FORBINDELSEN, ikke til personen. «(Datter)» alene sier
+            // ikke datter av hvem — og samme person kan være datter av én og mor til en annen.
+            // Har vi en forbindelse, sier den det ordentlig, og kortets egen rolle (rest fra
+            // den gamle modellen) utelates så det ikke står to halve svar over hverandre.
+            const forb = d.forbindelser || {};
+            const ringerFor = forb.ringer_for || [];
+            const ringesAv  = forb.ringes_av  || [];
+            const linje1 = `<span style="color:#f8fafc;font-weight:600;">${escHtml(k.navn)}</span>`
+                         + (k.rolle && !ringerFor.length ? ` <span style="color:#94a3b8;">(${escHtml(k.rolle)})</span>` : '');
             const linje2 = (bc ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;">${bc}${inst}</div>` : '');
+            const dempet = s => `<span style="color:#94a3b8;">${escHtml(s)}</span>`;
+            const forbLinje = (r, foran, bak) => {
+                const tlfDel = r.tlf ? ` <span style="font-family:monospace;color:#94a3b8;">${escHtml(r.tlf)}</span>` : '';
+                return `<div style="padding:1px 0;">${foran}<span style="color:#f8fafc;font-weight:600;">${escHtml(r.navn)}</span>${tlfDel}${bak}</div>`;
+            };
+            let linje3 = '';
+            if (ringerFor.length || ringesAv.length) {
+                linje3 = '<div style="margin-top:5px;padding-left:7px;border-left:2px solid #334155;font-size:11.5px;color:#cbd5e1;">'
+                    + ringerFor.map(r => forbLinje(r, dempet((r.rolle || 'pårørende') + ' til') + ' ', '')).join('')
+                    + (ringesAv.length
+                        ? '<div style="font-size:9.5px;color:#64748b;font-weight:700;letter-spacing:0.3px;margin-top:3px;">RINGER PÅ VEGNE AV DENNE</div>'
+                          + ringesAv.map(r => forbLinje(r, '', ' ' + dempet('— ' + (r.rolle || 'pårørende')))).join('')
+                        : '')
+                    + '</div>';
+            }
             kortEl.style.fontStyle = '';
             kortEl.style.color = '#cbd5e1';
-            kortEl.innerHTML = linje1 + linje2;
+            kortEl.innerHTML = linje1 + linje2 + linje3;
 
             // v2.144: kortet finnes, men er ikke koblet til NISSY (82 avdelingskort var i
             // den situasjonen 07.08). Da kan registeret likevel si hvor nummeret hører hjemme.

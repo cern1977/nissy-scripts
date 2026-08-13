@@ -1,40 +1,50 @@
-// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT v1.23 ===
-// v1.23: tegnforklaring nederst i feltet — «Attributtene i oransje kan kun endres i samråd med
-//        behandler» (oransje swatch). Forklarer oransje-markeringen. (dev v1.39)
-// v1.22: FIX «Antall reiseledsagere» på énsides «locus»-skjema (altRequisition) — teksten i
-//        <div class=col-md-4> (ikke <td>), input trip.noOfCompanions. Matcher nå <td>/<div> m/ teksten
-//        som direkte tekstnode + input[id/name$=noOfCompanions]. Regex case-insensitiv (4x4). (dev v1.38)
-// v1.21: info-plakat ferdigstilt (promotert dev v1.36-dev) — GRØNN boks/badge med «Disse behovene
-//        kan du som pasientreiseoperatør endre:» (babystol/barnestol/sittepute, rullator, rullestoler,
-//        trappeklatrer, førerhund, ekstra bagasje, assistanse, firehjulstrekk, manuell håndtering).
-//        Behov operatøren IKKE kan endre farges ORANSJE i feltet — komplementet av SPES_BEHOV_TILLATT
-//        (AL,LF,HI,LI,IA,SF,LB,A) + «Antall reiseledsagere». fargeLaasteBehov() i dekoratør-loopen.
-// v1.20: info-plakat — la til Trappeklatrer (TK) i lista over behov pasienten selv kan legge til.
-// v1.19: info-plakat fylt med innhold (fra ledelsen) — behov pasienten selv kan legge til på
-//        Helsenorge: barnestol/sittepute (alle), rullator, rullestol (+ sammenleggbar/elektrisk),
-//        førerhund/servicehund, ekstra bagasje, assistanse til/fra transportmiddel, firehjulstrekk.
-// v1.18: INFO-PLAKAT ved «Spesielle behov» (addTrip) — oransje «i»-badge i feltets <legend> som
-//        toggler en oransje overlay-plakat (øverst til høyre, skyver ikke ned): hva en
-//        pasientreiseoperatør har lov til å endre / ikke. Statisk/hardkodet (SPES_BEHOV_INFO_HTML —
-//        placeholder «Innhold kommer» inntil teksten er klar). Promotert fra rekvisisjon_dev v1.28-dev.
-// v1.16: promotert kalender fra dev — kompakt månedskalender m/ukenummer i ledig høyrefelt,
-//        drabar + minimerbar, posisjon/tilstand i localStorage.
-// v1.15: superkrefter finjustert 4px ned + 4px venstre (top:36, left:376).
-// v1.14: superkrefter nærmere PASIENTREISER (left:380) og litt lavere (top:32).
-// v1.13: superkrefter top:14 → top:24 (havnet 10px for høyt i v1.12).
-// v1.12: superkrefter-merket på samme baseline som PASIENTREISER (top:14, font:22px).
-// v1.11: superkrefter-merket flyttet til høyre (left:420px, top:28px, 16px) så det ikke
-//        overlapper PASIENTREISER-logoen.
-// v1.10: Fix superkrefter-merket — "PASIENTREISER" er et bilde (NISSYlogo.jpg), ikke tekst.
-//        Targeter logo-TD-en og legger på et absolutt-posisjonert overlay-span ved siden av.
-// v1.9: "PASIENTREISER med superkrefter" — header-merket signaliserer at agenten er aktiv.
-// v1.8: Raskere dato-dekorering. (a) Sort + ramme hopper nå over når ingenting nytt ble
-//        dekorert — sparer 50-100 unødvendige passeringer per Rico-render. (b) rAF-batcher
-//        MutationObserver-ticks så dusinvis av mutasjoner i samme frame gir ÉN scan.
-// v1.7: Promotert hele dev → prod (v1.7-dev til v1.14-dev). Bringer inn:
-//        dato-dekoratør med dagnavn under "Oppm. dato" / "Pasient klar fra";
-//        ISO-ukenummer ("fredag · uke 20"); oransje farge + weight 600;
-//        ukes-gruppering med horisontale skiller; sortering synkende på "Pasient klar fra".
+// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT (DEV) v1.39-dev ===
+// v1.39-dev: tegnforklaring nederst i feltet: «Attributtene i oransje kan kun endres i samråd med
+//            behandler» (oransje swatch). Forklarer hva oransje-markeringen betyr.
+// v1.38-dev: FIX «Antall reiseledsagere» på énsides «locus»-skjema (altRequisition): teksten ligger i
+//            <div class=col-md-4> (ikke <td>) og input heter trip.noOfCompanions. Matcher nå <td> ELLER
+//            <div> m/ teksten som direkte tekstnode + input[id/name$=noOfCompanions]. Regex case-insensitiv
+//            (4x4 m/ liten x) så ingen låst kode med små bokstaver slipper unna.
+// v1.37-dev: FIX «Antall reiseledsagere» traff ikke — teksten ligger i EGEN <td> (skilt fra
+//            input#noOfCompanions), så feil celle ble farget. Matcher nå cellen m/ teksten som
+//            direkte tekstnode. (Gjelder også énsides altRequisition-skjemaet med flere koder.)
+// v1.36-dev: ordlyd → «Disse behovene kan du som pasientreiseoperatør endre:».
+// v1.35-dev: popup-boks + «i»-badge GRØNN (det operatøren HAR lov til); låste behov forblir oransje
+//            tekst i feltet. Grønn = lov, oransje = ikke lov.
+// v1.34-dev: ordlyd → «…pasienten selv legge til på Helsenorge, og du som pasientreiseoperatør kan
+//            også endre dem:». «Antall reiseledsagere» (input#noOfCompanions) farges oransje —
+//            operatøren kan ikke endre den (ikke en <label>, så fargelegges eksplisitt).
+// v1.33-dev: internt verktøy — ordlyd «Disse behovene kan du endre som pasientreiseoperatør:».
+//            BS0 (babystol) + MH (manuell håndtering) er IKKE oransje (lagt i TILLATT). Babystol +
+//            «Manuell håndtering av kjøreoppdrag» lagt i lista.
+// v1.32-dev: FORSLAG til ledelsen — markér behov operatøren ikke kan endre i oransje. Definerer de
+//            TILLATTE kodene (pasient-selvvalg) og farger alt annet automatisk = komplementet, så
+//            det aldri kommer i utakt med Helsenorge-lista. Avventer godkjenning før prod.
+// v1.31-dev: DEMO — markér behov operatøren IKKE kan endre i oransje (label-tekst). Kun AL (Allergi)
+//            inntil ledelsen gir full liste over låste koder. fargeLaasteBehov() matcher «(KODE)» i
+//            label-tekst, idempotent pr. label. IKKE promotert (avventer full liste).
+// v1.30-dev: info-plakat — la til Trappeklatrer (TK) (synket med prod v1.20).
+// v1.29-dev: info-plakat fylt med innhold (fra ledelsen) — behov pasienten selv kan legge til
+//            på Helsenorge (synket med prod v1.19).
+// v1.28-dev: info-plakat — oransje «i»-badge (superkrefter-tema) + panelet som OVERLAY
+//            (position:absolute ift. fieldset) så det legger seg over feltet, skyver ikke ned. Oransje tema.
+//            Panelet forankret øverst til HØYRE i fieldset (top:8px;right:10px).
+// v1.27-dev: INFO-PLAKAT ved «Spesielle behov» (addTrip) — liten ℹ️-knapp i feltets <legend> som
+//            toggler en skjult veiledningsdiv: hva en pasientreiseoperatør har lov til å endre / ikke.
+//            Statisk/hardkodet (SPES_BEHOV_INFO_HTML — placeholder inntil teksten er klar).
+//            Anker: <fieldset> m/ <table id="transportRequirements">; kjøres via dekoratør-loopen.
+// v1.25-dev: kalender kan dras (oransje header) + minimeres (–/+); posisjon + tilstand huskes i localStorage.
+// v1.24-dev: kompakt månedskalender med ukenummer i ledig høyrefelt (fixed, oransje tema).
+//            ‹ › måned-nav + «I dag», i dag uthevet, helg i rødt. Gjenbruker isoUkenummer().
+// v1.23-dev: superkrefter finjustert 4px ned + 4px venstre (top:36, left:376).
+// v1.22-dev: superkrefter nærmere PASIENTREISER (left:380) og litt lavere (top:32).
+// v1.21-dev: superkrefter top:14 → top:24 (havnet 10px for høyt i v1.20-dev).
+// v1.20-dev: superkrefter på samme baseline som PASIENTREISER (top:14, 22px).
+// v1.19-dev: superkrefter flyttet til høyre (left:420px) for å ikke overlappe logo.
+// v1.18-dev: Fix superkrefter — targeter logo-TD (PASIENTREISER er bilde), absolute overlay.
+// v1.17-dev: "PASIENTREISER med superkrefter" — header-merket signaliserer at agenten er aktiv.
+// v1.16-dev: Raskere dekorering — sort+ramme hopper over når intet nytt + rAF-batching.
+// v1.15-dev: synket med prod v1.7.
 // v1.14-dev: sorter rekvisisjons-listen synkende etter Pasient klar fra + klokkeslett
 // v1.13-dev: ukes-skille — kun ÉN orange topp-linje på rad der uka skifter
 //            (ingen topp på første gruppe, ingen bunn på siste, ikke rør tabell-styling)
@@ -45,9 +55,9 @@
 // v1.9-dev: dagnavn-farge til orange (#f97316) + weight 600 — grå druknet i blå rader
 // v1.8-dev: dato-dekoratør — scan alle <td> direkte i stedet for header-lookup
 //   (header-strukturen varierer); dekorer celler som eksakt matcher dato-regex.
-// Headless agent som lastes inn på /rekvisisjon/-modulen.
-// Injiseres automatisk av planlegger-verktøykassen når en rekvisisjon-tab åpnes,
-// eller manuelt via bookmarklet.
+// Dev-versjon av rekvisisjons-agenten. Injiseres kun av DEV-planlegger-
+// verktøykassen, ikke av prod. Isolert fra produksjonsflyt så vi kan
+// eksperimentere uten å påvirke kollegene.
 //
 // v1.7-dev: dato-dekoratør — legger dagnavn (mandag/tirsdag/...) under
 //   "Oppm. dato" og "Pasient klar fra" i rekvisisjons-listen.
@@ -55,12 +65,13 @@
 //   window.opener.__vkt_registerAgentTab() hvert poll-tick så Map i planlegger
 //   alltid har fersk window-referanse, uavhengig av F5 i planlegger.
 (function () {
-    const VERSJON = '1.23';
-    const KILDE = 'prod';
-    const NAVN = 'VKT-REKVISISJON';
+    const VERSJON = '1.39-dev';
+    // Hardkodet — dette er dev-fila, så den re-injiserer alltid dev-versjoner
+    const KILDE = 'dev';
+    const NAVN = 'VKT-REKVISISJON-DEV';
     const MODUL = 'rekvisisjon';
-    const FIL = 'verktoykasse_rekvisisjon.js';
-    const FLAG = '__vkt_rekvisisjon_agent';
+    const FIL = 'verktoykasse_rekvisisjon_dev.js';
+    const FLAG = '__vkt_rekvisisjon_dev_agent';
     const PATH_PREFIX = '/rekvisisjon/';
     const JOBS_URL = 'https://thomaswestby.no/skript/nissy_jobs.php';
     const POLL_MS = 3000;
@@ -153,20 +164,16 @@
     }
 
     // Mutual keeper: hvis planlegger (window.opener) har F5'et og mister
-    // prod-verktøykassen, re-injiserer vi prod. Hvis dev kjører hos opener,
-    // la dev være — ikke override. Re-registrer alltid oss selv så Map er fersk.
+    // dev-verktøykassen, re-injiserer vi DEV derfra. Vi er dev-agenten, så vi
+    // re-injiserer kun dev — aldri prod (Pinger plukker opp prod automatisk).
+    // I tillegg: ALLTID ringe inn til opener.__vkt_registerAgentTab() så dev's
+    // overvåkedeTaber Map er fersk uavhengig av F5 i planlegger.
     function holdOpenerLevende() {
         try {
             const opener = window.opener;
             if (!opener || opener.closed) return;
             if (!/\/planlegging\//.test(opener.location.pathname)) return;
-            // Hvis dev kjører — la dev være, ikke re-injiser prod
-            if (opener.__westbyVerktoykasse_dev) {
-                if (typeof opener.__vkt_registerAgentTab === 'function') {
-                    opener.__vkt_registerAgentTab(window, FIL, FLAG, PATH_PREFIX);
-                }
-                return;
-            }
+            // Hvis dev IKKE kjører — re-injiser
             if (!opener.__westbyVerktoykasse && !opener.__westbyVerktoykasse_dev) {
                 // Injiser AKTIV variant (sticky i localStorage) — alle agenter injiserer samme variant.
                 let variant = 'prod';
@@ -176,8 +183,9 @@
                 s.src = 'https://thomaswestby.no/skript/skript.php?fil=' + fil + '&_=' + Date.now();
                 opener.document.head.appendChild(s);
                 console.log(`[${NAVN}] re-injiserte ${fil} (aktiv variant=${variant}) i opener (planlegger)`);
-                return;
+                return; // ikke klar enda — registrer på neste tick
             }
+            // Re-registrer oss selv hos opener så Map alltid er fersk
             if (typeof opener.__vkt_registerAgentTab === 'function') {
                 opener.__vkt_registerAgentTab(window, FIL, FLAG, PATH_PREFIX);
             }
@@ -214,16 +222,12 @@
         return Math.ceil((((t - aarStart) / 86400000) + 1) / 7);
     }
 
-    // Merker PASIENTREISER-header med "med superkrefter" så det er åpenbart at agenten er aktiv.
-    // "PASIENTREISER" er et BILDE (NISSYlogo.jpg) som background-image på en TD — derfor må vi
-    // posisjonere et overlay-span absolut, ikke appende tekst til et eksisterende tekst-element.
     function dekorerHeader() {
         if (document.querySelector('[data-vkt-superkrefter]')) return;
         const td = Array.from(document.querySelectorAll('td')).find(el =>
             /NISSYlogo/i.test(el.getAttribute('style') || '')
         );
         if (!td) return;
-        // TD må være positioning-anchor for vår absolute child
         if (getComputedStyle(td).position === 'static') td.style.position = 'relative';
         const tilbygg = document.createElement('span');
         tilbygg.dataset.vktSuperkrefter = '1';
@@ -236,7 +240,6 @@
     function dekorerRekvisisjonsListen() {
         let dekorert = 0;
         document.querySelectorAll('td:not([data-vkt-dag-dekorert])').forEach(td => {
-            // Bruk innerText (eller første tekst-node) — hopper over barneelementer fra tidligere dekorasjoner
             const tekst = (td.firstChild && td.firstChild.nodeType === 3)
                 ? td.firstChild.textContent
                 : td.textContent;
@@ -250,8 +253,6 @@
             td.appendChild(dagEl);
             dekorert++;
         });
-        // Hopp helt over sort + ramme hvis ingenting nytt ble dekorert.
-        // Sparer mye CPU på MutationObserver-ticks som ikke gjelder rekv-listen.
         if (dekorert === 0) return;
         console.log(`[${NAVN}] dato-dekoratør: la til dagnavn på ${dekorert} celle(r)`);
         sorterEtterDato();
@@ -329,10 +330,6 @@
             }
         });
     }
-
-    // Coalesce MutationObserver-ticks via rAF — NISSYs Rico-render kan trigge dusinvis av
-    // mutasjoner per "frame". Uten batching kjørte vi full tabell-scan på hver, som ga
-    // synlig latens før dagnavn/uke kom opp.
 
     // Kompakt månedskalender med ukenummer i det ledige høyrefeltet (oransje «superkrefter»-tema).
     // Operatørene jobber i ukenummer («mandag · uke 25»), så uke-kolonnen er hovedpoenget.
@@ -427,10 +424,9 @@
     }
 
     // === SPESIELLE BEHOV — info-plakat ===
-    // Oransje «i»-badge i «Spesielle behov»-feltets <legend> (rekvisisjon/requisition/addTrip).
-    // Klikk → toggler en oransje overlay-plakat (skyver ikke ned), øverst til høyre i fieldset:
-    // veiledning til hva en pasientreiseoperatør HAR LOV til å endre / ikke.
-    // Statisk og hardkodet — fyll inn SPES_BEHOV_INFO_HTML når teksten er klar.
+    // Liten ℹ️-knapp i «Spesielle behov»-feltets <legend> (rekvisisjon/requisition/addTrip).
+    // Klikk → toggler en veiledningsdiv: hva en pasientreiseoperatør HAR LOV til å endre / ikke.
+    // Statisk og hardkodet (Thomas' valg) — fyll inn SPES_BEHOV_INFO_HTML når teksten er klar.
     // Anker: <fieldset> som inneholder <table id="transportRequirements"> + dens <legend>.
     const SPES_BEHOV_INFO_HTML =
         '<p style="margin:0 0 7px;">Disse behovene kan <b>du som pasientreiseoperatør</b> endre:</p>'
@@ -484,7 +480,7 @@
         let fs = tbl;
         while (fs && fs.tagName !== 'FIELDSET') fs = fs.parentNode;
         const legend = fs ? fs.querySelector('legend') : null;
-        // Grønn «i»-badge (det operatøren HAR lov til).
+        // Oransje «i»-badge à la «superkrefter»-temaet.
         const knapp = document.createElement('span');
         knapp.id = 'vkt-spesbehov-knapp';
         knapp.textContent = 'i';
@@ -544,7 +540,6 @@
     }
     const datoObs = new MutationObserver(planleggDekorasjon);
     datoObs.observe(document.body, { childList: true, subtree: true });
-    // Initial synchron pass — eksisterende rader dekoreres umiddelbart ved agent-load
     dekorerHeader();
     dekorerRekvisisjonsListen();
     dekorerSpesielleBehov();

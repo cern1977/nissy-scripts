@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>MapLibre-test · Område Assistent</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,sans-serif}
+  #map{position:absolute;inset:0}
+  .panel{position:absolute;top:12px;left:12px;z-index:5;background:rgba(15,23,42,.92);
+    color:#e2e8f0;padding:12px 14px;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.5);
+    font-size:13px;max-width:300px}
+  .panel h1{font-size:14px;margin:0 0 8px}
+  .panel .grp{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .panel button{flex:1;min-width:84px;padding:7px 9px;background:#334155;color:#fff;border:none;
+    border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
+  .panel button.aktiv{background:#2563eb}
+  .panel .status{font-size:11px;color:#94a3b8;line-height:1.5}
+  .legend{margin-top:6px;font-size:11px}
+  .legend span{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .vbil{font-size:20px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="panel">
+  <h1>🗺️ MapLibre-test</h1>
+  <div class="grp">
+    <button data-stil="positron" class="aktiv">Vektor dempet</button>
+    <button data-stil="bright">Vektor detaljert</button>
+    <button data-stil="kartverket">Kartverket gråtone</button>
+  </div>
+  <div class="status" id="status">Laster ruter …</div>
+  <div class="legend" id="legend"></div>
+  <div class="status" style="margin-top:8px">Scroll = zoom · høyreklikk-dra = roter/tilt</div>
+</div>
+
+<script>
+// === Bakgrunnsstiler ===
+const STILER = {
+  positron: 'https://tiles.openfreemap.org/styles/positron',   // dempet vektor (OSM)
+  bright:   'https://tiles.openfreemap.org/styles/bright',      // detaljert vektor (OSM)
+  kartverket: {                                                 // dagens raster, til sammenligning
+    version: 8,
+    sources: {
+      kv: {
+        type: 'raster', tileSize: 256,
+        tiles: ['https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png'],
+        attribution: '© Kartverket'
+      }
+    },
+    layers: [{ id: 'kv', type: 'raster', source: 'kv' }]
+  }
+};
+
+// === Eksempelruter (hentes via ruter.php — Geonorge + ORS) ===
+const RUTER = [
+  { navn: 'Ullevål → Jessheim',      fra: 'Kirkeveien 166, 0450 Oslo',     til: '2050 Jessheim',   farge: '#dc2626' },
+  { navn: 'Rikshospitalet → Gran',   fra: 'Sognsvannsveien 20, 0372 Oslo', til: '2750 Gran',       farge: '#2563eb' },
+  { navn: 'Aker → Lillestrøm',       fra: 'Trondheimsveien 235, 0586 Oslo',til: '2000 Lillestrøm', farge: '#16a34a' },
+];
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: STILER.positron,
+  center: [10.9, 60.05],   // [lon,lat] — Oslo/Romerike
+  zoom: 9
+});
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+
+let ruteFC = { type: 'FeatureCollection', features: [] };
+const markorer = [];
+
+// Tegn rute-lag (kalles på nytt ved hvert stilbytte siden setStyle nullstiller kilder)
+function leggOverlay() {
+  if (!ruteFC.features.length || map.getSource('ruter')) return;
+  map.addSource('ruter', { type: 'geojson', data: ruteFC });
+  // Casing/halo under for synlighet på alle bakgrunner
+  map.addLayer({ id: 'ruter-casing', type: 'line', source: 'ruter',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#ffffff', 'line-width': 8, 'line-opacity': .65, 'line-blur': .5 } });
+  map.addLayer({ id: 'ruter-linje', type: 'line', source: 'ruter',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ['get', 'farge'], 'line-width': 4.5 } });
+}
+map.on('style.load', leggOverlay);
+
+// Hent rutene én gang, bygg GeoJSON, legg til markører
+(async function () {
+  const st = document.getElementById('status');
+  const lg = document.getElementById('legend');
+  let ok = 0;
+  for (const r of RUTER) {
+    try {
+      const u = `/skript/ruter.php?fra=${encodeURIComponent(r.fra)}&til=${encodeURIComponent(r.til)}`;
+      const d = await (await fetch(u)).json();
+      if (!d.ok || !d.geometri) { console.warn('rute feilet', r.navn, d); continue; }
+      const coords = d.geometri.map(p => [p[1], p[0]]); // [lat,lon] → [lon,lat]
+      ruteFC.features.push({ type: 'Feature', properties: { farge: r.farge, navn: r.navn }, geometry: { type: 'LineString', coordinates: coords } });
+      // Returbil-markør ved startpunkt, dropp-punkt ved slutt
+      const fra = [d.fra[1], d.fra[0]], til = [d.til[1], d.til[0]];
+      const el = document.createElement('div'); el.className = 'vbil'; el.textContent = '🚐';
+      markorer.push(new maplibregl.Marker({ element: el }).setLngLat(fra)
+        .setPopup(new maplibregl.Popup({ offset: 14 }).setText(`Returbil · ${r.navn} (${Math.round(d.sek/60)} min)`)).addTo(map));
+      markorer.push(new maplibregl.Marker({ color: r.farge }).setLngLat(til)
+        .setPopup(new maplibregl.Popup({ offset: 14 }).setText(`Dropp · ${r.til}`)).addTo(map));
+      lg.innerHTML += `<div><span style="background:${r.farge}"></span>${r.navn} · ${Math.round(d.sek/60)} min · ${d.km} km</div>`;
+      ok++;
+    } catch (e) { console.warn('rute-feil', r.navn, e.message); }
+  }
+  st.textContent = ok ? `${ok}/${RUTER.length} ruter tegnet. Veksle bakgrunn over.` : 'Ingen ruter hentet — sjekk konsollen.';
+  if (map.isStyleLoaded()) leggOverlay();
+  if (ok) map.fitBounds(ruteFC.features.reduce((b, f) => f.geometry.coordinates.reduce((bb, c) => bb.extend(c), b), new maplibregl.LngLatBounds(ruteFC.features[0].geometry.coordinates[0], ruteFC.features[0].geometry.coordinates[0])), { padding: 70 });
+})();
+
+// Stilbytte
+document.querySelectorAll('.panel button[data-stil]').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.panel button[data-stil]').forEach(x => x.classList.remove('aktiv'));
+    b.classList.add('aktiv');
+    map.setStyle(STILER[b.dataset.stil]); // style.load → leggOverlay re-tegner rutene
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1749 @@
+// === OMRÅDE ASSISTENT v0.9.0-dev ===
+// v0.9.0-dev: SEMVER (MAJOR.MINOR.PATCH). 0 = før produksjon; 1.0.0 reserveres til prod-promotert, test-grenser
+//             (KANDIDAT_MAKS) av og kollega-verifisert. Patch (0.9.1) ved fiks, minor (0.10.0) ved nye features.
+//             Tidligere «v0.XX-dev» var bare et løpenummer (var feilaktig «v1.0-dev»). + «🔔 Test blink»-knapp:
+//             tvinger noen ventende-rader til å blinke i NISSY ~8 s for å teste blinket når ingenting haster.
+// v1.0-dev: BLINK I NISSY. Ventende-rader som HASTER («send ut»-frist passert) pulserer nå med amber
+//           bakgrunn direkte i NISSY-planleggertabellen (ikke bare i verktøyet) via tr.oa-haster-klasse +
+//           keyframes injisert i NISSY-head. Re-påføres hvert 3. sek (overlever NISSYs aggressive re-render)
+//           + ved hver skann; uavhengig av autoRefresh (live operatør-hjelp). Fjernes ved områdebytte.
+// === OMRÅDE ASSISTENT v0.99-dev ===
+// v0.99-dev: returbil-rydding + anker-fiks. (1) Over-matching: omvei var ankret globalt på OSLO_KOORD, så
+//            en Kongsvinger-bil fikk ~0 omvei mot ALLE Oslo-pasienter. Nå ankres per BIL på dens faktiske
+//            posisjon (returInfo.hub = der den slipper av sin egen pasient = siste innkjørings til); omvei =
+//            hub→D + D→E − hub→E. En Kongsvinger-bil matcher ikke lenger Oslo-pasienter. (2) Støy: «⚠ ikke
+//            plass»-lista fjernet helt; «tar» viser kun de som faktisk får plass (kapasitet), med +omvei,
+//            sortert beste først.
+// === OMRÅDE ASSISTENT v0.98-dev ===
+// v0.98-dev: info-stolpen viser nå OMKJØRING FOR SISTE PASIENT (den som sitter i bilen hele veien): bilens
+//            rute fra hens henting til hens hjem MINUS direkte tur — i +min, +km og +%. Fanger distanse/tid
+//            per rute-segment (rute.meter/sek, haversine-estimat ved luftlinje-fallback).
+// === OMRÅDE ASSISTENT v0.97-dev ===
+// v0.97-dev: (1) INFO-STOLPE venstre i samkjør-kartet: pasientene (tid/navn/behov/fra→til) + kjørerekkefølge
+//            (nummererte unike stopp m/adresse) + omvei. (2) Luftlinje-diagnose: logger ruter.php-feilen per
+//            segment som faller tilbake (mistanke: ORS-ratelimit). (3) hentRute cacher ikke lenger FEIL (kun
+//            gyldige ruter) → prøver på nytt når ORS-kvoten er tilbake, i stedet for å henge på luftlinje.
+// === OMRÅDE ASSISTENT v0.96-dev ===
+// v0.96-dev: samkjør-kart slår nå sammen punkter på ~samme sted (<300 m) til ÉN unik stopp. Begge hentes på
+//            Ahus → felles hente-stopp (3 adresser, ikke 4) i stedet for to overlappende markører. Markører
+//            nummereres per UNIK stopp i kjørerekkefølge; felles stopp (begge pasienter) vises lilla med begge
+//            navn i tooltip. Ruter mellom de unike stoppene.
+// === OMRÅDE ASSISTENT v0.95-dev ===
+// v0.95-dev: manglende rute mellom hente-stopp (Oslo→Ski). Årsak: ruter.php geokodet klinikk-navnet på nytt
+//            («Nevrolog …, 0364 Oslo» → Geonorge-miss → fallback) og kunne ta >12s → fetchTO-timeout → ingen
+//            rute. Fiks: (1) ruter.php tar nå KOORDINAT-input «lat,lon» direkte (hopper geokoding); kartet ruter
+//            på de allerede-geokodede punktene. (2) Stiplet rett linje som fallback hvis ruting likevel feiler,
+//            så koblingen 1→2→3→4 alltid er synlig.
+// === OMRÅDE ASSISTENT v0.94-dev ===
+// v0.94-dev: kart tegnet ingenting — ÉN null-punkt i rute-geometrien kræsjet Leaflet (_projectLatlngs:
+//            «Cannot read null[0]») og avbrøt hele tegningen. Fiks: filtrer geometrien til gyldige [lat,lon]
+//            (for-løkke) før L.polyline, tegn kun ved ≥2 punkter. Hele tegne-blokka i try/catch + for-løkker
+//            (Prototype.js-trygt). Markører/rute tegnes nå robust.
+// === OMRÅDE ASSISTENT v0.93-dev ===
+// v0.93-dev: kart-overlay viste hver tur for seg (2 separate ruter), ikke som samkjøring. Nå tegnes ÉN
+//            kombinert rute = bilens faktiske kjøring: hent begge → lever begge i optimal rekkefølge (samme
+//            4 rekkefølger som beregnPar, minst total avstand). Markørene er NUMMERERT 1→4 i besøksrekkefølge,
+//            farget per pasient (blå=A, oransje=B). Felles hentested → segmentet hoppes over.
+// === OMRÅDE ASSISTENT v0.92-dev ===
+// v0.92-dev: berik() hang («Stopper opp» etter skann) — v0.90 doblet geokodingen (par geokoder nå fra+til),
+//            så ~160 fetch ble fyrt samtidig mot one.com → PHP-FPM tom for arbeidere → noen kall hang →
+//            Promise.all fullførte aldri. Fiks: (1) fetchTO = timeout (abort 9–12s) på alle geokod/reisetid/
+//            ruter-kall; (2) mapLimit = maks 6 samtidige kall (kø) for geokoding + reisetid. Berik fullfører
+//            nå alltid (verre fall: noen adresser uten koord denne runden, hentes fra cache neste).
+// === OMRÅDE ASSISTENT v0.91-dev ===
+// v0.91-dev: «auto av» betyr nå HELT statisk. Poll-skannet var gated på autoRefresh, men to andre triggere
+//            kjørte uansett: 30s-re-rendringen (visIv) og visibilitychange-hooken (skann ved fokus). Begge
+//            gates nå på autoRefresh. Auto av = kun første lasting + manuell 🔄 Oppdater rører visningen.
+// === OMRÅDE ASSISTENT v0.90-dev ===
+// v0.90-dev: HANDLING = fokusert kartvisning. Hvert samkjør-par har nå «🗺️ Vis i kart» → åpner et overlay
+//            som viser KUN den ene samkjøringen: begge pasientenes hentested (H) + hjem (🏠) + kjøreruter
+//            (blå=A, oransje=B), auto-zoomet. Statisk (tegnes én gang, ingen auto-refresh + invalidateSize)
+//            → unngår zoom-wipe-bugen fra full-kartet. Bekrefter «samme retning» visuelt før manuell handling.
+// === OMRÅDE ASSISTENT v0.89-dev ===
+// v0.89-dev: «hvilket par er best?» — før listet vi ALLE mulige par, så samme pasient (f.eks. JOHANSEN)
+//            dukket opp i 5–6 overlappende forslag. Nå: grådig maks-matching → «anbefalt plan» der hver
+//            pasient er i ÉN bil (beste/minste omvei først, bruk opp begge, gjenta). Overlappende
+//            alternativer flyttet til en kollapset «Andre mulige par»-seksjon (<details>).
+// === OMRÅDE ASSISTENT v0.88-dev ===
+// v0.88-dev: KORREKTHET — feil tid-kolonne. Ventende-tabellen har REISETID (faktisk hente-/transporttid)
+//            OG OPPTID (oppmøte-/behandlingstid, kan være morgentimen for en retur). Koden brukte OPPTID
+//            («opp || start» = OPPTID først) → falske tider: BUCH viste 08:50 «SEND UT» selv om henting var
+//            11:30; KHILJI viste 10:30 selv om REISETID var 12:45. Nå brukes REISETID som primær tid
+//            (lagt i leggets «opp»-felt) overalt: matching-tidsvindu, samkjør-par, hente-frist, «send ut».
+// v0.87-dev: (midlertidig) engangs-dump av ventende-kolonner for å kartlegge tid-mappingen — fjernet i 0.88.
+// v0.86-dev: KVALITET på samkjør-par. (1) Kortene viser nå full FRA → TIL per pasient (før kun
+//            destinasjons-sted — umulig å kvalitetssjekke). (2) beregnPar regner nå ÆRLIG omvei: geokoder
+//            BÅDE hentested (fra) og hjem (til), krever hentestedene < 8 km fra hverandre (Oslo sentrum +
+//            Ahus = avvist), og bruker korteste kombinerte rute (4 rekkefølger: hent begge → lever begge)
+//            − lengste enkelttur — samkjorer.js geografiskMatch. Slutt på falske «+0 min»-par. Par-trakta
+//            viser nå «→ hent<8km N». NESTE: trioer (opptil 6 adresser). Også gjelder forslag-kort fra→til.
+// === OMRÅDE ASSISTENT v0.85-dev ===
+// v0.85-dev: «📡 N nye oppslag»-teller i trakta — viser FAKTISKE nettverkskall (geokod+reisetid) per runde;
+//            cache-treff teller 0. Bekrefter at gjentatte tester ikke slår opp på nytt (localStorage 30 d).
+//            Grønn=0, gul=>0. Ingen logikkendring.
+// === OMRÅDE ASSISTENT v0.84-dev ===
+// v0.84-dev: ROTÅRSAK funnet via par-trakta (geokodet 0/0 selv med pool 25 → tid 160 → kap 133): rico.js
+//            saboterer Set/Array.from/forEach-innsamling på NISSY-arrays, så adresse-lista ble TOM → haversine
+//            hadde ingen koordinater → 0 treff/par. Bygd om adresse-innsamlingen i beregnForslag + beregnPar
+//            til rene for-løkker + vanlig objekt (immun mot rico). Nå skal åpenbare par (Ahus→nordover) matche.
+// === OMRÅDE ASSISTENT v0.83-dev ===
+// v0.83-dev: DIAGNOSE-utvidelse for å finne hvorfor åpenbare par (f.eks. to Ahus→nordover) ikke matches.
+//            beregnForslag: besteOmvei + antall tids-OK kombo. beregnPar: egen trakt (pool→tid→kap→geo,
+//            beste omvei, geokodet N/M). Vises i 🔎-linja. Logikk uendret — kun innsyn.
+// === OMRÅDE ASSISTENT v0.82-dev ===
+// v0.82-dev: MATCHING VIRKER IGJEN. Rotårsak til 0 treff: ORS/Google-matrisen ble ~100×120 (12k ruter)
+//            og sprengte API-grensa → «matrise-kall feilet». Lagt om til HAVERSINE×VEIFAKTOR (samkjorer.js-
+//            stil, gratis/lokalt) i beregnForslag + beregnPar: geokoder D+E (cachet), omvei = (Oslo→D + D→E
+//            − Oslo→E) i km → min. Ingen matrise-grense lenger. (2) TEST-grense KANDIDAT_MAKS=40 nærmeste
+//            i tid (diag.kappet/brukt vises i trakt). (3) Auto-oppdatering nå CHECKBOX, default AV under test
+//            — poll skanner kun når påskrudd; «🔄 Oppdater» = manuell skann. (4) Fiks: rico.js ødela reduce
+//            (diag.par viste [object Object]) → forEach. Trakt viser nå også geokodet N/M.
+// v0.81-dev: FOKUS PÅ MATCHING (kart nedprioritert). (1) Match-trakt-diagnose: berik()+beregnForslag()
+// v0.81-dev: FOKUS PÅ MATCHING (kart nedprioritert). (1) Match-trakt-diagnose: berik()+beregnForslag()
+//            logger nå hvor mange som faller bort i hvert ledd (ventende→når området→ledig plass→
+//            tidsvindu→treff→par) + «stopp»-grunn, vist som kompakt 🔎-linje i toppen + console
+//            (window.__omr_diag). Så vi SER hvorfor matching gir få/ingen treff. (2) «Marker forslag»:
+//            kort som inngår i en match får grønn highlight (.harmatch) — ventende m/returbil-treff og
+//            returbiler som tar noen. Ingen handling/trioer ennå (Thomas: «først få til matching»).
+// v0.80-dev: kart-motor TILBAKE til Leaflet. MapLibre-eksperimentet (v0.67–0.69) tegnet basiskart +
+//            markører, men IKKE runtime-tillagte GeoJSON-rute-/punkt-lag i about:blank-popupen (window.open('')
+//            + document.write). Hosting av kartet utelukket (ville sendt pasient-/adressedata ut av sikker sone).
+//            Leaflet tegner rutene fint i samme popup. Beholdt fra MapLibre-runden: cache-poison-guards i
+//            hentKoord/hentRute (forkast [n, NaN]/tomme ruter) + gyldigKoord-validering. Diagnose-instrumentering
+//            (_dbg/kartDbgBox/ISOLASJONSTEST-farger) fjernet. Skalering (v0.66) uendret.
+// v0.66-dev: skalering for mange operatører — (1) signatur-sjekk hopper over hele den tunge
+//            reberegningen (reisetid/matrise/geokod/ruter) når tavla er uendret siden forrige skann;
+//            (2) Page Visibility pauser skann + re-rendring når popupen er skjult, og henter friskt
+//            straks den blir synlig igjen. Ekstern-API-last var allerede uavhengig av operatørantall
+//            (delt server-disk-cache); dette kutter den redundante per-klient-lasten.
+// v0.65-dev: localStorage-cache fikk TTL (lsLes/lsSkriv): geokoding 30 d, ruter + kjøretid 7 d. Self-healer
+//            hvis «samme adresse-streng, men koordinat/tid er korrigert». Endret adresse bommer uansett på
+//            nøkkelen → ny henting. Gammelt format uten tidsstempel forkastes automatisk. Gjelder også omr_rt_.
+// v0.64-dev: hentKoord (geokoding) + hentRute (kart-ruter) caches nå i localStorage (omr_kd_/omr_ru_),
+//            ikke bare i minnet — overlever F5, så vi slipper HTTP-runden på adresser/ruter vi har sett.
+//            (Geokoding caches uansett server-side i 30 dager; dette sparer selve nettverksrunden.)
+// v0.63-dev: kompakte 2–4-linjers kart-panelkort med ALLE opplysninger (tid+navn, sted→sted, behov
+//            +passasjerer, status, send-ut-frist; returbil: ledig-plass + tur/retur) — så kartet
+//            kan erstatte listene på sikt.
+// v0.62-dev: kuratert fargepalett (rosa/lilla/mørkegrønn/lyseblå …) tildeles sekvensielt til synlige
+//            turer — hver tur i vinduet får unik, navngivbar farge (fikser hash-kollisjoner).
+// v0.61-dev: default bakgrunnskart = Lyst grå (klarere). Returbiler veksler punkt ⇄ kjørerute
+//            (alltid synlige) i stedet for av/på.
+// v0.60-dev: «skjul GD»-filteret fanger nå også ST-biler (samme interne Kongsvinger-type).
+// v0.59-dev: startede returbiler EKSKLUDERES IKKE (kan ta pasienter underveis) — vis status
+//            (Startet/Framme/Tildelt) høyrestilt på kartets returbil-kort; «startet» grønnmerket.
+//            («Framme» = til stede, ikke reist; «Startet» = har reist men kan plukke på veien.)
+// v0.58-dev: kart-vindu har kun øvre grense (hentetid ≤ nå + vinduMin), ingen nedre — forfalte
+//            ventende forsvinner fra lista når de sendes ut, så de som står igjen skal vises.
+// v0.57-dev: kart-vindu tar med forfalte-men-ventende turer (nedre grense nå−180 min) — overtid-
+//            turer som fortsatt venter er ofte de mest haster, og forsvant fra kartet før.
+// v0.56-dev: returbiler vises som opprinnelsespunkt (🚐-markør) i stedet for full rute — unngår
+//            spagetti. Lett koordinat-henter (geokod.php). Klikk på returbil-kort panorerer til punkt.
+// v0.55-dev: returbiler skjult på kart som standard — «🚐 returbiler»-avhuking styrer panel + ruter.
+// v0.54-dev: rute-synlighet — bakgrunnskart-velger (Mørkt/Kartverket grå/topo/Lyst), halo (casing)
+//            under hver rute + tykkere/lysere linjer. Default mørkt kart for maks kontrast.
+// v0.53-dev: KARTMODUS (Leaflet + Kartverket-fliser). Tegner hele reiseruten per tur i enkelttur-
+//            farge via ruter.php (Geonorge-geokoding + ORS). Liste-paneler som overlay, tidsvindu-
+//            slider styrer synlige turer. Toggle 🗺️ Kart / 📋 Liste. Server: geokod.php + ruter.php.
+// v0.52-dev: surface SV-varsel (krever bil med ekstra bagasjeplass) på returbil- og par-forslag —
+//            bagasje-summen (RU=1, RS=1½; over normal 2.0) krever SV. Bagasje-behov gulfarget badge.
+// v0.51-dev: ventende↔ventende-paring (ny «Samkjør to ventende»-seksjon) som fallback når ingen
+//            returbil passer — to oppdrag samme retning på én bil. Bruker samme kapasitet/omvei.
+// v0.50-dev: grovfiltrer ventende på tidsvindu FØR reisetid/omvei-matrise — av hundrevis ventende
+//            er bare en håndfull aktuelle nå (fikser Google-timeout/500). matrise.php tåler/avviser
+//            store matriser. Ventetid/send-ut vises på alle kort (default når reisetid ikke beregnes).
+// v0.49-dev: område hentes LIVE fra NISSY-senteret (dispatch_center_id → editDispatchCenter
+//            fromPostCodes1), med DB-tekst og hardkodet som fallback. Auto-synk med kontorets konfig.
+// v0.48-dev: område-soner hentes fra kjørekontorets innstilling (ovr_kontor_tilgang.omraade_postnr
+//            via window.__vkt_tilgang), med Oslo/Akershus-soner som fallback.
+// v0.47-dev: område-sjekk ser på FØRSTE bens destinasjon (opprinnelig innkjøring), ikke et
+//            hvilket som helst ben — så Jessheim↔Gjøvik (ender i Jessheim på retur) ekskluderes.
+// v0.46-dev: «vårt område» = kjørekontorets postnr-soner (0000-2099,2150-2151,2160-2167,2170)
+//            i stedet for hardkodet ≤1299. Returbil vises/matches kun hvis turen ender her.
+// v0.45-dev: Returbiler-lista viser kun biler hvis tur ender i Oslo (kommerTilOslo); turer som
+//            aldri når Oslo (Innlandet-interne, f.eks. Jessheim↔Gjøvik) skjules helt.
+// v0.44-dev: tur/retur-deteksjon = start-postnr lik slutt-postnr (Oslo-agnostisk; fanger
+//            intra-Nord som Jessheim↔Gjøvik). Returbil må komme til Oslo for å matches.
+// v0.43-dev: to knapper — Autooppdater (grønn/rød) + Frys (blå m/nedtelling). Frys (re)starter
+//            60 s ved hvert trykk; Autooppdater gjenopptar straks med frisk skann.
+// v0.42-dev: «❄️ Frys»-knapp pauser auto-oppdatering i 60 s (nedtelling), frisk skann ved tining.
+// v0.41-dev: tur/retur ekskluderes IKKE lenger — vi regner restkapasitet (egne returpassasjerer
+//            opptar seter, f.eks. LF → 1 plass igjen). Alle biler viser «retur: N av 3 ledig»;
+//            kun 0-plass-biler (alenebil/full) dempes og holdes ute av matching.
+// v0.40-dev: ledsager-badge kun ved heltall ≥ 1 (skjuler «👥+0,0» fra desimal-L-kolonne).
+// v0.39-dev: returbil viser «retur: N av 3 plasser ledig» (tom retur = full kapasitet);
+//            innkommende behov/ledsager skjules unntatt for tur/retur (irrelevant for tom retur).
+// v0.38-dev: fix fler-bens parse — ledsager = maks per ben (ikke «1»+«1»→«11»), behov-ben skilles.
+// v0.37-dev: tooltips (fulle SUTI-navn) på behov-badges + ledsager + tur/retur.
+// v0.36-dev: behov-badges også på returbil-kort; behov leses som tekst+ikon (robust);
+//            tur/retur samme bil markeres 🔁, dempes og ekskluderes fra samkjør-forslag.
+// v0.35-dev: full kapasitetsmodell gjenbrukt fra samkjorer.js — ALLTID_ALENE (RB/ERS/A/AL/TH/IA/
+//            C19/TMS/TK), LAAST-setevekter (LB=1.5 bak, LF=0.5), HI/LI-konflikt, bagasje/SV,
+//            ledsager (L-kolonne) som ekstra sete. Behov leses fra ikon-alt. Badges viser kodene.
+// v0.34-dev: AL (allergibil) = alenebil som A (annen grunn — hundehår/parfyme).
+// v0.33-dev: LB opptar hele baksetet (ingen vanlig ved siden av); LF+LB = gyldig 2-kombo.
+// v0.32-dev: plass-behov (A/LB/LF/SF) som badge + seteberegning per returbil (maks 1 foran,
+//            maks 1 ligge bak, A=alenebil); linjebrudd etter pil også på returbiler.
+// v0.31-dev: skjul «TAX» reisemåte på ventende-kort (ikke relevant; HLSX har egen liste).
+// v0.30-dev: linjebrudd etter pil på ventende-kort (fra og til på hver sin linje).
+// v0.29-dev: checkbox «skjul GD» — interne GD-biler (Kongsvinger) skjules fra Returbiler + forslag.
+// v0.14-dev: stoler på NISSYs filtre i stedet for postnr-omklassifisering (som feilklassifiserte og
+//            skjulte ventende). Venstre = 18448 ventende, høyre = 17296 pågående. HLSX skjult.
+// v0.13: 18448-pågående skjult. v0.8–0.12: per-leg retning via postnr-sett (fjernet, var skjør).
+// v0.6: bil-kort. v0.5: merk-knapp. v0.4: HLSX. v0.3: 2x2. v0.2: egen fane. v0.1: forslag.
+(function () {
+    'use strict';
+
+    const VERSJON = '0.9.0-dev';
+    // Interne GD-/ST-biler (kjører i Kongsvinger) er ikke ekte returbiler — kan skjules via checkbox.
+    let skjulGD = true;
+    function erGD(r) { return /^\s*(GD|ST)\b/i.test(r.ressurs || ''); }
+    function synligeTreff(r) { return (r._treff || []).filter(t => !(skjulGD && erGD(t.pRow))); }
+    // Områder å velge mellom. Hvert område = et par dispatch-filtre (inn = Fra, ut = Til).
+    // Fylles automatisk fra NISSYs filterliste (par «Fra X» ↔ «Til X»). Denne brukes som
+    // fallback hvis auto-detektering ikke finner noe.
+    // Hvert område: inn/ut = filtre for tur-listene (ut = ventende «på vei ut», inn = returbiler).
+    // kilder = farge-soner (delområder) klassifisert etter destinasjons-postnr (sonens ut-filter).
+    let OMRAADER = [
+        { navn: 'Nord', inn: '17296', ut: '17295', kilder: [{ navn: 'Nord', ut: '17295', farge: '#3b82f6' }] },
+    ];
+    let aktivNavn = '', aktivInn = null, aktivUt = null, aktivKilder = [], pollIv = null, visIv = null, sisteData = null;
+    let sisteSkannSig = null;  // signatur av forrige skann — hopp over tung reberegning når tavla er uendret
+    let bilMatchMap = {};  // returbil-resId → [{v: ventende, t: treff}] (fylles i render)
+    let sisteDiag = null;  // match-trakt fra siste berik() (diagnose: hvor faller matchen til null)
+    let autoRefresh = false;  // TEST: auto-oppdatering AV som standard — poll skanner kun når påskrudd
+    let _nettOppslag = 0;     // teller faktiske nettverks-oppslag (geokod/reisetid/ruter) — cache-treff teller IKKE
+    let sistePar = [];        // par vist i siste render (anbefalt+andre) — slås opp ved kart-klikk
+    let _hasterPaa = {};      // resId → true: ventende-rader som blinker i NISSY (haster) akkurat nå
+    let hasterIv = null;      // interval som re-påfører blink i NISSY (overlever NISSYs re-render)
+    let _hasterTestTil = 0;   // ms-tidspunkt: tving blink på et par ventende-rader til da (test-knapp)
+    let frysTil = 0, frysIv = null;  // pause auto-oppdatering til dette tidspunktet (ms)
+    let kartMode = false, kart = null, kartLag = null, casingLag = null, basisLag = null, vinduMin = 120, kartBasis = 'lyst';
+    let returVis = 'punkt';  // hvordan returbiler vises på kart: 'punkt' | 'rute'
+    const _ruteCache = {};
+    // Bakgrunnskart-valg. casing = halo-farge under rutene (lys på mørkt kart, mørk på lyst).
+    const BASISKART = {
+        'mørkt':   { navn: 'Mørkt',           url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',                                  casing: 'rgba(255,255,255,.5)' },
+        'gråtone': { navn: 'Kartverket grå',  url: 'https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png', casing: 'rgba(15,23,42,.6)' },
+        'topo':    { navn: 'Kartverket topo', url: 'https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png',          casing: 'rgba(255,255,255,.65)' },
+        'lyst':    { navn: 'Lyst grå',        url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',                                 casing: 'rgba(15,23,42,.6)' },
+    };
+    const OMRAADE_FARGER = { 'nord': '#3b82f6', 'østfold': '#f97316', 'sør': '#22c55e', 'vest': '#a855f7', 'glåmdalen': '#eab308' };
+    function fargeFor(navn) { return OMRAADE_FARGER[String(navn || '').toLowerCase()] || '#64748b'; }
+    const POLL_MS = 90000;
+    const FRYS_MS = 60000;   // hvor lenge «❄️ Frys» pauser oppdatering
+    const MATCH_TIDSVINDU_MIN = 45;
+    const NAVN = 'OMRÅDE-ASSISTENT';
+    const NISSY_BLAA = 'rgb(148, 169, 220)';
+    const SERVER = 'https://thomaswestby.no/skript';
+    const VENTETID_MIN = 60;  // ventetid = maks(reisetid, dette) minutter
+    const MAKS_VENTETID_MIN = 180;  // øvre grense for ventetid i grovfilteret (før reisetid er kjent)
+    const VARSEL_MIN = 25;    // «send ut»-varsel så mange minutter før hente-fristen
+    const OMVEI_MAKS_MIN = 20; // godtatt ekstra omvei (min) for å ta en pasient på vei til returmål
+    const PAR_OMVEI_MAKS_MIN = 30; // godtatt omvei (min) når to ventende samkjøres direkte (uten returbil)
+    const VEIFAKTOR = 1.3;     // luftlinje × dette ≈ kjøreavstand (samkjorer.js-stil)
+    const OMVEI_KMH = 50;      // antatt snittfart for å gjøre omvei-km → minutter
+    const MAKS_HENTEAVSTAND_KM = 8; // to ventende kan kun samkjøres hvis hentestedene er nærmere enn dette
+    const KANDIDAT_MAKS = 40;  // TEST-grense: maks ventende vi geokoder/matcher per runde (hold lasten nede)
+    const OSLO_KOORD = [59.9139, 10.7522]; // Oslo sentrum — felles anker for omvei-beregning
+    const PAR_VINDU_MIN = 120;     // se etter ventende-par med hentetid innen så mange min fram
+    const PAR_MAKS = 30;           // maks ventende i par-poolen (ytelse; de soonere etter hentetid)
+
+    /* ── XHR ───────────────────────────────────────── */
+    function xhr(url) {
+        return new Promise((res, rej) => {
+            const r = new XMLHttpRequest();
+            r.open('GET', url, true);
+            r.timeout = 20000;
+            r.onload = () => res(r.responseText);
+            r.onerror = () => rej(new Error('xhr-feil: ' + url));
+            r.ontimeout = () => rej(new Error('timeout: ' + url));
+            r.send();
+        });
+    }
+
+    function hentPostnr(t) { if (!t) return null; const m = String(t).match(/\b(\d{4})\b/); return m ? m[1] : null; }
+    function parseTid(s) { if (!s) return null; const m = String(s).trim().match(/(\d{1,2})[:.](\d{2})\s*$/); return m ? (+m[1]) * 60 + (+m[2]) : null; }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+    function erHlsx(r) { return (r.legs || []).some(l => /HLSX/i.test(l.rmate || '')); }
+    /* ── Plass/kapasitet — gjenbruk av samkjører-modellen (samkjorer.js) ── */
+    // Behov som krever alenetransport (kan aldri samkjøres med andre).
+    const ALLTID_ALENE = ['RB', 'ERS', 'A', 'AL', 'TH', 'IA', 'C19', 'TMS', 'TK'];
+    // Behov uten plass-konsekvens — ignoreres i kapasitetsregnskapet.
+    const IGNORER = ['LIFO', 'VA', '4X4', 'HJE', 'MH', 'TB', 'ØH', 'B'];
+    const KONFLIKTER = [['HI', 'LI']];  // høy + lav innstigning kan ikke kombineres
+    const MAKS = { forsete: 1.0, baksete: 2.0, bagasje: 2.0, bagasjeSV: 3.0, passasjerer: 3 };
+    // «Låste» behov med fast seteforbruk (brøk = opptar mer enn ett sete).
+    const LAAST = {
+        SF:  { forsete: 1.0, baksete: 0,   bagasje: 0 },  // sitte foran
+        LF:  { forsete: 1.0, baksete: 0.5, bagasje: 0 },  // god benplass/regulerbart sete (foran)
+        LB:  { forsete: 0,   baksete: 1.5, bagasje: 0 },  // trenger hele baksetet
+        BS:  { forsete: 0,   baksete: 1.0, bagasje: 0 },  // barnesete
+        BSP: { forsete: 0,   baksete: 1.0, bagasje: 0 },  // sittepute
+    };
+    const BAGASJE = { RU: 1.0, RS: 1.5 };
+    const ALLE_BEHOV = ALLTID_ALENE.concat(IGNORER, ['HI', 'LI', 'SF', 'LF', 'LB', 'BS', 'BSP', 'RU', 'RS', 'SV']);
+    function parseBehov(tekst) {
+        if (!tekst) return [];
+        return tekst.toUpperCase().split(/[\s,/+]+/).filter(b => b.length > 0 && ALLE_BEHOV.includes(b));
+    }
+    // Kapasitetssjekk for et SETT passasjerer (1+ ledsager teller som fleksibelt sete).
+    function kapasitetsSjekk(passasjerer) {
+        if (passasjerer.length > MAKS.passasjerer) return { ok: false, grunn: 'Maks ' + MAKS.passasjerer + ' passasjerer' };
+        for (const p of passasjerer) for (const b of p.behov) if (ALLTID_ALENE.includes(b)) return { ok: false, grunn: b + ' krever alenetransport' };
+        const alle = [].concat(...passasjerer.map(p => p.behov));
+        for (const kf of KONFLIKTER) if (alle.includes(kf[0]) && alle.includes(kf[1])) return { ok: false, grunn: kf[0] + '+' + kf[1] + ' går ikke' };
+        const filtrert = passasjerer.map(p => ({ behov: p.behov.filter(b => !IGNORER.includes(b)), harLedsager: p.harLedsager }));
+        let forsete = 0, baksete = 0, bagasje = 0; const fleksible = [];
+        filtrert.forEach(pass => {
+            let erLaast = false, laastType = null;
+            for (const b of pass.behov) { if (LAAST[b]) { laastType = b; forsete += LAAST[b].forsete; baksete += LAAST[b].baksete; bagasje += LAAST[b].bagasje; erLaast = true; break; } }
+            if (erLaast && (laastType === 'BS' || laastType === 'BSP')) baksete += 1.0;
+            else if (erLaast && pass.harLedsager) fleksible.push(1);
+            for (const b of pass.behov) if (BAGASJE[b]) bagasje += BAGASJE[b];
+            if (!erLaast) { fleksible.push(1); if (pass.harLedsager) fleksible.push(1); }
+        });
+        for (let i = 0; i < fleksible.length; i++) {
+            if (baksete + 1.0 <= MAKS.baksete) baksete += 1.0;
+            else if (forsete + 1.0 <= MAKS.forsete) forsete += 1.0;
+            else return { ok: false, grunn: 'Ikke nok seter' };
+        }
+        if (forsete > MAKS.forsete) return { ok: false, grunn: 'Forsete overfylt' };
+        if (baksete > MAKS.baksete) return { ok: false, grunn: 'Baksete overfylt' };
+        if (bagasje > MAKS.bagasjeSV) return { ok: false, grunn: 'For mye bagasje' };
+        return { ok: true, svVarsel: bagasje > MAKS.bagasje };
+    }
+    const BEHOV_FARGE = code => ALLTID_ALENE.includes(code) ? '#ef4444' : (LAAST[code] ? '#f59e0b' : (BAGASJE[code] ? '#eab308' : '#0ea5e9'));
+    // Fulle SUTI-navn for tooltip (kodene er små/kryptiske).
+    const BEHOV_NAVN = {
+        AL: 'Allergi', BS0: 'Babystol 0–13 kg', BS5: 'Barnesete spesial 15–36 kg',
+        BS4: 'Barnestol 15–25 kg', BS1: 'Barnestol 9–18 kg', BS: 'Barnesete',
+        LIFO: 'Direktebil', SV: 'Ekstra bagasjeplass', ERS: 'Elektrisk rullestol',
+        '4X4': 'Firehjulstrekk', TH: 'Førerhund/servicehund', LF: 'God benplass og regulerbart sete',
+        HJE: 'Hjelpes til/fra transportmiddel', HI: 'Høy innstigning', C19: 'Korona relatert',
+        LI: 'Lav innstigning', TB: 'Manuell håndtering', MH: 'Manuell håndtering (NY)',
+        B: 'Må bæres', IA: 'Må ikke overlates til seg selv', VA: 'Beskyttet/fullvaksinert',
+        RU: 'Rullator', RB: 'Rullestolbil', RS: 'Sammenleggbar rullestol', SF: 'Sitte foran',
+        BSP: 'Sittepute', TMS: 'Ta med rullestol/transportstol', TK: 'Trappeklatrer',
+        LB: 'Trenger hele baksetet', 'ØH': 'Øyeblikkelig hjelp', A: 'Alenebil',
+    };
+    function behovBadges(r) {
+        return (r._behov || []).filter(b => !IGNORER.includes(b))
+            .map(b => '<span class="b" title="' + esc(BEHOV_NAVN[b] || b) + '" style="background:' + BEHOV_FARGE(b) + '33;color:' + BEHOV_FARGE(b) + '">' + b + '</span>').join('');
+    }
+    function ledsBadge(r) { const n = parseInt(r._ledsN, 10) || 0; return n >= 1 ? '<span class="b" title="Antall reiseledsagere" style="background:#33415566;color:#cbd5e1">👥+' + n + '</span>' : ''; }
+    function passObj(r) { return { behov: r._behov || [], harLedsager: (parseInt(r._ledsN, 10) || 0) >= 1 }; }
+    // Passasjerer som blir værende i bilen på returen. Tur/retur: pasienten kjører
+    // tilbake → opptar seter. Tom retur (kun innkjøring): ingen → full kapasitet.
+    function egneReturPassasjerer(r) { return erTurRetur(r) ? [passObj(r)] : []; }
+    // Hvor mange ekstra vanlige passasjerer får plass i tillegg til base-lasten
+    // (setevekter: LF tar foran + ½ bak → kun 1 igjen, alenebil → 0, osv.).
+    function ledigePlasser(base) {
+        let n = 0;
+        while (n < MAKS.passasjerer) {
+            const sett = base.concat(Array(n + 1).fill({ behov: [], harLedsager: false }));
+            if (sett.length >= 2 && !kapasitetsSjekk(sett).ok) break;
+            n++;
+        }
+        return n;
+    }
+    // Greedy-fyll av returbilens RESTkapasitet med matchede ventende. base = bilens egne
+    // returpassasjerer (tur/retur) som allerede sitter; kandidatene legges oppå.
+    function fyllBil(base, kandidater) {
+        kandidater.sort((a, b) => (parseTid((a.v.legs[0] || {}).opp) ?? 9999) - (parseTid((b.v.legs[0] || {}).opp) ?? 9999) || a.t.omvei - b.t.omvei);
+        const tatt = [], avvist = [];
+        kandidater.forEach(k => {
+            const sett = base.concat(tatt.concat(k).map(x => passObj(x.v)));
+            if (sett.length <= 1 || kapasitetsSjekk(sett).ok) tatt.push(k);
+            else avvist.push(k);
+        });
+        // Trenger settet bil med ekstra bagasjeplass (SV)? (bagasje over normal 2.0, men ≤ 3.0)
+        const sluttSett = base.concat(tatt.map(k => passObj(k.v)));
+        const sv = sluttSett.length ? !!kapasitetsSjekk(sluttSett).svVarsel : false;
+        return { tatt, avvist, sv };
+    }
+    // Samme tur kan treffe flere kilde-filtre (overlapp). Behold første forekomst.
+    function dedupResId(arr) {
+        const seen = new Set();
+        return arr.filter(r => { if (seen.has(r.resId)) return false; seen.add(r.resId); return true; });
+    }
+    function parsePostnrSett(str) {
+        const ranges = [];
+        String(str || '').split(',').forEach(del => {
+            const t = del.trim(); if (!t) return;
+            const m = t.match(/^(\d{4})\s*-\s*(\d{4})$/);
+            if (m) ranges.push([+m[1], +m[2]]);
+            else if (/^\d{4}$/.test(t)) ranges.push([+t, +t]);
+        });
+        return ranges;
+    }
+    function iSett(postnr, ranges) { const n = +postnr; return (ranges || []).some(r => n >= r[0] && n <= r[1]); }
+    // Stedsnavn fra adresse = ordet/ordene etter postnr ("…, 2614 Lillehammer" → "Lillehammer").
+    function stedFraAdr(adr) { const m = String(adr || '').match(/\b\d{4}\s+(.+?)\s*$/); return m ? m[1].trim() : ''; }
+    // "postnr sted" fra adresse — for geokoding/kjøretid ("…, 2614 Lillehammer" → "2614 Lillehammer").
+    function postnrSted(adr) { const m = String(adr || '').match(/\b\d{4}\s+.+?$/); return m ? m[0].trim() : String(adr || '').trim(); }
+    function fmtMin(m) { m = Math.round(m); const h = Math.floor(m / 60), mm = m % 60; return h ? (h + ' t' + (mm ? ' ' + mm + ' min' : '')) : (mm + ' min'); }
+    function tidStr(min) { min = Math.round(((min % 1440) + 1440) % 1440); const h = Math.floor(min / 60), m = min % 60; return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m; }
+    function naaMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+    // Returbil: returmål = FØRSTE hentested (tidligst hentetid) — dit bilen skal tilbake.
+    // Ankomst Oslo = seneste oppmøtetid (når den er ferdig levert og ledig for retur).
+    // Eks: henter Lillehammer (07:30) → Hamar (08:10) → leverer Oslo → returmål = Lillehammer.
+    function returInfo(r) {
+        let forsteFra = '', forsteT = Infinity, sentOpp = -Infinity, sentTil = '';
+        (r.legs || []).forEach(l => {
+            const s = parseTid(l.start || l.opp);
+            if (s !== null && s < forsteT) { forsteT = s; forsteFra = l.fra; }
+            const o = parseTid(l.opp || l.start);
+            if (o !== null && o > sentOpp) { sentOpp = o; sentTil = l.til; }  // hub = der bilen er nå (siste innkjørings til)
+        });
+        if (!forsteFra) forsteFra = (r.legs[0] || {}).fra || '';
+        if (!sentTil) sentTil = (r.legs[(r.legs || []).length - 1] || {}).til || '';
+        return { fra: forsteFra, hub: sentTil, postnr: hentPostnr(forsteFra), ank: sentOpp > -Infinity ? sentOpp : null };
+    }
+    // Kjørekontorets område (postnr-soner). Kilderekkefølge (lastOmraade):
+    //   1) LIVE fra NISSY-senteret (window.__vkt_tilgang.dispatch_center_id → editDispatchCenter
+    //      → fromPostCodes1) — auto-synk med kontorets egen konfig.
+    //   2) Lagret tekst (window.__vkt_tilgang.omraade_postnr) hvis live-henting feiler.
+    //   3) Hardkodet fallback hvis verktøykassen ikke har eksponert tilgang.
+    // En returbil er relevant kun hvis den OPPRINNELIGE turen (første ben = innkjøring til
+    // behandling) ender i området — returbenet kan ende i området likevel (Jessheim↔Gjøvik).
+    const OMRAADE_FALLBACK = '0000-2099,2150-2151,2160-2167,2170';
+    let OMRAADE_POSTNR = parsePostnrSett(OMRAADE_FALLBACK);
+    let omraadeLastet = false;
+    async function lastOmraade() {
+        if (omraadeLastet) return;
+        omraadeLastet = true;
+        const t = (function () { try { return window.__vkt_tilgang || {}; } catch (e) { return {}; } })();
+        let kilde = 'fallback';
+        const senterId = t.dispatch_center_id;
+        if (senterId) {
+            try {
+                const html = await xhr('/administrasjon/admin/editDispatchCenter?id=' + encodeURIComponent(senterId) + '&t=' + Date.now());
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const e = doc.querySelector('[name="dispatchFilter.fromPostCodes1"]');
+                const sett = parsePostnrSett(e ? (e.textContent || e.value || '') : '');
+                if (sett.length) { OMRAADE_POSTNR = sett; kilde = 'NISSY-senter ' + senterId; }
+            } catch (e) { console.warn('[' + NAVN + '] live område-henting feilet:', e.message); }
+        }
+        if (kilde === 'fallback' && t.omraade_postnr) {
+            const sett = parsePostnrSett(t.omraade_postnr);
+            if (sett.length) { OMRAADE_POSTNR = sett; kilde = 'DB-innstilling'; }
+        }
+        console.log('[' + NAVN + '] område lastet (' + kilde + '): ' + OMRAADE_POSTNR.length + ' soner');
+    }
+    function erVaartOmraade(adr) { const p = hentPostnr(adr); return p ? iSett(p, OMRAADE_POSTNR) : false; }
+    function forsteBen(r) {
+        return (r.legs || []).slice().sort((a, b) => (parseTid(a.start || a.opp) ?? 9999) - (parseTid(b.start || b.opp) ?? 9999))[0] || null;
+    }
+    function kommerTilOmraadet(r) { const f = forsteBen(r); return !!f && erVaartOmraade(f.til); }
+    // Tur/retur samme bil: bilen ender der den startet (start-postnr = slutt-postnr) →
+    // pasienten kjører tilbake og opptar seter på returen. Oslo-agnostisk (gjelder også
+    // intra-Nord-turer som Jessheim→Gjøvik→Jessheim).
+    function erTurRetur(r) {
+        const legs = (r.legs || []).slice().sort((a, b) => (parseTid(a.start || a.opp) ?? 9999) - (parseTid(b.start || b.opp) ?? 9999));
+        if (legs.length < 2) return false;
+        const start = hentPostnr(legs[0].fra), slutt = hentPostnr(legs[legs.length - 1].til);
+        return !!start && start === slutt;
+    }
+    // Bilens nåværende status: status på det utgående benet (returen) hvis det finnes, ellers
+    // siste bens status. «Startet» = har reist (kan ta pasienter underveis), «Framme» = til stede,
+    // «Tildelt»/«Akseptert» = planlagt men ikke kjørt.
+    function returStatus(r) {
+        const legs = (r.legs || []).slice().sort((a, b) => (parseTid(a.start || a.opp) ?? 9999) - (parseTid(b.start || b.opp) ?? 9999));
+        const utg = legs.find(l => erVaartOmraade(l.fra) && hentPostnr(l.til) && !erVaartOmraade(l.til));
+        return ((utg && utg.status) || (legs[legs.length - 1] || {}).status || '').trim();
+    }
+
+    // localStorage-cache med TTL — adresser/ruter/kjøretider kan endres, så cachen self-healer når
+    // den blir for gammel. Nøkkelen er adresse-strengen, så en ENDRET adresse (pasient flytter) bommer
+    // uansett og hentes på nytt; TTL fanger tilfellet «samme streng, men koordinat/tid er korrigert».
+    const _LS_DAG = 864e5;
+    function lsLes(fullKey, ttl) {
+        try {
+            const r = localStorage.getItem(fullKey);
+            if (!r) return undefined;
+            const o = JSON.parse(r);
+            if (o && typeof o === 'object' && 't' in o) {
+                if (Date.now() - o.t < ttl) return o.v;
+                localStorage.removeItem(fullKey);          // utløpt
+            } else { localStorage.removeItem(fullKey); }   // gammelt format uten tidsstempel
+        } catch (e) {}
+        return undefined;
+    }
+    function lsSkriv(fullKey, v) { try { localStorage.setItem(fullKey, JSON.stringify({ v: v, t: Date.now() })); } catch (e) {} }
+    // fetch med timeout (abort etter ms) — hindrer at ÉN hengende request fryser hele berik()/Promise.all.
+    function fetchTO(url, opts, ms) {
+        let ctrl, t;
+        try { ctrl = new AbortController(); t = setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, ms || 9000); } catch (e) {}
+        const o = Object.assign({}, opts || {}); if (ctrl) o.signal = ctrl.signal;
+        return fetch(url, o).then(r => { if (t) clearTimeout(t); return r; }, e => { if (t) clearTimeout(t); throw e; });
+    }
+    // Kjør fn over arr med maks `limit` samtidige (kø). Unngår å oversvømme one.com med ~160 parallelle
+    // fetch (PHP-FPM-arbeidere gikk tomme → noen kall hang → Promise.all fullførte aldri).
+    async function mapLimit(arr, limit, fn) {
+        const res = new Array(arr.length); let i = 0;
+        const arbeider = async () => { while (i < arr.length) { const idx = i++; try { res[idx] = await fn(arr[idx], idx); } catch (e) { res[idx] = null; } } };
+        const n = Math.min(limit, arr.length), jobber = [];
+        for (let w = 0; w < n; w++) jobber.push(arbeider());
+        await Promise.all(jobber);
+        return res;
+    }
+
+    // Kjøretid via reisetid.php-proxyen (Google Distance Matrix server-side, cachet). Cacher også klient-side.
+    const _rtCache = {};
+    async function hentReisetid(fra, til) {
+        const o = postnrSted(fra);           // Oslo-postnr — rutbart + god cache-reuse
+        const d = String(til || '').trim();  // full hjemadresse (postnr-sentroid kan være ikke-rutbart)
+        if (!o || !d) return null;
+        const key = o + '|' + d;
+        if (_rtCache[key] !== undefined) return _rtCache[key];
+        const ls = lsLes('omr_rt_' + key, 7 * _LS_DAG);
+        if (ls !== undefined) { _rtCache[key] = ls; return ls; }
+        try {
+            _nettOppslag++;
+            const r = await fetchTO(SERVER + '/reisetid.php?origin=' + encodeURIComponent(o) + '&dest=' + encodeURIComponent(d), { cache: 'no-store' }, 9000);
+            const j = await r.json();
+            if (j.ok) {
+                const v = { sek: j.sek, tekst: j.tekst, km: j.km };
+                _rtCache[key] = v;
+                lsSkriv('omr_rt_' + key, v);
+                return v;
+            }
+        } catch (e) {}
+        _rtCache[key] = null;
+        return null;
+    }
+
+    function celleVerdier(tr, i) {
+        if (i < 0 || !tr.cells[i]) return [];
+        const c = tr.cells[i];
+        const divs = c.querySelectorAll('div');
+        if (divs.length) return Array.from(divs).map(d => d.textContent.trim());
+        const t = c.textContent.trim();
+        return t ? [t] : [];
+    }
+    // Behov-cellen kan inneholde tekst-koder (f.eks. «IA,RU,RB») og/eller ikoner — vi
+    // slår sammen tekst + img-alt/title så parseBehov fanger kodene uansett representasjon.
+    // Fler-bens biler har ett div per ben; vi skiller dem med mellomrom (ellers limes
+    // koder/ledsagertall sammen, f.eks. «1»+«1»→«11»).
+    function behovTekst(tr, i) {
+        if (i < 0 || !tr.cells[i]) return '';
+        const c = tr.cells[i];
+        const divs = c.querySelectorAll('div');
+        const txt = divs.length ? Array.from(divs).map(d => d.textContent.trim()).join(' ') : c.textContent.trim();
+        const imgs = Array.from(c.querySelectorAll('img')).map(im => im.alt || im.title || '').join(' ');
+        return (txt + ' ' + imgs).trim();
+    }
+    // Ledsager-antall = maks over ben (fler-bens biler gjentar tallet per ben).
+    function ledsAntall(tr, i) {
+        return celleVerdier(tr, i).reduce((m, v) => Math.max(m, parseInt(v, 10) || 0), 0);
+    }
+
+    /* ── Auto-parering av områder fra NISSYs filterliste ─ */
+    // Filtrene heter «Fra X» / «Til X». Vi parer dem på X og bygger områdene.
+    function finnFilterSelect() {
+        for (const n of ['filter-ventende-oppdrag', 'filter-resurser', 'filter-effektivitet']) {
+            const s = document.querySelector('select[name="' + n + '"]');
+            if (s && s.options.length > 50) return s;
+        }
+        let best = null;
+        document.querySelectorAll('select').forEach(s => {
+            if (s.options.length > 100 && (!best || s.options.length > best.options.length)) best = s;
+        });
+        return best;
+    }
+    function byggOmraaderFraSelect() {
+        const sel = finnFilterSelect();
+        if (!sel) return [];
+        const fra = {}, til = {};
+        Array.from(sel.options).forEach(o => {
+            if (!o.value || !/^\d+$/.test(o.value)) return;
+            const navn = o.textContent.trim();
+            let m;
+            // «Fra X» / «Til X» — X uten «til» i seg (ekskluderer «Fra X til Y»). Strip evt. « Langtransport».
+            if ((m = navn.match(/^Fra\s+([^]+?)(?:\s+Langtransport)?$/i)) && !/\stil\s/i.test(m[1])) fra[m[1].toLowerCase()] = { id: o.value, navn: m[1].trim() };
+            else if ((m = navn.match(/^Til\s+([^]+?)(?:\s+Langtransport)?$/i)) && !/\stil\s/i.test(m[1]) && !/^\//.test(m[1])) til[m[1].toLowerCase()] = { id: o.value, navn: m[1].trim() };
+        });
+        const par = [];
+        Object.keys(fra).forEach(k => { if (til[k]) par.push({ navn: fra[k].navn, inn: fra[k].id, ut: til[k].id }); });
+        par.sort((a, b) => a.navn.localeCompare(b.navn, 'no'));
+        const omr = par.map(p => ({ navn: p.navn, inn: p.inn, ut: p.ut, kilder: [{ navn: p.navn, ut: p.ut, farge: fargeFor(p.navn) }] }));
+        // Kombinert «Nord/Øst»: bruk det brede operative filteret (18448) for ventende-listen,
+        // og fargelegg etter delområde-postnr (Nord = 17295-sett, Østfold = 17301-sett).
+        const nord = par.find(p => /^nord$/i.test(p.navn));
+        const ost = par.find(p => /østfold/i.test(p.navn));
+        if (nord && ost) {
+            omr.push({
+                navn: 'Nord/Øst',
+                inn: nord.inn,        // returbiler — justeres senere
+                ut: '18448',          // bredt «Nord/Øst»-ventende
+                kilder: [
+                    { navn: nord.navn, ut: nord.ut, farge: fargeFor(nord.navn) },
+                    { navn: ost.navn, ut: ost.ut, farge: fargeFor(ost.navn) },
+                ],
+            });
+        }
+        return omr;
+    }
+
+    // Henter destinasjons-postnr-settet (toPostCodes1) for en kildes ut-filter — for fargesetting.
+    async function lastKildePostnr(k) {
+        if (k._postnr) return;
+        try {
+            const html = await xhr('/administrasjon/admin/editDispatchFilter?id=' + k.ut);
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const e = doc.querySelector('[name="toPostCodes1"]');
+            k._postnr = parsePostnrSett(e ? (e.value || e.textContent || '') : '');
+        } catch (e) { k._postnr = []; }
+    }
+    // Hvilket delområde (farge-sone) en tur tilhører avgjøres av destinasjonens postnr.
+    function delomraade(r) {
+        const def = aktivKilder[0] || { navn: aktivNavn, farge: '#64748b' };
+        if (aktivKilder.length <= 1) return def;
+        for (const l of (r.legs || [])) {
+            const p = hentPostnr(l.til);
+            if (!p) continue;
+            for (const k of aktivKilder) { if (iSett(p, k._postnr)) return k; }
+        }
+        return def;
+    }
+
+    /* ── Merk rad blå i NISSY-planleggeren ─ */
+    function finnRad(resId) { return document.getElementById('V-' + resId) || document.getElementById('P-' + resId); }
+    function erMerket(resId) { const rad = finnRad(resId); return !!rad && rad.style.backgroundColor === NISSY_BLAA; }
+    function toggleMerk(resId) {
+        const rad = finnRad(resId);
+        if (!rad) return 'mangler';
+        if (rad.style.backgroundColor === NISSY_BLAA) { rad.style.backgroundColor = ''; return 'av'; }
+        rad.style.backgroundColor = NISSY_BLAA;
+        return 'paa';
+    }
+    // Pulserende bakgrunn DIREKTE i NISSY-tabellen på ventende-rader som HASTER («send ut»-frist passert),
+    // så operatøren ser dem uten å se i verktøyet. Re-påføres jevnlig (NISSY re-rendrer rader aggressivt).
+    function sikreHasterStil() {
+        if (document.getElementById('oa-haster-stil')) return;
+        const st = document.createElement('style');
+        st.id = 'oa-haster-stil';
+        st.textContent = '@keyframes oaHasterPuls{0%,100%{background-color:rgba(251,191,36,.12)}50%{background-color:rgba(251,191,36,.5)}}'
+            + 'tr.oa-haster,tr.oa-haster>td{animation:oaHasterPuls 1.3s ease-in-out infinite!important}';
+        document.head.appendChild(st);
+    }
+    function oppdaterHaster() {
+        if (!sisteData) return;
+        sikreHasterStil();
+        const naa = naaMin();
+        const utVent = dedupResId(sisteData.ut).filter(r => r.fane === 'ventendeOppdrag' && !erHlsx(r));
+        const nye = {};
+        for (let i = 0; i < utVent.length; i++) {
+            const r = utVent[i], l0 = r.legs[0] || {};
+            const Tmin = parseTid(l0.opp || l0.start);
+            if (Tmin === null) continue;
+            const venteMin = Math.max((r._rt ? r._rt.sek / 60 : 0), VENTETID_MIN);
+            if (naa >= Tmin + venteMin - VARSEL_MIN) {  // «send ut»-frist passert → haster
+                nye[r.resId] = true;
+                const rad = finnRad(r.resId);
+                if (rad) rad.classList.add('oa-haster');
+            }
+        }
+        if (Date.now() < _hasterTestTil) {  // TEST: tving blink på de første ventende så blinket kan ses uten ekte haster
+            for (let i = 0; i < utVent.length && i < 5; i++) { nye[utVent[i].resId] = true; const rad = finnRad(utVent[i].resId); if (rad) rad.classList.add('oa-haster'); }
+        }
+        const gamle = Object.keys(_hasterPaa);  // fjern blink fra rader som ikke lenger haster
+        for (let i = 0; i < gamle.length; i++) if (!nye[gamle[i]]) { const rad = finnRad(gamle[i]); if (rad) rad.classList.remove('oa-haster'); }
+        _hasterPaa = nye;
+    }
+
+    // Ventende har Fra+Til slått sammen i én celle uten skilletegn. To adresser møtes der en
+    // liten bokstav står rett foran en stor (f.eks. "…0450 OsloLigarda…") — vi deler der.
+    function splittFraTil(tekst) {
+        if (!tekst) return ['', ''];
+        const m = tekst.match(/^(.*?[a-zæøå])([A-ZÆØÅ].*)$/);
+        return m ? [m[1].trim(), m[2].trim()] : [tekst.trim(), ''];
+    }
+
+    /* ── Parse dispatch-XML → rader med ressurs + etapper ─ */
+    // To ulike tabellstrukturer: pågående (Ressurs/Fra/Til/… per etappe-div) og
+    // ventende (Pnavn/Reisetid/Opptid/Reisemåte/Behov/L/FraTil — én rad, FraTil sammenslått).
+    function parseDispatch(responseText) {
+        const xmlDoc = new DOMParser().parseFromString(responseText, 'text/xml');
+        const rader = [];
+        xmlDoc.querySelectorAll('response').forEach(resp => {
+            const fane = resp.getAttribute('id');
+            if (!['ventendeOppdrag', 'paagaaendeOppdrag'].includes(fane)) return;
+            const d = document.createElement('div');
+            d.innerHTML = resp.textContent;
+            const hc = Array.from(d.querySelector('tr.tbh')?.cells || []).map(c => c.textContent.toUpperCase().replace(/\s+/g, ''));
+            if (!hc.length) return;
+            const iFraTil = hc.findIndex(s => s === 'FRATIL');
+
+            if (iFraTil >= 0) {
+                // VENTENDE-struktur
+                const idx = {
+                    pnavn:    hc.findIndex(s => s === 'PNAVN'),
+                    reisetid: hc.findIndex(s => s === 'REISETID'),
+                    opptid:   hc.findIndex(s => s === 'OPPTID' || s === 'OPPMTID'),
+                    rmate:    hc.findIndex(s => s === 'REISEMÅTE' || s === 'RMÅTE'),
+                    behov:    hc.findIndex(s => s === 'BEHOV'),
+                    leds:     hc.findIndex(s => s === 'L'),
+                };
+                d.querySelectorAll('tbody tr[name]').forEach(tr => {
+                    const reqIds = Array.from(tr.innerHTML.matchAll(/showReq\(this,\s*(\d+)/g)).map(m => m[1]);
+                    if (!reqIds.length) return;
+                    const c = i => (i >= 0 && tr.cells[i]) ? tr.cells[i].textContent.trim() : '';
+                    const ft = splittFraTil(c(iFraTil));
+                    const behovRaa = behovTekst(tr, idx.behov);
+                    const ledsRaa = c(idx.leds);
+                    rader.push({
+                        reqId: reqIds[0], resId: tr.getAttribute('name'), fane, ressurs: '',
+                        _behov: parseBehov(behovRaa),
+                        _ledsN: parseInt(ledsRaa, 10) || 0,
+                        legs: [{
+                            // NISSY ventende: REISETID = faktisk hente-/transporttidspunkt (det vi matcher + viser
+                            // på); OPPTID = oppmøte-/behandlingstid (kan være MORGENENS time for en retur, f.eks.
+                            // BUCH reisetid 11:30 / opptid 08:50). Legg REISETID i «opp» (primærtiden alle
+                            // forbrukere leser via `opp || start`), OPPTID som «start» (sekundær/fallback).
+                            opp: c(idx.reisetid), start: c(idx.opptid),
+                            fra: ft[0], til: ft[1], status: '',
+                            pnavn: c(idx.pnavn), rmate: c(idx.rmate), behov: behovRaa,
+                        }],
+                    });
+                });
+                return;
+            }
+
+            // PÅGÅENDE-struktur
+            const idx = {
+                ressurs: hc.findIndex(s => s === 'RESSURS'),
+                start:   hc.findIndex(s => s.includes('START')),
+                oppmtid: hc.findIndex(s => s === 'OPPMTID' || s === 'OPPTID'),
+                fra:     hc.findIndex(s => s === 'FRA'),
+                til:     hc.findIndex(s => s === 'TIL'),
+                padr:    hc.findIndex(s => s === 'PADR'),
+                behadr:  hc.findIndex(s => s === 'BEHADR'),
+                pnavn:   hc.findIndex(s => s === 'PNAVN'),
+                rmate:   hc.findIndex(s => s === 'RMÅTE' || s === 'REISEMÅTE'),
+                behov:   hc.findIndex(s => s === 'BEHOV'),
+                leds:    hc.findIndex(s => s === 'L'),
+                status:  hc.findIndex(s => s.includes('STATUS')),
+            };
+            d.querySelectorAll('tbody tr[name]').forEach(tr => {
+                const reqIds = Array.from(tr.innerHTML.matchAll(/showReq\(this,\s*(\d+)/g)).map(m => m[1]);
+                if (!reqIds.length) return;
+                const ressurs = idx.ressurs >= 0 && tr.cells[idx.ressurs] ? tr.cells[idx.ressurs].textContent.trim() : '';
+                const startA = celleVerdier(tr, idx.start);
+                const oppA = celleVerdier(tr, idx.oppmtid);
+                const fraA = celleVerdier(tr, idx.fra >= 0 ? idx.fra : idx.padr);
+                const tilA = celleVerdier(tr, idx.til >= 0 ? idx.til : idx.behadr);
+                const statusA = celleVerdier(tr, idx.status);
+                const pnavnA = celleVerdier(tr, idx.pnavn);
+                const rmateA = celleVerdier(tr, idx.rmate);
+                const behovA = celleVerdier(tr, idx.behov);
+                const n = Math.max(reqIds.length, fraA.length, oppA.length, 1);
+                const v = (arr, j) => arr[j] != null ? arr[j] : (arr[0] || '');
+                const legs = [];
+                for (let j = 0; j < n; j++) {
+                    legs.push({
+                        start: v(startA, j), opp: v(oppA, j),
+                        fra: v(fraA, j), til: v(tilA, j),
+                        status: v(statusA, j), pnavn: v(pnavnA, j), rmate: v(rmateA, j), behov: v(behovA, j),
+                    });
+                }
+                rader.push({
+                    reqId: reqIds[0], resId: tr.getAttribute('name'), fane, ressurs,
+                    _behov: parseBehov(behovTekst(tr, idx.behov)),
+                    _ledsN: ledsAntall(tr, idx.leds),
+                    legs,
+                });
+            });
+        });
+        return rader;
+    }
+
+    /* ── Skann: hent inn- og ut-filter, gjenopprett brukerens filter ─ */
+    async function hentFilter(fid) {
+        await xhr('ajax-dispatch?did=all&search=none&t=' + Date.now());
+        const txt = await xhr('ajax-dispatch?did=all&action=openres&rid=-1&rfilter=' + fid + '&t=' + Date.now());
+        return parseDispatch(txt);
+    }
+
+    async function scan() {
+        const origM = document.cookie.match(/thwerfilter=(\d+)/);
+        const orig = origM ? origM[1] : '0';
+        const inn = await hentFilter(aktivInn);
+        const ut = await hentFilter(aktivUt);
+        try {
+            await xhr('ajax-dispatch?did=all&search=none&t=' + Date.now());
+            await xhr('ajax-dispatch?did=all&action=openres&rid=-1&rfilter=' + orig + '&t=' + Date.now());
+            document.cookie = 'thwerfilter=' + orig + '; path=/';
+        } catch (e) { console.warn('[' + NAVN + '] gjenoppretting feilet:', e.message); }
+        return { inn, ut };
+    }
+
+    // Batch kjøretid-matrise via matrise.php.
+    async function hentMatrise(origins, destinations) {
+        try {
+            const r = await fetch(SERVER + '/matrise.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ origins, destinations }) });
+            const j = await r.json();
+            return j.ok ? j.sek : null;
+        } catch (e) { return null; }
+    }
+
+    /* ── Forslag: ventende retur ⟷ returbil, via Google-omvei ─ */
+    // R = returbil (kom inn fra nord, klar for retur til returmål E = første hentested).
+    // V = ventende (pasient i Oslo → hjem D). Match hvis V er «på veien» til E (liten omvei)
+    // OG R er i Oslo innenfor V sitt vindu. omvei = (Oslo→D + D→E) − Oslo→E.
+    // ventende er allerede grovfiltrert i berik (kun de tidsmessig aktuelle), og har _rt satt.
+    // Haversine — luftlinje i km mellom to [lat, lon]-punkt. Gratis omvei-forfilter (× VEIFAKTOR).
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        const R = 6371, rad = Math.PI / 180;
+        const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+    }
+    async function beregnForslag(ventende, biler, diag) {
+        diag = diag || {};
+        ventende.forEach(r => r._treff = []);
+        diag.fVentende = ventende.length; diag.fBiler = biler.length;
+        if (!ventende.length || !biler.length) { diag.stopp = 'ingen kandidat-ventende eller returbiler'; return; }
+        biler.forEach(p => { if (!p._ri) p._ri = returInfo(p); });
+        ventende.forEach(v => {
+            const vl = v.legs[0] || {};
+            const D = String(vl.til || '').trim();
+            const vKlar = parseTid(vl.opp || vl.start);
+            v._fi = (D && vKlar !== null) ? { D, vKlar, vFrist: vKlar + Math.max((v._rt ? v._rt.sek / 60 : 0), VENTETID_MIN) } : null;
+        });
+        // Presist tidsvindu med reisetid: behold kun ventende som har en returbil i vinduet.
+        const relevante = ventende.filter(v => v._fi && biler.some(p =>
+            p._ri.ank !== null && p._ri.fra && p._ri.ank >= v._fi.vKlar - MATCH_TIDSVINDU_MIN && p._ri.ank <= v._fi.vFrist));
+        diag.relevante = relevante.length;
+        if (!relevante.length) { diag.stopp = 'ingen ventende har returbil i tidsvindu (±' + MATCH_TIDSVINDU_MIN + ' min)'; return; }
+
+        // Geokod hjem (D), returmål (E = der returbilen skal videre) OG bilens HUB (der den er nå = innkjøringens
+        // til). Omvei = (hub→D + D→E − hub→E) via haversine×VEIFAKTOR — ankret per BIL på dens faktiske posisjon,
+        // IKKE globalt Oslo (en Kongsvinger-bil skal ikke matche Oslo-pasienter med ~0 omvei).
+        // rico.js saboterer Set/forEach/Array.from → bygg adresse-lista med rene for-løkker.
+        const koord = {};
+        const adrListe = [];
+        const leggTilAdr = s => { s = String(s || '').trim(); if (s && !Object.prototype.hasOwnProperty.call(koord, s)) { koord[s] = null; adrListe.push(s); } };
+        for (let i = 0; i < relevante.length; i++) leggTilAdr(relevante[i]._fi.D);
+        for (let i = 0; i < biler.length; i++) { leggTilAdr(biler[i]._ri.fra); leggTilAdr(biler[i]._ri.hub); }
+        diag.geokoder = adrListe.length;
+        const _res = await mapLimit(adrListe, 6, a => hentKoord(a));  // maks 6 samtidige geokod-kall
+        let nKoord = 0;
+        for (let i = 0; i < adrListe.length; i++) { koord[adrListe[i]] = _res[i]; if (gyldigKoord(_res[i])) nKoord++; }
+        diag.geokodeOk = nKoord;
+        const hav = (k1, k2) => haversineKm(k1[0], k1[1], k2[0], k2[1]);
+        let parKombo = 0, besteOmvei = Infinity;  // diagnose: hvor mange tids-OK par vurdert + minste omvei
+        relevante.forEach(v => {
+            const { D, vKlar, vFrist } = v._fi;
+            const dK = koord[D];
+            if (!gyldigKoord(dK)) return;
+            const treff = [];
+            biler.forEach(p => {
+                const E = String(p._ri.fra || '').trim();
+                if (!E || p._ri.ank === null) return;
+                if (!(p._ri.ank >= vKlar - MATCH_TIDSVINDU_MIN && p._ri.ank <= vFrist)) return; // returbil i tide
+                const eK = koord[E], hK = koord[String(p._ri.hub || '').trim()] || OSLO_KOORD;  // anker = bilens posisjon
+                if (!gyldigKoord(eK) || !gyldigKoord(hK)) return;
+                const oD = hav(hK, dK), oE = hav(hK, eK), dE = hav(dK, eK);  // hub→D, hub→E, D→E
+                const omveiKm = Math.max(0, (oD + dE - oE) * VEIFAKTOR);
+                const omvei = Math.round(omveiKm / OMVEI_KMH * 60);  // km → min
+                parKombo++; if (omvei < besteOmvei) besteOmvei = omvei;
+                if (omvei <= OMVEI_MAKS_MIN) treff.push({ pRow: p, ank: p._ri.ank, omvei: omvei, sted: stedFraAdr(p._ri.fra) });
+            });
+            treff.sort((a, b) => a.omvei - b.omvei || a.ank - b.ank);
+            v._treff = treff;
+        });
+        diag.tidsOkKombo = parKombo; diag.besteOmvei = isFinite(besteOmvei) ? besteOmvei : null;
+        let nTreff = 0, nMed = 0; relevante.forEach(v => { nTreff += v._treff.length; if (v._treff.length) nMed++; });
+        diag.treff = nTreff; diag.medTreff = nMed;
+        if (!nTreff) diag.stopp = (nKoord < adrListe.length ? 'geokoding bommet på ' + (adrListe.length - nKoord) + ' adresser; ' : '') + 'ingen innen omvei-grense (' + OMVEI_MAKS_MIN + ' min)';
+    }
+
+    /* ── Par to ventende direkte (når ingen returbil er mulig) ─ */
+    // Samkjøring av to ventende = én bil henter BEGGE (på hvert sitt hentested) og leverer begge hjem
+    // — inntil 4 adresser (2 hente + 2 levere). Gyldig hvis: hentetidene er nær, kapasitet holder,
+    // hentestedene er nær hverandre (én naturlig bil), og omveien er liten. omvei = korteste kombinerte
+    // rute (4 rekkefølger: hent begge → lever begge) − lengste enkelttur. (samkjorer.js geografiskMatch.)
+    async function beregnPar(pool, diag) {
+        diag = diag || {};
+        pool.forEach(v => v._par = []);
+        if (pool.length < 2) return;
+        // Geokod BÅDE fra (hentested) og til (hjem). Ren for-løkke (rico saboterer Set/forEach/Array.from).
+        const koord = {};
+        const adrListe = [];
+        const leggTilAdr = s => { s = String(s || '').trim(); if (s && !Object.prototype.hasOwnProperty.call(koord, s)) { koord[s] = null; adrListe.push(s); } };
+        for (let i = 0; i < pool.length; i++) { const l = pool[i].legs[0] || {}; leggTilAdr(l.fra); leggTilAdr(l.til); }
+        const _res = await mapLimit(adrListe, 6, a => hentKoord(a));  // maks 6 samtidige geokod-kall
+        let nKoord = 0;
+        for (let i = 0; i < adrListe.length; i++) { koord[adrListe[i]] = _res[i]; if (gyldigKoord(_res[i])) nKoord++; }
+        diag.parGeoOk = nKoord; diag.parGeo = adrListe.length;
+        const hav = (k1, k2) => haversineKm(k1[0], k1[1], k2[0], k2[1]);
+        const K = s => koord[String(s || '').trim()];
+        let pTid = 0, pKap = 0, pGeo = 0, pHent = 0, pBeste = Infinity;
+        for (let i = 0; i < pool.length; i++) {
+            for (let j = i + 1; j < pool.length; j++) {
+                const a = pool[i], b = pool[j];
+                const la = a.legs[0] || {}, lb = b.legs[0] || {};
+                const ta = parseTid(la.opp || la.start), tb = parseTid(lb.opp || lb.start);
+                if (ta === null || tb === null || Math.abs(ta - tb) > MATCH_TIDSVINDU_MIN) continue;
+                pTid++;
+                const kap = kapasitetsSjekk([passObj(a), passObj(b)]);
+                if (!kap.ok) continue;
+                pKap++;
+                const fA = K(la.fra), tA = K(la.til), fB = K(lb.fra), tB = K(lb.til);
+                if (!gyldigKoord(fA) || !gyldigKoord(tA) || !gyldigKoord(fB) || !gyldigKoord(tB)) continue;
+                pGeo++;
+                // Hentestedene må være nær hverandre — ellers er det ikke én naturlig bil (Oslo sentrum + Ahus = nei).
+                if (hav(fA, fB) > MAKS_HENTEAVSTAND_KM) continue;
+                pHent++;
+                // Korteste kombinerte rute (hent begge → lever begge, 4 rekkefølger) − lengste enkelttur.
+                const dA = hav(fA, tA), dB = hav(fB, tB), lengst = Math.max(dA, dB);
+                const fab = hav(fA, fB), tab = hav(tA, tB);
+                const kombinert = Math.min(
+                    fab + hav(fB, tA) + tab,   // fA→fB→tA→tB
+                    fab + hav(fB, tB) + tab,   // fA→fB→tB→tA
+                    fab + hav(fA, tA) + tab,   // fB→fA→tA→tB
+                    fab + hav(fA, tB) + tab    // fB→fA→tB→tA
+                );
+                const omveiKm = Math.max(0, (kombinert - lengst) * VEIFAKTOR);
+                const omvei = Math.round(omveiKm / OMVEI_KMH * 60);
+                if (omvei < pBeste) pBeste = omvei;
+                if (omvei <= PAR_OMVEI_MAKS_MIN) {
+                    a._par.push({ medRow: b, omvei: omvei, sv: !!kap.svVarsel });
+                    b._par.push({ medRow: a, omvei: omvei, sv: !!kap.svVarsel });
+                }
+            }
+        }
+        diag.parTidOk = pTid; diag.parKapOk = pKap; diag.parGeoParOk = pGeo; diag.parHentOk = pHent; diag.parBesteOmvei = isFinite(pBeste) ? pBeste : null;
+        pool.forEach(v => v._par.sort((x, y) => x.omvei - y.omvei));
+    }
+
+    /* ── Fane ──────────────────────────────────────── */
+    let win = null;
+
+    function aapnePopup() {
+        win = window.open('', 'OmraadeAssistent');
+        if (!win) { alert('Tillat popup/faner for å bruke Område assistent.'); return; }
+        win.document.open();
+        win.document.write(
+            '<!doctype html><html lang="no"><head><meta charset="utf-8">' +
+            '<title>Område assistent</title><style>' +
+            '*{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif}' +
+            'body{background:#0f172a;color:#e2e8f0;padding:22px;font-size:13px}' +
+            '#rot{max-width:1100px;margin:0 auto}' +
+            'h1{font-size:18px;margin-bottom:2px}.sub{color:#64748b;font-size:11px;margin-bottom:16px}' +
+            '.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}' +
+            '.kol{background:#1e293b;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column}' +
+            '.kol h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:8px;display:flex;align-items:center;gap:8px}' +
+            '.liste{overflow:auto;max-height:55vh}' +
+            '.kort{background:#0f172a;border-radius:7px;padding:7px 9px;margin-bottom:6px;border-left:3px solid #334155}' +
+            '.rad{display:flex;justify-content:space-between;gap:8px;align-items:center}' +
+            '.tid{font-weight:700;color:#fbbf24}' +
+            '.adr{color:#cbd5e1;font-size:12px;margin-top:2px}.navn{color:#94a3b8;font-size:11px;margin-top:2px}' +
+            '.rt{color:#fbbf24;font-size:11px;margin-top:3px;font-weight:600}' +
+            '.rt.urgent{color:#fecaca;background:#7f1d1d;border-radius:5px;padding:2px 6px;animation:puls 1.2s infinite}' +
+            '@keyframes puls{0%,100%{opacity:1}50%{opacity:.55}}' +
+            '.match{color:#86efac;font-size:11px;margin-top:3px;font-weight:600}' +
+            '.ress{font-weight:700;color:#7dd3fc;font-size:13px}' +
+            '.leg{font-size:12px;color:#cbd5e1;margin-top:3px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}' +
+            '.st{font-size:9px;color:#cbd5e1;background:#334155;border-radius:5px;padding:0 5px}' +
+            '.b{font-size:9px;font-weight:700;padding:1px 5px;border-radius:6px;margin-left:4px}' +
+            '.b.vent{background:#7c2d12;color:#fed7aa}.b.paga{background:#14532d;color:#bbf7d0}' +
+            '.forslag{background:#052e16;border-left-color:#22c55e}.forslag .vei{color:#86efac;font-size:11px;margin-top:3px}' +
+            '.parp{padding:2px 0}.parp+.parp{border-top:1px solid #14532d;margin-top:5px;padding-top:5px}' +
+            '.kartbtn{background:#0c4a6e;border:1px solid #0ea5e9;color:#bae6fd;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer;margin-top:5px}' +
+            '.kartbtn:hover{background:#0ea5e9;color:#0f172a}' +
+            '#skjOverlay{position:fixed;inset:24px;z-index:3000;background:#0b1220;border:1px solid #334155;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,.6)}' +
+            '.skjtopp{padding:9px 14px;background:#1e293b;display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px}' +
+            '.skjtopp b{color:#e2e8f0}.skjtopp .legg{font-size:11px;color:#94a3b8;display:flex;gap:12px;align-items:center;flex-wrap:wrap}' +
+            '.skjtopp .pa{color:#7dd3fc}.skjtopp .pb{color:#fdba74}' +
+            '.skjkropp{flex:1;display:flex;min-height:0}' +
+            '.skjpanel{width:290px;flex-shrink:0;overflow:auto;background:#0f172a;border-right:1px solid #334155;padding:10px 12px;font-size:12px}' +
+            '.skjpanel h4{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;margin:12px 0 6px}.skjpanel h4:first-child{margin-top:0}' +
+            '.skjpk{background:#1e293b;border-radius:7px;padding:7px 9px;margin-bottom:7px;border-left:3px solid #334155}' +
+            '.skjpk .t{font-weight:700;color:#fbbf24}.skjpk .n{color:#e2e8f0;font-weight:600}.skjpk .a{color:#cbd5e1;font-size:11px;margin-top:3px}' +
+            '.skjstopp{display:flex;gap:8px;align-items:flex-start;margin-bottom:7px}' +
+            '.skjnr{flex-shrink:0;width:20px;height:20px;border-radius:50%;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;border:1px solid #fff}' +
+            '#skjKartDiv{flex:1;background:#0b1220;min-width:0}' +
+            '#skjLukk{background:#334155;border:none;color:#e2e8f0;border-radius:7px;padding:5px 12px;cursor:pointer;font-size:12px;font-weight:600}' +
+            '#skjLukk:hover{background:#475569}' +
+            '.skjmrk{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 4px #000;font-size:13px}' +
+            '.kort.harmatch{border-left-color:#22c55e!important;box-shadow:inset 3px 0 0 #22c55e,0 0 0 1px #22c55e44;background:#0c1f14}' +
+            '.kort.harmatch .ress,.kort.harmatch .tid{color:#86efac}' +
+            '.trakt{color:#64748b;font-size:11px;margin:-6px 0 12px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}' +
+            '.trakt b{color:#86efac;font-weight:700}.trakt .stopp{color:#fca5a5}' +
+            '.gdtgl{font-size:10px;text-transform:none;letter-spacing:0;color:#94a3b8;font-weight:400;cursor:pointer;display:inline-flex;align-items:center;gap:3px}' +
+            '.gdtgl input{cursor:pointer;margin:0}' +
+            '.teller{background:#334155;border-radius:10px;padding:1px 8px;font-size:11px;color:#cbd5e1;margin-left:auto}' +
+            '.tom{color:#475569;font-style:italic;padding:6px 0;font-size:12px}' +
+            '.merk{cursor:pointer;border:none;border-radius:5px;width:18px;height:18px;font-size:10px;line-height:1;background:#334155;color:#1e293b;padding:0;margin-right:4px;vertical-align:middle}' +
+            '.merk.paa{background:rgb(148,169,220);color:#0f172a}' +
+            '.merk.mangler{background:#7f1d1d;color:#fecaca}' +
+            '.velger{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}' +
+            '.omr-btn{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:10px;padding:14px 22px;font-size:15px;font-weight:600;cursor:pointer}' +
+            '.omr-btn:hover{background:#334155;border-color:#0ea5e9}' +
+            '.bytt{background:none;border:1px solid #334155;color:#94a3b8;border-radius:8px;padding:3px 10px;font-size:11px;cursor:pointer;margin-left:8px;vertical-align:middle}' +
+            '.bytt:hover{color:#e2e8f0;border-color:#0ea5e9}' +
+            '.bytt.frossen{color:#7dd3fc;border-color:#0ea5e9;background:#0c4a6e}' +
+            '.bytt.autopaa{color:#bbf7d0;border-color:#16a34a;background:#14532d}' +
+            '.bytt.autoav{color:#fecaca;border-color:#ef4444;background:#7f1d1d}' +
+            '#kartwrap{position:fixed;inset:0;z-index:5}' +
+            '#kartDiv{position:absolute;inset:0;background:#0b1220}' +
+            '.kartpanel{position:absolute;top:64px;bottom:14px;width:300px;overflow:auto;background:rgba(15,23,42,.85);border:1px solid #334155;border-radius:10px;padding:9px;z-index:1000}' +
+            '.kartpanel.venstre{left:14px}.kartpanel.hoyre{right:14px}' +
+            '.kartpanel h3{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;margin-bottom:7px;display:flex;gap:6px;align-items:center}' +
+            '.kk{background:#0f172a;border-radius:6px;padding:5px 8px;margin-bottom:5px;border-left:5px solid #334155;font-size:11px;cursor:pointer}' +
+            '.kk:hover{background:#1e293b}.kk .t{font-weight:700;color:#fbbf24}.kk .n{color:#f1f5f9;font-weight:600}' +
+            '.kk .kkr{display:flex;justify-content:space-between;align-items:center;gap:6px}' +
+            '.kk .kksub{color:#cbd5e1;font-size:10px;margin-top:1px}' +
+            '.kk .kkmeta{font-size:10px;margin-top:2px;display:flex;gap:5px;align-items:center;flex-wrap:wrap;color:#94a3b8}' +
+            '.kk .kkmeta.urg{color:#fecaca;font-weight:600}' +
+            '.kk .kst{font-size:9px;color:#94a3b8;white-space:nowrap;flex-shrink:0}.kk .kst.kjort{color:#6ee7b7}' +
+            '.karttopp{position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:10px;padding:7px 14px;display:flex;align-items:center;gap:12px;font-size:12px;color:#e2e8f0}' +
+            '.karttopp input[type=range]{width:180px;accent-color:#0ea5e9}' +
+            '.karttopp select{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:5px;padding:2px 5px;font-size:11px}' +
+            '.karttopp label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}' +
+            '.leaflet-container{background:#0b1220}' +
+            '</style></head><body><div id="rot"><p class="tom">Henter…</p></div></body></html>'
+        );
+        win.document.close();
+    }
+
+    function merkKnapp(resId) {
+        return '<button class="merk' + (erMerket(resId) ? ' paa' : '') + '" data-merk="' + esc(resId) + '" title="Merk i NISSY (blå)">●</button>';
+    }
+    function statusBadge(r) {
+        return r.fane === 'ventendeOppdrag' ? '<span class="b vent">VENT</span>' : '<span class="b paga">PÅGÅ</span>';
+    }
+    function legLinje(l) {
+        return '<div class="leg"><span class="tid">' + esc(l.opp || l.start || '–') + '</span>' +
+            '<span>' + esc(l.fra || '?') + ' →<br>' + esc(l.til || '?') + '</span>' +
+            (l.status ? '<span class="st">' + esc(l.status) + '</span>' : '') + '</div>';
+    }
+    function kildeTag(r) {
+        if (aktivKilder.length <= 1) return '';
+        const d = delomraade(r);
+        if (!d.navn) return '';
+        return '<span class="b" style="background:' + d.farge + '33;color:' + d.farge + '">' + esc(d.navn) + '</span>';
+    }
+    function radKort(r) {
+        const farge = delomraade(r).farge || '#334155';
+        if (r.ressurs) {
+            const navnliste = Array.from(new Set(r.legs.map(l => l.pnavn).filter(Boolean))).join(', ');
+            const sted = stedFraAdr(returInfo(r).fra);
+            const turRetur = erTurRetur(r);
+            const base = egneReturPassasjerer(r);
+            const ledig = ledigePlasser(base);             // restkapasitet på returen
+            const { tatt, sv } = fyllBil(base, (bilMatchMap[r.resId] || []).slice());
+            // «tar» = kun de som faktisk får plass (fyllBil capper til kapasitet), sortert beste omvei først.
+            // «ikke plass»-lista er fjernet (ren støy for operatøren).
+            const tattSort = tatt.slice().sort((a, b) => (a.t && a.t.omvei || 0) - (b.t && b.t.omvei || 0));
+            const merk = k => merkKnapp(k.v.resId) + ' ' + esc(stedFraAdr((k.v.legs[0] || {}).til) || (k.v.legs[0] || {}).pnavn || '?') + (k.t && k.t.omvei ? ' <span style="color:#86efac">+' + k.t.omvei + ' min</span>' : '') + ' ' + behovBadges(k.v) + ledsBadge(k.v);
+            const plassKlasse = ledig === 0 ? 'rt' : 'match';
+            const plassLinje = '<div class="' + plassKlasse + '">↩ retur: ' + ledig + ' av ' + MAKS.passasjerer + ' plasser ledig'
+                + (tattSort.length ? ' · tar ' + tattSort.map(merk).join(' · ') : '')
+                + (sv ? ' · ⚠ krever SV (ekstra bagasjeplass)' : '') + '</div>';
+            // Tur/retur: pasienten blir i bilen på returen → vis behov/ledsager (opptar seter).
+            const innInfo = turRetur ? behovBadges(r) + ledsBadge(r) : '';
+            const trBadge = turRetur ? '<span class="b" title="Tur/retur samme bil — pasienten kjører tilbake; kun restkapasitet er ledig" style="background:#33415588;color:#fbbf24">🔁 tur/retur</span>' : '';
+            return '<div class="kort' + (tatt.length ? ' harmatch' : '') + '" style="border-left-color:' + farge + (ledig === 0 ? ';opacity:.6' : '') + '">' +
+                '<div class="rad"><span class="ress">🚐 ' + esc(r.ressurs) + (sted ? ' – ' + esc(sted) : '') + '</span>' +
+                '<span>' + merkKnapp(r.resId) + innInfo + trBadge + kildeTag(r) + statusBadge(r) + '</span></div>' +
+                r.legs.map(legLinje).join('') +
+                (navnliste ? '<div class="navn">' + esc(navnliste) + '</div>' : '') +
+                plassLinje +
+                '</div>';
+        }
+        const l0 = r.legs[0] || {};
+        const venteMin = Math.max((r._rt ? r._rt.sek / 60 : 0), VENTETID_MIN);
+        const Tmin = parseTid(l0.opp || l0.start);
+        const fristMin = Tmin !== null ? Tmin + venteMin : null;        // hentes innen
+        const sendUtMin = fristMin !== null ? fristMin - VARSEL_MIN : null; // frist for utsendelse
+        const urgent = sendUtMin !== null && naaMin() >= sendUtMin;
+        const rtLinje = '<div class="rt' + (urgent ? ' urgent' : '') + '">' + (urgent ? '🔔 ' : '⏱ ')
+            + (r._rt ? 'reisetid ' + esc(r._rt.tekst) : 'ventetid ' + fmtMin(venteMin))
+            + (fristMin !== null ? ' · hentes innen ' + tidStr(fristMin) + ' · send ut ' + tidStr(sendUtMin) : '')
+            + (urgent ? ' — SEND UT' : '') + '</div>';
+        const _tr = synligeTreff(r);
+        const matchLinje = _tr.length
+            ? '<div class="match">🔗 ' + _tr.slice(0, 3).map(t => merkKnapp(t.pRow.resId) + ' '
+                + (t.pRow.ressurs ? esc(t.pRow.ressurs) : 'bil') + (t.sted ? ' (' + esc(t.sted) + ')' : '')
+                + ' ank ' + tidStr(t.ank) + (t.omvei ? ' · +' + t.omvei + ' min' : '')).join(' · ') + '</div>'
+            : '';
+        return '<div class="kort' + (_tr.length ? ' harmatch' : '') + '" style="border-left-color:' + farge + '">' +
+            '<div class="rad"><span class="tid">' + esc(l0.opp || l0.start || '–') + '</span>' +
+            '<span>' + merkKnapp(r.resId) + behovBadges(r) + ledsBadge(r) + kildeTag(r) + statusBadge(r) + '</span></div>' +
+            '<div class="adr">' + esc(l0.fra || '?') + ' →<br>' + esc(l0.til || '?') + '</div>' +
+            (l0.pnavn ? '<div class="navn">' + esc(l0.pnavn) + (l0.rmate && !/^TAX$/i.test(l0.rmate.trim()) ? ' · ' + esc(l0.rmate) : '') + '</div>' : '') +
+            rtLinje + matchLinje +
+            '</div>';
+    }
+
+    // Berik ved skann: reisetid per ventende + omvei-forslag (Google). Kun her, ikke ved 30s-re-rendring.
+    async function berik(data) {
+        const utVent = dedupResId(data.ut).filter(r => r.fane === 'ventendeOppdrag' && !erHlsx(r));
+        const innPaga = dedupResId(data.inn).filter(r => r.fane === 'paagaaendeOppdrag' && !erHlsx(r));
+        utVent.forEach(r => { r._treff = []; r._par = []; });
+        const _nettStart = _nettOppslag;
+        const diag = { utVent: utVent.length, innPaga: innPaga.length };
+        // Match kun mot biler som kommer til vårt område (kan plukke opp der) OG har ledig plass
+        // på returen (alenebil/full tur/retur = 0). Turer som aldri når området er irrelevante.
+        const naarOmr = innPaga.filter(r => kommerTilOmraadet(r));
+        const matchBiler = naarOmr.filter(r => ledigePlasser(egneReturPassasjerer(r)) > 0);
+        diag.naarOmraadet = naarOmr.length; diag.medLedigPlass = matchBiler.length;
+        matchBiler.forEach(p => p._ri = returInfo(p));
+        // GROVFILTER (uten reisetid): kun ventende som tidsmessig kan møte en returbil. Av
+        // hundrevis ventende er som regel bare en håndfull aktuelle nå — vi slipper å regne
+        // reisetid + omvei-matrise for alle (som ga Google-timeout/500).
+        const kandidater = utVent.filter(v => {
+            const vl = v.legs[0] || {};
+            const vKlar = parseTid(vl.opp || vl.start);
+            if (vKlar === null || !String(vl.til || '').trim()) return false;
+            return matchBiler.some(p => p._ri.ank !== null && p._ri.fra &&
+                p._ri.ank >= vKlar - MATCH_TIDSVINDU_MIN && p._ri.ank <= vKlar + MAKS_VENTETID_MIN);
+        });
+        diag.kandidater = kandidater.length;
+        // TEST-GRENSE: geokod/match kun de KANDIDAT_MAKS nærmeste i tid — holder API-/CPU-lasten nede
+        // mens vi tester. Sortert på hentetid (snarest først = mest aktuelle nå).
+        kandidater.sort((a, b) => (parseTid((a.legs[0] || {}).opp || (a.legs[0] || {}).start) ?? 9999) - (parseTid((b.legs[0] || {}).opp || (b.legs[0] || {}).start) ?? 9999));
+        let kand = kandidater;
+        if (kand.length > KANDIDAT_MAKS) { diag.kappet = kand.length - KANDIDAT_MAKS; kand = kand.slice(0, KANDIDAT_MAKS); }
+        diag.brukt = kand.length;
+        // Reisetid kun for kandidatene (presist tidsvindu + omvei avgjøres så i beregnForslag).
+        await mapLimit(kand, 6, async r => { const l = r.legs[0] || {}; r._rt = await hentReisetid(l.fra, l.til); });  // maks 6 samtidige reisetid-kall
+        await beregnForslag(kand, matchBiler, diag);
+
+        // FALLBACK — ventende↔ventende: finn par i samme retning for de som IKKE fikk returbil.
+        // (Returbil er gratis retur og prioriteres; direkte paring sparer i det minste én bil.)
+        const naa = naaMin();
+        let parPool = utVent.filter(v => {
+            if (synligeTreff(v).length) return false;  // har (synlig) returbil-forslag → håndtert
+            const t = parseTid((v.legs[0] || {}).opp || (v.legs[0] || {}).start);
+            return t !== null && String((v.legs[0] || {}).til || '').trim() && t >= naa - 30 && t <= naa + PAR_VINDU_MIN;
+        });
+        parPool.sort((a, b) => (parseTid((a.legs[0] || {}).opp || (a.legs[0] || {}).start)) - (parseTid((b.legs[0] || {}).opp || (b.legs[0] || {}).start)));
+        if (parPool.length > PAR_MAKS) parPool = parPool.slice(0, PAR_MAKS);
+        await beregnPar(parPool, diag);
+        diag.parPool = parPool.length;
+        let nPar = 0; utVent.forEach(v => { if ((v._par || []).length) nPar++; });  // rico.js ødelegger reduce → tell med forEach
+        diag.par = nPar;
+        diag.nyeOppslag = _nettOppslag - _nettStart;  // faktiske nettverkskall denne runden (cache-treff = 0)
+        sisteDiag = diag;
+        try { window.__omr_diag = diag; } catch (e) {}
+        console.log('[' + NAVN + '] match-trakt:', JSON.stringify(diag));
+    }
+
+    /* ── Frys / autooppdater ──────────────────────────── */
+    function erFrosset() { return Date.now() < frysTil; }
+    function oppdaterKnapper() {
+        if (!win || win.closed) return;
+        const frosset = erFrosset();
+        const fb = win.document.getElementById('frysBtn');
+        if (fb) {
+            fb.textContent = frosset ? '❄️ Frys (' + Math.ceil((frysTil - Date.now()) / 1000) + 's)' : '❄️ Frys ' + (FRYS_MS / 1000) + 's';
+            fb.classList.toggle('frossen', frosset);
+        }
+        const ab = win.document.getElementById('autoBtn');
+        if (ab) {
+            ab.classList.toggle('autoav', frosset);
+            ab.classList.toggle('autopaa', !frosset);
+        }
+    }
+    function frysNa() { frysTil = Date.now() + FRYS_MS; oppdaterKnapper(); }   // (re)start 60 s
+    function startAuto() { frysTil = 0; oppdaterKnapper(); tikk(); }           // gjenoppta straks + frisk skann
+
+    function render(data) {
+        if (!win || win.closed) return;
+        const utD = dedupResId(data.ut);
+        const innD = dedupResId(data.inn);
+        const utVent = utD.filter(r => r.fane === 'ventendeOppdrag' && !erHlsx(r));
+        // Kun returbiler hvis tur ender i vårt område (kjørekontorets postnr-soner). Turer som
+        // aldri når området (f.eks. Jessheim↔Gjøvik — Innlandet kjørekontor) hører ikke hjemme.
+        const innPaga = innD.filter(r => r.fane === 'paagaaendeOppdrag' && !erHlsx(r) && !(skjulGD && erGD(r)) && kommerTilOmraadet(r));
+        const helse = dedupResId([].concat(data.ut, data.inn)).filter(erHlsx);
+
+        const forslag = utVent.filter(r => synligeTreff(r).length);
+
+        // Reverse-kobling: hvilke ventende kan hver returbil ta — grunnlag for plass-beregning.
+        bilMatchMap = {};
+        utVent.forEach(v => synligeTreff(v).forEach(t => {
+            const id = t.pRow.resId;
+            (bilMatchMap[id] = bilMatchMap[id] || []).push({ v, t });
+        }));
+
+        // Ventende-par (samkjør to direkte) — dedup a↔b, kun par der begge fortsatt mangler returbil.
+        const parSett = new Set(), parListe = [];
+        utVent.forEach(v => (v._par || []).forEach(p => {
+            if (synligeTreff(v).length || synligeTreff(p.medRow).length) return;  // én fikk returbil → dropp paret
+            const key = [v.resId, p.medRow.resId].sort().join('|');
+            if (parSett.has(key)) return; parSett.add(key);
+            parListe.push({ a: v, b: p.medRow, omvei: p.omvei, sv: p.sv });
+        }));
+        parListe.sort((x, y) => x.omvei - y.omvei);
+        // Grådig maks-matching: hver ventende kan kun sitte i ÉN bil. Velg beste (minste omvei) par først,
+        // «bruk opp» begge pasientene, ta så det nest beste blant de gjenværende → konfliktfri ANBEFALT plan
+        // (den beste samkjøringen for hver pasient). Resten = ANDRE muligheter (overlappende alternativer).
+        const parBrukt = {};
+        const parAnbefalt = [], parAndre = [];
+        for (let i = 0; i < parListe.length; i++) {
+            const p = parListe[i];
+            if (!parBrukt[p.a.resId] && !parBrukt[p.b.resId]) { parBrukt[p.a.resId] = true; parBrukt[p.b.resId] = true; parAnbefalt.push(p); }
+            else parAndre.push(p);
+        }
+        sistePar = parAnbefalt.concat(parAndre);  // indeksene parKort bruker som data-par for kart-klikk
+
+        const tidR = r => parseTid((r.legs[0] || {}).opp || (r.legs[0] || {}).start) ?? 9999;
+        utVent.sort((a, b) => tidR(a) - tidR(b));
+        innPaga.sort((a, b) => tidR(a) - tidR(b));
+        const naa = new Date().toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' });
+
+        const liste = arr => arr.length ? arr.map(radKort).join('') : '<div class="tom">Ingen.</div>';
+        const forslagKort = v => {
+            const l0 = v.legs[0] || {};
+            return '<div class="kort forslag">' +
+                '<div class="rad"><span class="tid">' + esc(l0.opp || l0.start || '–') + ' <span style="color:#e2e8f0">' + esc(l0.pnavn || 'Ventende') + '</span> ' + behovBadges(v) + ledsBadge(v) + '</span>' +
+                '<span>' + merkKnapp(v.resId) + '</span></div>' +
+                '<div class="adr">' + esc(l0.fra || '?') + ' →<br>' + esc(l0.til || '?') + '</div>' +
+                synligeTreff(v).slice(0, 4).map(t => '<div class="vei">' + merkKnapp(t.pRow.resId) + ' ' +
+                    (t.pRow.ressurs ? '🚐 ' + esc(t.pRow.ressurs) : 'bil') + (t.sted ? ' (' + esc(t.sted) + ')' : '') +
+                    ' ank ' + tidStr(t.ank) + (t.omvei ? ' · +' + t.omvei + ' min omvei' : '') + '</div>').join('') +
+                '</div>';
+        };
+        const parRad = v => {
+            const l0 = v.legs[0] || {};
+            return '<div class="parp">'
+                + '<div class="rad"><span class="tid">' + esc(l0.opp || l0.start || '–') + ' <span style="color:#e2e8f0">' + esc(l0.pnavn || 'Ventende') + '</span> ' + behovBadges(v) + ledsBadge(v) + '</span><span>' + merkKnapp(v.resId) + '</span></div>'
+                + '<div class="adr">' + esc(l0.fra || '?') + ' →<br>' + esc(l0.til || '?') + '</div>'
+                + '</div>';
+        };
+        const parKort = (p, idx) => '<div class="kort forslag">' + parRad(p.a) + parRad(p.b)
+            + '<div class="vei">🔗 samme retning · +' + p.omvei + ' min omvei' + (p.sv ? ' · ⚠ krever SV (ekstra bagasjeplass)' : '') + '</div>'
+            + '<button class="kartbtn" data-par="' + idx + '">🗺️ Vis i kart</button></div>';
+
+        const html =
+            '<h1>🧭 Område assistent – ' + esc(aktivNavn) + ' <button class="bytt" id="refreshBtn" title="Skann og oppdater nå">🔄 Oppdater</button> <label class="bytt' + (autoRefresh ? ' autopaa' : '') + '" id="autoWrap" title="Auto-oppdater hvert ' + (POLL_MS / 1000) + '. sekund"><input type="checkbox" id="autoChk"' + (autoRefresh ? ' checked' : '') + '> auto</label> <button class="bytt" id="kartBtn" title="Vis turene på kart">🗺️ Kart</button> <button class="bytt" id="testBlink" title="Tving blink på et par ventende-rader i NISSY (~8 s) for å teste">🔔 Test blink</button> <button class="bytt" id="byttOmr">↩ Bytt område</button></h1>' +
+            '<div class="sub">v' + VERSJON + ' · oppdatert ' + naa + ' · inn ' + esc(aktivInn) + ' / ut ' + esc(aktivUt) + (aktivKilder.length > 1 ? ' · soner: ' + esc(aktivKilder.map(k => k.navn).join('+')) : '') + '</div>' +
+            (sisteDiag ? '<div class="trakt">🔎 ' + sisteDiag.utVent + ' ventende · ' + sisteDiag.innPaga + ' returbiler → '
+                + (sisteDiag.naarOmraadet || 0) + ' når området → ' + (sisteDiag.medLedigPlass || 0) + ' m/ledig plass · '
+                + (sisteDiag.kandidater || 0) + ' i tidsvindu' + (sisteDiag.kappet ? ' (test-grense: bruker ' + sisteDiag.brukt + ')' : '')
+                + (sisteDiag.geokoder ? ' · geokodet ' + (sisteDiag.geokodeOk || 0) + '/' + sisteDiag.geokoder : '')
+                + ' → <b>' + (sisteDiag.medTreff || 0) + ' får returbil</b> (' + (sisteDiag.treff || 0) + ' treff'
+                + (sisteDiag.besteOmvei != null ? ', beste ' + sisteDiag.besteOmvei + ' min av ' + (sisteDiag.tidsOkKombo || 0) : '') + ') · <b>'
+                + (sisteDiag.par || 0) + ' direkte-par</b>'
+                + ' <span style="color:#475569">[par: pool ' + (sisteDiag.parPool || 0) + ' → tid ' + (sisteDiag.parTidOk || 0) + ' → kap ' + (sisteDiag.parKapOk || 0) + ' → geo ' + (sisteDiag.parGeoParOk || 0) + ' → hent<' + MAKS_HENTEAVSTAND_KM + 'km ' + (sisteDiag.parHentOk || 0) + (sisteDiag.parBesteOmvei != null ? ' · beste ' + sisteDiag.parBesteOmvei + ' min' : '') + ' · geokodet ' + (sisteDiag.parGeoOk || 0) + '/' + (sisteDiag.parGeo || 0) + ']</span>'
+                + ' · <span style="color:' + (sisteDiag.nyeOppslag ? '#fbbf24' : '#34d399') + '">📡 ' + (sisteDiag.nyeOppslag || 0) + ' nye oppslag</span>'
+                + (sisteDiag.stopp ? ' · <span class="stopp">⛔ ' + esc(sisteDiag.stopp) + '</span>' : '') + '</div>' : '') +
+            '<div class="grid">' +
+                '<div class="kol"><h2>⬆️ Turer på vei ut <span class="teller">' + utVent.length + '</span></h2>' +
+                '<div class="liste">' + liste(utVent) + '</div></div>' +
+                '<div class="kol"><h2>🚐 Returbiler <label class="gdtgl"><input type="checkbox" id="skjulGD"' + (skjulGD ? ' checked' : '') + '> skjul GD/ST</label> <span class="teller">' + innPaga.length + '</span></h2>' +
+                '<div class="liste">' + liste(innPaga) + '</div></div>' +
+            '</div>' +
+            '<div class="kol" style="margin-top:16px"><h2>💡 Forslag – returbil <span class="teller">' + forslag.length + '</span></h2>' +
+            '<div class="liste">' + (forslag.length ? forslag.map(forslagKort).join('') : '<div class="tom">Ingen match nå.</div>') + '</div></div>' +
+            '<div class="kol" style="margin-top:16px"><h2>🔗 Samkjør to ventende – anbefalt plan <span class="teller">' + parAnbefalt.length + '</span></h2>' +
+            '<div class="sub" style="margin:-4px 0 8px">Konfliktfri plan: hver pasient i én bil, beste samkjøring først. To ventende i samme retning når ingen returbil passer.</div>' +
+            '<div class="liste">' + (parAnbefalt.length ? parAnbefalt.map((p, i) => parKort(p, i)).join('') : '<div class="tom">Ingen par nå.</div>') + '</div>' +
+            (parAndre.length ? '<details style="margin-top:8px"><summary style="cursor:pointer;color:#94a3b8;font-size:11px">Andre mulige par (' + parAndre.length + ') – overlapper med planen over</summary><div class="liste" style="margin-top:6px;opacity:.75">' + parAndre.map((p, i) => parKort(p, parAnbefalt.length + i)).join('') + '</div></details>' : '') +
+            '</div>' +
+            '<div id="helse-skjult" style="display:none">' + liste(helse) + '</div>';
+
+        win.document.getElementById('rot').innerHTML = html;
+
+        win.document.querySelectorAll('button.merk').forEach(btn => {
+            btn.onclick = () => {
+                const res = toggleMerk(btn.dataset.merk);
+                if (res === 'mangler') {
+                    btn.classList.add('mangler');
+                    btn.title = 'Ikke synlig i planleggeren';
+                    setTimeout(() => btn.classList.remove('mangler'), 1500);
+                } else {
+                    btn.classList.toggle('paa', res === 'paa');
+                }
+            };
+        });
+        const bo = win.document.getElementById('byttOmr');
+        if (bo) bo.onclick = visVelger;
+        const rb = win.document.getElementById('refreshBtn');
+        if (rb) rb.onclick = () => tikk();
+        const tb = win.document.getElementById('testBlink');
+        if (tb) tb.onclick = () => { _hasterTestTil = Date.now() + 8000; oppdaterHaster(); };
+        const ac = win.document.getElementById('autoChk');
+        if (ac) ac.onchange = () => {
+            autoRefresh = ac.checked;
+            const w = win.document.getElementById('autoWrap');
+            if (w) w.classList.toggle('autopaa', autoRefresh);
+            if (autoRefresh) tikk();  // skru på → frisk skann straks
+        };
+        const gd = win.document.getElementById('skjulGD');
+        if (gd) gd.onchange = () => { skjulGD = gd.checked; if (sisteData) render(sisteData); };
+        const kb = win.document.getElementById('kartBtn');
+        if (kb) kb.onclick = () => setKartMode(true);
+        win.document.querySelectorAll('button.kartbtn[data-par]').forEach(btn => {
+            btn.onclick = () => visSamkjorKart(sistePar[+btn.dataset.par]);
+        });
+    }
+
+    /* ── Kartmodus (Leaflet + Kartverket + ORS-ruter) ── */
+    // Stabil farge per tur (hash av resId → hue), så fargen ikke hopper mellom oppdateringer.
+    function fargeForTur(id) { let h = 0; const s = String(id || ''); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return 'hsl(' + h + ',85%,60%)'; }
+    // Kuratert palett av distinkte, lett-navngivbare farger (rosa, lilla, mørkegrønn, lyseblå osv.)
+    // — tildeles sekvensielt til synlige turer i hver render, så hver får en unik farge. Leder med
+    // de mest distinkte; rekkefølgen veksler mellom fargefamilier så naboer ser ulike ut.
+    const KART_PALETT = [
+        '#dc2626', // rød
+        '#2563eb', // blå
+        '#16a34a', // grønn
+        '#ea580c', // oransje
+        '#7c3aed', // lilla
+        '#db2777', // rosa
+        '#0d9488', // turkis
+        '#854d0e', // brun
+        '#0ea5e9', // lyseblå
+        '#166534', // mørkegrønn
+        '#be185d', // magenta
+        '#ca8a04', // gul/amber
+        '#1e3a8a', // mørkeblå
+        '#9f1239', // vinrød
+        '#65a30d', // oliven
+        '#334155', // skifer
+    ];
+    function lastLeaflet() {
+        return new Promise(res => {
+            if (win.L) return res(true);
+            const css = win.document.createElement('link');
+            css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            win.document.head.appendChild(css);
+            const js = win.document.createElement('script');
+            js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+            js.onload = () => res(true);
+            js.onerror = () => res(false);
+            win.document.head.appendChild(js);
+        });
+    }
+    async function hentRute(fra, til) {
+        const key = fra + '|' + til;
+        if (_ruteCache[key]) return _ruteCache[key];  // cache KUN gyldige ruter (ikke feil → retry når ORS-kvote er tilbake)
+        const ls = lsLes('omr_ru_' + key, 7 * _LS_DAG);
+        if (ls && ls.geometri && ls.geometri.length) { _ruteCache[key] = ls; return ls; }
+        try {
+            const r = await fetchTO(SERVER + '/ruter.php?fra=' + encodeURIComponent(fra) + '&til=' + encodeURIComponent(til), {}, 12000);
+            const j = await r.json();
+            if (j && j.ok && j.geometri && j.geometri.length) { _ruteCache[key] = j; lsSkriv('omr_ru_' + key, j); return j; }
+            return j || null;  // returnér feil-json (m/ .feil) for diagnostikk, men IKKE cache den
+        } catch (e) { return { ok: false, feil: 'fetch: ' + (e && e.message || e) }; }
+    }
+    const _koordCache = {};
+    const gyldigKoord = a => Array.isArray(a) && typeof a[0] === 'number' && typeof a[1] === 'number' && isFinite(a[0]) && isFinite(a[1]);
+    async function hentKoord(adr) {
+        if (!adr) return null;
+        if (_koordCache[adr] !== undefined) return _koordCache[adr];
+        const ls = lsLes('omr_kd_' + adr, 30 * _LS_DAG);
+        if (gyldigKoord(ls)) { _koordCache[adr] = ls; return ls; }  // bruk cache KUN hvis gyldig; forgiftet/manglende → hent på nytt (overskriver)
+        try {
+            _nettOppslag++;
+            const r = await fetchTO(SERVER + '/geokod.php?adr=' + encodeURIComponent(adr), {}, 9000);
+            const j = await r.json();
+            _koordCache[adr] = (j.ok && isFinite(j.lat) && isFinite(j.lon)) ? [j.lat, j.lon] : null;
+            if (_koordCache[adr]) lsSkriv('omr_kd_' + adr, _koordCache[adr]);
+        } catch (e) { _koordCache[adr] = null; }
+        return _koordCache[adr];
+    }
+    function setKartMode(b) {
+        kartMode = b;
+        if (!b && kart) { try { kart.remove(); } catch (e) {} kart = null; kartLag = null; }
+        if (sisteData) { if (b) visKart(sisteData); else render(sisteData); }
+    }
+    // FOKUSERT KART for ÉN samkjøring: begge pasientenes hentested + hjem + ruter. Statisk (tegnes én gang,
+    // ingen auto-refresh) → ingen zoom-wipe. Overlay i popupen, lukkes med ✕.
+    async function visSamkjorKart(par) {
+        if (!par || !win || win.closed) return;
+        const ok = await lastLeaflet();
+        const L = win.L;
+        if (!ok || !L) { alert('Kunne ikke laste kart.'); return; }
+        const a = par.a.legs[0] || {}, b = par.b.legs[0] || {};
+        const navnA = a.pnavn || 'Pasient A', navnB = b.pnavn || 'Pasient B';
+        const FARGE_A = '#0ea5e9', FARGE_B = '#f97316';
+        const gammel = win.document.getElementById('skjOverlay');
+        if (gammel) gammel.remove();
+        const ov = win.document.createElement('div');
+        ov.id = 'skjOverlay';
+        ov.innerHTML =
+            '<div class="skjtopp"><span><b>🔗 Samkjøring</b> · +' + par.omvei + ' min omvei' + (par.sv ? ' · ⚠ SV' : '') + '</span>' +
+            '<span class="legg"><span class="pa">● ' + esc(navnA) + '</span><span class="pb">● ' + esc(navnB) + '</span>' +
+            '<span style="color:#94a3b8">nr = kjørerekkefølge · <span style="color:#c4b5fd">lilla=felles stopp</span></span><button id="skjLukk">✕ Lukk</button></span></div>' +
+            '<div class="skjkropp"><div class="skjpanel" id="skjPanel"></div><div id="skjKartDiv"></div></div>';
+        win.document.body.appendChild(ov);
+        win.document.getElementById('skjLukk').onclick = () => ov.remove();
+        const k = L.map('skjKartDiv', { zoomControl: true, attributionControl: false }).setView([59.92, 10.75], 9);
+        L.tileLayer(BASISKART[kartBasis].url, { maxZoom: 18, subdomains: 'abcd' }).addTo(k);
+        setTimeout(() => { try { k.invalidateSize(); } catch (e) {} }, 60);
+        const bounds = [];
+        // De 4 punktene i samkjøringen. (Bruk eksplisitt nøkkel-liste, IKKE for-in — Prototype.js forurenser
+        // Object.prototype så for-in ville fått med søppel-nøkler.)
+        const P = {
+            fA: { adr: a.fra, navn: navnA, farge: FARGE_A, rolle: 'hentes' },
+            tA: { adr: a.til, navn: navnA, farge: FARGE_A, rolle: 'hjem' },
+            fB: { adr: b.fra, navn: navnB, farge: FARGE_B, rolle: 'hentes' },
+            tB: { adr: b.til, navn: navnB, farge: FARGE_B, rolle: 'hjem' },
+        };
+        const PKEYS = ['fA', 'tA', 'fB', 'tB'];
+        for (let i = 0; i < PKEYS.length; i++) P[PKEYS[i]].ll = await hentKoord(P[PKEYS[i]].adr);
+        try {
+            // Beste besøksrekkefølge (samme 4 som beregnPar: hent begge → lever begge), minst total avstand.
+            // Rene for-løkker — Prototype.js saboterer .forEach/.every/.map på enkelte arrays.
+            const hav = (x, y) => haversineKm(x[0], x[1], y[0], y[1]);
+            const kandidater = [['fA', 'fB', 'tA', 'tB'], ['fA', 'fB', 'tB', 'tA'], ['fB', 'fA', 'tA', 'tB'], ['fB', 'fA', 'tB', 'tA']];
+            let beste = null, besteLen = Infinity;
+            for (let c = 0; c < kandidater.length; c++) {
+                const seq = kandidater[c];
+                let gyldig = true;
+                for (let i = 0; i < 4; i++) if (!gyldigKoord(P[seq[i]].ll)) { gyldig = false; break; }
+                if (!gyldig) continue;
+                let d = 0; for (let i = 0; i < 3; i++) d += hav(P[seq[i]].ll, P[seq[i + 1]].ll);
+                if (d < besteLen) { besteLen = d; beste = seq; }
+            }
+            if (!beste) beste = kandidater[0];
+            // Slå sammen punkter på ~samme sted (<300 m) til ÉN unik stopp: begge hentes på Ahus →
+            // felles hente-stopp (3 adresser, ikke 4) i stedet for to overlappende markører.
+            const stopp = [];
+            for (let i = 0; i < beste.length; i++) {
+                const p = P[beste[i]];
+                if (!gyldigKoord(p.ll)) continue;
+                let f = -1;
+                for (let s = 0; s < stopp.length; s++) if (hav(stopp[s].ll, p.ll) < 0.3) { f = s; break; }
+                if (f >= 0) stopp[f].deler.push(p);
+                else stopp.push({ ll: p.ll, adr: p.adr, deler: [p] });
+            }
+            // Rute mellom de unike stoppene (på koordinater = rask, ingen klinikk-geokoding).
+            const RUTEFARGE = '#22c55e';
+            const segMeter = [], segSek = [];  // distanse/tid per segment (til omkjørings-beregning)
+            for (let i = 0; i < stopp.length - 1; i++) {
+                const llA = stopp[i].ll, llB = stopp[i + 1].ll;
+                let geo = null;
+                const rute = await hentRute(llA[0] + ',' + llA[1], llB[0] + ',' + llB[1]);
+                if (rute && rute.geometri) {
+                    const g2 = [];  // filtrer bort null-punkter (kræsjet Leaflet _projectLatlngs)
+                    for (let g = 0; g < rute.geometri.length; g++) { const pt = rute.geometri[g]; if (Array.isArray(pt) && isFinite(pt[0]) && isFinite(pt[1])) g2.push(pt); }
+                    if (g2.length >= 2) geo = g2;
+                }
+                const fallback = !geo;
+                if (!fallback && rute && isFinite(rute.meter)) { segMeter[i] = rute.meter; segSek[i] = rute.sek || 0; }
+                else { const dKm = hav(llA, llB) * VEIFAKTOR; segMeter[i] = Math.round(dKm * 1000); segSek[i] = Math.round(dKm / OMVEI_KMH * 3600); }
+                if (fallback) { geo = [llA, llB]; console.warn('[' + NAVN + '] rute-segment ' + (i + 1) + ' falt tilbake til luftlinje:', rute && rute.feil ? rute.feil : '(ingen respons/timeout)'); }
+                for (let g = 0; g < geo.length; g++) bounds.push(geo[g]);
+                L.polyline(geo, { color: '#0b1220', weight: 8, opacity: .6, lineCap: 'round' }).addTo(k);  // halo
+                L.polyline(geo, { color: RUTEFARGE, weight: 4, opacity: 1, lineCap: 'round', dashArray: fallback ? '8,8' : null }).addTo(k);
+            }
+            // Markør per unik stopp, nummerert i kjørerekkefølge. Felles stopp (begge pasienter) = lilla.
+            for (let i = 0; i < stopp.length; i++) {
+                const st = stopp[i];
+                bounds.push(st.ll);
+                const delt = st.deler.length > 1;
+                const farge = delt ? '#a855f7' : st.deler[0].farge;
+                let label = '';
+                for (let d = 0; d < st.deler.length; d++) label += (d ? ', ' : '') + esc(st.deler[d].navn) + ' (' + st.deler[d].rolle + ')';
+                L.marker(st.ll, { icon: L.divIcon({ className: '', iconSize: [26, 26], iconAnchor: [13, 13], html: '<div class="skjmrk" style="background:' + farge + '">' + (i + 1) + '</div>' }) })
+                    .addTo(k).bindTooltip((i + 1) + '. ' + label + (st.adr ? ' — ' + esc(st.adr) : ''), { direction: 'top' });
+            }
+            // Info-stolpe (venstre): pasientene + kjørerekkefølge.
+            const pasKort = (p, farge) => {
+                const l0 = p.legs[0] || {};
+                return '<div class="skjpk" style="border-left-color:' + farge + '">'
+                    + '<div><span class="t">' + esc(l0.opp || l0.start || '–') + '</span> <span class="n">' + esc(l0.pnavn || '') + '</span> ' + behovBadges(p) + ledsBadge(p) + '</div>'
+                    + '<div class="a">' + esc(l0.fra || '?') + ' →<br>' + esc(l0.til || '?') + '</div></div>';
+            };
+            // Omkjøring for pasienten som leveres SIST (sitter i bilen hele veien): bilens rute fra hens
+            // henting til hens hjem MINUS den direkte turen. I tid, km og %.
+            let omkjorHtml = '';
+            try {
+                const sisteStopp = stopp[stopp.length - 1];
+                const sisteNavn = (sisteStopp.deler[0] || {}).navn || '';
+                let pickIdx = 0;
+                for (let s = 0; s < stopp.length; s++) for (let d = 0; d < stopp[s].deler.length; d++) if (stopp[s].deler[d].navn === sisteNavn && stopp[s].deler[d].rolle === 'hentes') pickIdx = s;
+                let inM = 0, inS = 0;
+                for (let s = pickIdx; s < segMeter.length; s++) { inM += segMeter[s] || 0; inS += segSek[s] || 0; }
+                const pLL = stopp[pickIdx].ll, sLL = sisteStopp.ll;
+                const dir = await hentRute(pLL[0] + ',' + pLL[1], sLL[0] + ',' + sLL[1]);
+                let dirM, dirS;
+                if (dir && dir.ok && isFinite(dir.meter)) { dirM = dir.meter; dirS = dir.sek || 0; }
+                else { const dKm = hav(pLL, sLL) * VEIFAKTOR; dirM = Math.round(dKm * 1000); dirS = Math.round(dKm / OMVEI_KMH * 3600); }
+                const dM = Math.max(0, inM - dirM), dS = Math.max(0, inS - dirS);
+                const pct = dirM > 0 ? Math.round(dM / dirM * 100) : 0;
+                omkjorHtml = '<h4>Omkjøring for siste pasient</h4>'
+                    + '<div class="skjpk" style="border-left-color:#f59e0b"><div class="n">' + esc(sisteNavn) + '</div>'
+                    + '<div style="margin-top:4px;display:flex;gap:12px;flex-wrap:wrap;font-weight:700">'
+                    + '<span style="color:#fbbf24">+' + Math.round(dS / 60) + ' min</span>'
+                    + '<span style="color:#fbbf24">+' + (dM / 1000).toFixed(1) + ' km</span>'
+                    + '<span style="color:#fbbf24">+' + pct + ' %</span></div>'
+                    + '<div class="a">direkte ' + (dirM / 1000).toFixed(1) + ' km / ' + Math.round(dirS / 60) + ' min → samkjørt ' + (inM / 1000).toFixed(1) + ' km / ' + Math.round(inS / 60) + ' min</div></div>';
+            } catch (e) { console.warn('[' + NAVN + '] omkjøring-beregning feilet:', e); }
+            let panelHtml = '<h4>Pasienter</h4>' + pasKort(par.a, FARGE_A) + pasKort(par.b, FARGE_B)
+                + omkjorHtml
+                + '<h4>Kjørerekkefølge · +' + par.omvei + ' min omvei' + (par.sv ? ' · ⚠ SV' : '') + '</h4>';
+            for (let i = 0; i < stopp.length; i++) {
+                const st = stopp[i];
+                const delt = st.deler.length > 1, fNr = delt ? '#a855f7' : st.deler[0].farge;
+                let lab = '';
+                for (let d = 0; d < st.deler.length; d++) lab += (d ? ', ' : '') + esc(st.deler[d].navn) + ' <span style="color:#94a3b8">(' + st.deler[d].rolle + ')</span>';
+                panelHtml += '<div class="skjstopp"><div class="skjnr" style="background:' + fNr + '">' + (i + 1) + '</div>'
+                    + '<div><div>' + lab + '</div><div style="color:#64748b;font-size:10px;margin-top:1px">' + esc(st.adr || '') + '</div></div></div>';
+            }
+            const panelEl = win.document.getElementById('skjPanel');
+            if (panelEl) panelEl.innerHTML = panelHtml;
+        } catch (e) { console.error('[' + NAVN + '] samkjør-kart feil:', e); }
+        if (bounds.length) { try { k.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 }); } catch (e) {} }
+        setTimeout(() => { try { k.invalidateSize(); } catch (e) {} }, 220);
+    }
+    // Synlige ventende: kun øvre grense (hentetid ≤ nå + vinduMin). Ingen nedre grense —
+    // forfalte ventende forsvinner fra lista når de sendes ut, så de som står igjen venter ennå.
+    function synligeIVindu(utVent) {
+        const naa = naaMin();
+        return utVent.filter(v => {
+            const t = parseTid((v.legs[0] || {}).opp || (v.legs[0] || {}).start);
+            return t !== null && String((v.legs[0] || {}).til || '').trim() && t <= naa + vinduMin;
+        }).sort((a, b) => (parseTid((a.legs[0] || {}).opp) ?? 9999) - (parseTid((b.legs[0] || {}).opp) ?? 9999)).slice(0, 60);
+    }
+    async function visKart(data) {
+        if (!win || win.closed) return;
+        const ok = await lastLeaflet();
+        const L = win.L;
+        if (!ok || !L) { win.document.getElementById('rot').innerHTML = '<p class="tom">Kunne ikke laste kart (Leaflet).</p>'; return; }
+        if (!win.document.getElementById('kartDiv')) {
+            win.document.getElementById('rot').innerHTML =
+                '<div id="kartwrap"><div id="kartDiv"></div>' +
+                '<div class="karttopp">🗺️ <b>' + esc(aktivNavn) + '</b>' +
+                ' · vindu <input type="range" id="kartVindu" min="30" max="360" step="15" value="' + vinduMin + '">' +
+                ' <span id="kartVinduTxt">' + vinduMin + ' min</span>' +
+                ' · <select id="kartBasis">' + Object.keys(BASISKART).map(k => '<option value="' + k + '"' + (k === kartBasis ? ' selected' : '') + '>' + BASISKART[k].navn + '</option>').join('') + '</select>' +
+                ' · 🚐 <select id="kartRet"><option value="punkt"' + (returVis === 'punkt' ? ' selected' : '') + '>punkt</option><option value="rute"' + (returVis === 'rute' ? ' selected' : '') + '>kjørerute</option></select>' +
+                ' <button class="bytt" id="kartListe">📋 Liste</button></div>' +
+                '<div class="kartpanel venstre"><h3>⬆️ På vei ut <span id="kartUtN" class="teller"></span></h3><div id="kartUt"></div></div>' +
+                '<div class="kartpanel hoyre"><h3>🚐 Returbiler <span id="kartInnN" class="teller"></span></h3><div id="kartInn"></div></div>' +
+                '</div>';
+            kart = L.map('kartDiv', { zoomControl: true, attributionControl: false }).setView([60.4, 10.6], 8);
+            basisLag = L.tileLayer(BASISKART[kartBasis].url, { maxZoom: 18, subdomains: 'abcd' }).addTo(kart);
+            casingLag = L.layerGroup().addTo(kart);   // halo under rutene
+            kartLag = L.layerGroup().addTo(kart);     // fargede ruter (over)
+            const sl = win.document.getElementById('kartVindu');
+            sl.oninput = () => { vinduMin = +sl.value; win.document.getElementById('kartVinduTxt').textContent = vinduMin + ' min'; if (sisteData) oppdaterKartLag(sisteData); };
+            win.document.getElementById('kartListe').onclick = () => setKartMode(false);
+            win.document.getElementById('kartRet').onchange = e => { returVis = e.target.value; if (sisteData) oppdaterKartLag(sisteData); };
+            win.document.getElementById('kartBasis').onchange = e => {
+                kartBasis = e.target.value;
+                if (basisLag) kart.removeLayer(basisLag);
+                basisLag = L.tileLayer(BASISKART[kartBasis].url, { maxZoom: 18, subdomains: 'abcd' }).addTo(kart);
+                basisLag.bringToBack();
+                if (sisteData) oppdaterKartLag(sisteData);
+            };
+        }
+        oppdaterKartLag(data);
+    }
+    async function oppdaterKartLag(data) {
+        if (!win || win.closed || !kart || !win.L) return;
+        const L = win.L;
+        kartLag.clearLayers();
+        casingLag.clearLayers();
+        const casing = (BASISKART[kartBasis] || {}).casing || 'rgba(0,0,0,.5)';
+        const utVent = synligeIVindu(dedupResId(data.ut).filter(r => r.fane === 'ventendeOppdrag' && !erHlsx(r)));
+        const innPaga = dedupResId(data.inn).filter(r => r.fane === 'paagaaendeOppdrag' && !erHlsx(r) && !(skjulGD && erGD(r)) && kommerTilOmraadet(r));
+        win.document.getElementById('kartUtN').textContent = utVent.length;
+        win.document.getElementById('kartInnN').textContent = innPaga.length;
+        // Tildel distinkt palett-farge sekvensielt til de synlige turene (unik per tur i vinduet).
+        const fargeMap = {}; let _fi = 0;
+        utVent.concat(innPaga).forEach(r => { fargeMap[r.resId] = KART_PALETT[_fi++ % KART_PALETT.length]; });
+        const turFarge = r => fargeMap[r.resId] || fargeForTur(r.resId);
+        // Panel-kort (status høyrestilt — relevant for returbiler: Startet/Framme/Tildelt)
+        const startet = s => /startet|avslut|ferdig|fullf|levert/i.test(s);
+        const passAntall = r => 1 + (parseInt(r._ledsN, 10) || 0);
+        // Kompakt 2–4-linjers kort med alle opplysninger (kartet kan erstatte listene).
+        const kort = (r, farge, rolle) => {
+            const l0 = r.legs[0] || {};
+            const tid = esc(l0.opp || l0.start || '–');
+            const beh = behovBadges(r);
+            let navn, sub, status, meta, frist = '';
+            if (rolle === 'ut') {
+                navn = esc(l0.pnavn || '');
+                sub = esc(stedFraAdr(l0.fra) || l0.fra || '?') + ' → ' + esc(stedFraAdr(l0.til) || l0.til || '?');
+                status = 'Vent';
+                meta = (beh ? beh + ' ' : '') + passAntall(r) + ' pass.';
+                const Tmin = parseTid(l0.opp || l0.start);
+                const venteMin = Math.max((r._rt ? r._rt.sek / 60 : 0), VENTETID_MIN);
+                const fristMin = Tmin !== null ? Tmin + venteMin : null;
+                const sendUtMin = fristMin !== null ? fristMin - VARSEL_MIN : null;
+                const urgent = sendUtMin !== null && naaMin() >= sendUtMin;
+                if (fristMin !== null) frist = '<div class="kkmeta' + (urgent ? ' urg' : '') + '">' + (urgent ? '🔔 ' : '⏱ ') + 'hentes ' + tidStr(fristMin) + ' · send ut ' + tidStr(sendUtMin) + '</div>';
+            } else {
+                const ri = returInfo(r);
+                navn = esc(r.ressurs || '');
+                sub = esc(stedFraAdr(ri.fra) || ri.fra || '?');
+                status = returStatus(r);
+                meta = '↩ ' + ledigePlasser(egneReturPassasjerer(r)) + '/' + MAKS.passasjerer + ' ledig' + (erTurRetur(r) ? ' 🔁' : '') + (beh ? ' ' + beh : '');
+            }
+            return '<div class="kk" data-res="' + esc(r.resId) + '" style="border-left-color:' + farge + '">' +
+                '<div class="kkr"><span><span class="t">' + tid + '</span> <span class="n">' + navn + '</span></span>' +
+                (status ? '<span class="kst' + (startet(status) ? ' kjort' : '') + '">' + esc(status) + '</span>' : '') + '</div>' +
+                '<div class="kksub">' + sub + '</div>' +
+                (meta ? '<div class="kkmeta">' + meta + '</div>' : '') + frist + '</div>';
+        };
+        win.document.getElementById('kartUt').innerHTML = utVent.map(r => kort(r, turFarge(r), 'ut')).join('') || '<div class="tom">Ingen i vinduet.</div>';
+        win.document.getElementById('kartInn').innerHTML = innPaga.map(r => kort(r, turFarge(r), 'inn')).join('') || '<div class="tom">Ingen.</div>';
+        const ruteLag = {};
+        // Klikk på kort → zoom til ruta (polyline) eller punktet (returbil-markør)
+        win.document.querySelectorAll('#kartwrap .kk').forEach(el => el.onclick = () => {
+            const lag = ruteLag[el.dataset.res]; if (!lag) return;
+            if (lag.getBounds) kart.fitBounds(lag.getBounds(), { padding: [40, 40] });
+            else if (lag.getLatLng) kart.setView(lag.getLatLng(), 11);
+        });
+        // Tegn ventende-ruter (hel) og returbil-ruter (stiplet)
+        const tegn = async (r, fra, til, stiplet) => {
+            const rute = await hentRute(fra, til);
+            if (!rute || !rute.geometri || !kart) return;
+            const farge = turFarge(r);
+            // Halo under (gjør ruta synlig på alle bakgrunner)
+            L.polyline(rute.geometri, { color: casing, weight: stiplet ? 6 : 9, opacity: 0.9, lineCap: 'round' }).addTo(casingLag);
+            const pl = L.polyline(rute.geometri, { color: farge, weight: stiplet ? 3.5 : 5.5, opacity: 1, lineCap: 'round', dashArray: stiplet ? '10,8' : null });
+            pl.addTo(kartLag);
+            L.circleMarker(rute.til, { radius: 6, color: '#fff', weight: 2, fillColor: farge, fillOpacity: 1 }).addTo(kartLag);
+            ruteLag[r.resId] = pl;
+        };
+        utVent.forEach(r => tegn(r, (r.legs[0] || {}).fra, (r.legs[0] || {}).til, false));
+        // Returbiler: punkt (markør der bilen kommer fra) eller kjørerute (stiplet) — velges i topplinja.
+        innPaga.forEach(async r => {
+            const ri = returInfo(r);
+            if (returVis === 'rute') {
+                const osloBen = (r.legs || []).find(l => erVaartOmraade(l.til));
+                tegn(r, ri.fra, osloBen ? osloBen.til : 'Oslo', true);
+                return;
+            }
+            const ll = await hentKoord(ri.fra);
+            if (!ll || !kart) return;
+            const farge = turFarge(r);
+            const m = L.marker(ll, { icon: L.divIcon({ className: 'retmark', iconSize: [20, 20], iconAnchor: [10, 10],
+                html: '<div style="position:relative;width:20px;height:20px"><div style="width:20px;height:20px;border-radius:50%;background:' + farge + ';opacity:.9;border:2px solid #fff;box-shadow:0 0 3px #000"></div><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px">🚐</div></div>' }) });
+            m.bindTooltip('🚐 ' + esc(r.ressurs || '') + ' – ' + esc(stedFraAdr(ri.fra) || ''), { direction: 'top' });
+            m.addTo(kartLag);
+            ruteLag[r.resId] = m;
+        });
+    }
+
+    /* ── Område-velger ─────────────────────────────── */
+    function visVelger() {
+        if (!win || win.closed) return;
+        if (pollIv) { clearInterval(pollIv); pollIv = null; }
+        if (visIv) { clearInterval(visIv); visIv = null; }
+        if (frysIv) { clearInterval(frysIv); frysIv = null; }
+        if (hasterIv) { clearInterval(hasterIv); hasterIv = null; }
+        Object.keys(_hasterPaa).forEach(resId => { const rad = finnRad(resId); if (rad) rad.classList.remove('oa-haster'); });  // fjern blink ved områdebytte
+        _hasterPaa = {};
+        frysTil = 0;
+        sisteData = null;
+        const knapper = OMRAADER.map((o, i) =>
+            '<button class="omr-btn" data-idx="' + i + '">' + esc(o.navn) + '</button>'
+        ).join('');
+        win.document.getElementById('rot').innerHTML =
+            '<h1>🧭 Område assistent</h1><div class="sub">Velg område</div>' +
+            '<div class="velger">' + (knapper || '<div class="tom">Ingen områder konfigurert.</div>') + '</div>';
+        win.document.querySelectorAll('.omr-btn').forEach(b => {
+            b.onclick = () => velgOmraade(+b.dataset.idx);
+        });
+    }
+
+    async function velgOmraade(idx) {
+        const o = OMRAADER[idx];
+        if (!o) return;
+        aktivNavn = o.navn; aktivInn = o.inn; aktivUt = o.ut; aktivKilder = o.kilder || [];
+        sisteSkannSig = null;  // nytt område → tving frisk beregning
+        if (win && !win.closed) win.document.getElementById('rot').innerHTML = '<p class="tom">Henter ' + esc(o.navn) + '…</p>';
+        await lastOmraade();  // sikre at kontorets område-soner er lastet (live fra NISSY-senter)
+        // Hent destinasjons-postnr-sett per sone (for farge etter postnr i kombinert visning)
+        if (aktivKilder.length > 1) { try { await Promise.all(aktivKilder.map(lastKildePostnr)); } catch (e) {} }
+        tikk();
+        // Når popupen blir synlig igjen etter å ha vært skjult: hent friskt med en gang.
+        if (win && win.document && !win.__oaVisHook) {
+            win.__oaVisHook = true;
+            win.document.addEventListener('visibilitychange', () => { if (autoRefresh && win && !win.closed && !win.document.hidden) tikk(); });
+        }
+        if (pollIv) clearInterval(pollIv);
+        pollIv = setInterval(() => {
+            if (!win || win.closed) { clearInterval(pollIv); pollIv = null; return; }
+            if (!autoRefresh) return;  // TEST: auto av → ingen automatisk skann (bruk 🔄 Oppdater)
+            tikk();
+        }, POLL_MS);
+        // Lett re-rendring (cachet data) for at hente-frist/«send ut»-varsel oppdateres ofte
+        if (visIv) clearInterval(visIv);
+        visIv = setInterval(() => {
+            if (!win || win.closed) { clearInterval(visIv); visIv = null; return; }
+            if (!autoRefresh) return;  // TEST: auto av → helt statisk visning (ingen periodisk re-rendring)
+            if (win.document && win.document.hidden) return;  // ingen ser på → ikke bruk CPU på re-rendring
+            if (sisteData && !erFrosset()) { if (kartMode) oppdaterKartLag(sisteData); else render(sisteData); }
+        }, 30000);
+        // Blink i NISSY på hastende ventende — re-påføres hvert 3. sek (overlever NISSYs re-render) og
+        // oppdaterer hva som haster etterhvert som tiden går. Uavhengig av autoRefresh (live operatør-hjelp).
+        if (hasterIv) clearInterval(hasterIv);
+        hasterIv = setInterval(oppdaterHaster, 3000);
+        oppdaterHaster();
+        // Nedtelling for frys-knappen; frisk oppdatering når frysen akkurat tinte.
+        if (frysIv) clearInterval(frysIv);
+        let varFrosset = false;
+        frysIv = setInterval(() => {
+            if (!win || win.closed) { clearInterval(frysIv); frysIv = null; return; }
+            const nu = erFrosset();
+            if (varFrosset && !nu) tikk();
+            varFrosset = nu;
+            oppdaterKnapper();
+        }, 1000);
+        console.log('[' + NAVN + '] område valgt: ' + o.navn + ' (' + aktivKilder.map(k => k.navn).join('+') + ')');
+    }
+
+    /* ── Poll-loop ─────────────────────────────────── */
+    // Kompakt signatur av et skann — fanger alt som påvirker forslag (ressurs, tider, fra/til,
+    // status, behov, ledsager). Lik signatur to ganger på rad = ingenting har endret seg → vi
+    // hopper over hele den tunge reberegningen (reisetid/matrise/geokod/ruter). Sentralt for å
+    // tåle mange operatører: en stabil tavle koster da ~null etter første beregning.
+    function skannSignatur(data) {
+        const proj = arr => (arr || []).map(r =>
+            (r.resId || '') + '#' + (r.reqId || '') + '#' + (r.ressurs || '') + '#' + (r._ledsN || '') + '#'
+            + (r._behov || []).join(',') + '#'
+            + (r.legs || []).map(l => [l.start, l.opp, l.fra, l.til, l.status, l.behov].join('~')).join(';')
+        ).sort().join('\n');
+        return proj(data.ut) + '\n=INN=\n' + proj(data.inn);
+    }
+
+    let kjorer = false;
+    async function tikk() {
+        // Skjult popup = ingen ser på → ikke skann/regn (sparer NISSY, server og eksterne API).
+        if (kjorer || !win || win.closed || !aktivUt || erFrosset() || (win.document && win.document.hidden)) return;
+        kjorer = true;
+        try {
+            const data = await scan();
+            const sig = skannSignatur(data);
+            if (sig === sisteSkannSig && sisteData) {
+                console.log('[' + NAVN + '] skann uendret — hopper over reberegning');
+                return;  // tavla er lik forrige gang; behold beriket sisteData
+            }
+            sisteSkannSig = sig;
+            sisteData = data;
+            console.log('[' + NAVN + '] skann: inn=' + data.inn.length + ', ut=' + data.ut.length);
+            await berik(data);
+            if (kartMode) await visKart(data); else render(data);
+            oppdaterHaster();  // oppdater NISSY-blink med ferske data
+        } catch (e) {
+            console.warn('[' + NAVN + '] skann-feil:', e.message);
+        } finally { kjorer = false; }
+    }
+
+    function start() {
+        aapnePopup();
+        if (!win) return;
+        const auto = byggOmraaderFraSelect();
+        if (auto.length) { OMRAADER = auto; console.log('[' + NAVN + '] auto-paret ' + auto.length + ' områder: ' + auto.map(o => o.navn + '(ut ' + o.ut + (o.kilder.length > 1 ? ', soner ' + o.kilder.map(k => k.ut).join('+') : '') + ')').join(', ')); }
+        else console.log('[' + NAVN + '] fant ingen filter-par — bruker fallback-liste');
+        visVelger();
+        console.log('[' + NAVN + ' v' + VERSJON + '] aktiv — velg område');
+    }
+
+    window.__omraadeAssistent = { versjon: VERSJON, scan, beregnForslag };
+    start();
+})();
