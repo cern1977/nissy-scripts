@@ -435,7 +435,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.158-dev';
+    const VERSJON = '2.160-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1595,7 +1595,19 @@
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: felt.toString()
                 });
-                if (!r.ok) continue;
+                if (!r.ok) {
+                    // Vi er same-origin, så feilkroppen kan leses. NISSY legger ofte
+                    // stacktrace eller en melding i 500-siden — den forteller om
+                    // «parent:» er ukjent syntaks eller om noe annet er galt.
+                    let utdrag = '';
+                    try {
+                        const t = await r.text();
+                        const doc = new DOMParser().parseFromString(t, 'text/html');
+                        utdrag = (doc.body ? doc.body.textContent : t).replace(/\s+/g, ' ').trim().slice(0, 400);
+                    } catch (e) {}
+                    console.warn('[REPARASJON] region ' + region + ' ga HTTP ' + r.status + ': ' + (utdrag || '(tom kropp)'));
+                    continue;
+                }
                 html = await r.text();
             } catch (e) { continue; }
             if (html.indexOf('/admin/logout') === -1) return { utlogget: true, ider: [] };
@@ -1612,6 +1624,13 @@
     // finner mer enn vi har. __verktoykasseDev.testParentSok(11574)
     async function testParentSok(parentId) {
         const id = parentId || 11574;
+        // Kontroll: virker et VANLIG navnesøk med nøyaktig samme feltsett? Gjør det det,
+        // er ikke skjemaet feil — da er det «parent:»-syntaksen NISSY ikke tåler.
+        const kontroll = await sokBehandlingsstedINissy('martina hansens');
+        console.log('[REPARASJON] kontroll — vanlig navnesøk «martina hansens»: '
+                    + (kontroll.utlogget ? 'UTLOGGET' : kontroll.steder.length + ' treff')
+                    + (kontroll.steder && kontroll.steder.length
+                        ? ' (' + kontroll.steder.map(s => '#' + s.id + ' ' + s.navn).slice(0, 3).join(', ') + ')' : ''));
         console.log('[REPARASJON] tester parent:' + id + ' region for region …');
         const perRegion = {};
         for (const r of [1, 2, 3, 4, 5]) {
@@ -1631,6 +1650,86 @@
     }
 
     const STRUKTUR_URL = 'https://thomaswestby.no/skript/behandlingssted.php?struktur=1';
+
+    // === ID-FEIING (v2.160) ===
+    // `parent:`-søket er dødt — NISSY svarer 500 i alle regioner (testet 14.08), så
+    // diggDown() er en levning. Navnesøket virker og ser #11580, men det finnes ingen
+    // spørring som lister ALT, så det kan ikke brukes til å enumerere.
+    //
+    // Da gjenstår den veien som ikke er avhengig av at noen søkefunksjon oppfører seg:
+    // gå gjennom id-rommet og hent det vi ikke har. adminTCDetails?id=N svarer enten med
+    // et sted eller med ingenting, og det er hele kontrakten. Registeret har 30 150 av
+    // id-ene opp til ~84 700, så det er rundt 54 500 å prøve.
+    //
+    // Kan avbrytes (__vkt_feieStopp = true) og gjenopptas — den henter strukturen på nytt
+    // hver gang og hopper over det som alt er lagret.
+    //   __verktoykasseDev.fyllHull()                    — hele id-rommet
+    //   __verktoykasseDev.fyllHull({fra:1, til:20000})  — i biter
+    async function fyllHull(opts) {
+        opts = opts || {};
+        const struktur = await fetch(STRUKTUR_URL).then(r => r.json()).catch(() => null);
+        if (!struktur || !struktur.ok) { console.warn('[FEIING] fikk ikke strukturen'); return; }
+        const kjent = new Set(struktur.ider);
+        const maks = Math.max(...struktur.ider);
+        const fra = opts.fra || 1;
+        const til = opts.til || (maks + 2000);   // litt over toppen, for nye steder
+
+        const koe = [];
+        for (let i = fra; i <= til; i++) if (!kjent.has(i)) koe.push(i);
+        console.log('[FEIING] ' + koe.length + ' id-er å prøve (' + fra + '–' + til + ') · '
+                    + kjent.size + ' kjent fra før · sett __vkt_feieStopp = true for å avbryte');
+        window.__vkt_feieStopp = false;
+        _bhsUtlogget = false;
+
+        const t0 = Date.now();
+        let funnet = 0, lagret = 0, proevd = 0;
+        let bunt = [];
+        const send = async (ferdig) => {
+            if (!bunt.length || (bunt.length < 100 && !ferdig)) return;
+            const pakke = bunt.splice(0, bunt.length);
+            try {
+                const r = await fetch('https://thomaswestby.no/skript/behandlingssted_lagre.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: jsonStringifyTrygt({ steder: pakke, av: window.__vkt_brukernavn || '' })
+                }).then(x => x.json());
+                if (r && typeof r.lagret === 'number') lagret += r.lagret;
+                else console.warn('[FEIING] serveren avviste bunten —', JSON.stringify(r));
+            } catch (e) { console.warn('[FEIING] sending feilet —', e.message); }
+        };
+
+        for (let i = 0; i < koe.length; i += 3) {
+            if (window.__vkt_feieStopp) { console.log('[FEIING] avbrutt av bruker'); break; }
+            if (_bhsUtlogget) {
+                console.warn('[FEIING] STOPPET: admin-sesjonen har falt. Logg inn og kjør igjen — '
+                             + 'det som er lagret beholdes, og feiingen hopper over det.');
+                break;
+            }
+            const svar = await Promise.all(koe.slice(i, i + 3).map(id => hentBehandlingssted(id)));
+            proevd += svar.length;
+            for (const b of svar) {
+                if (!b || !b.navn) continue;            // id-en finnes ikke — helt normalt
+                funnet++;
+                bunt.push({
+                    id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
+                    adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
+                    orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                    kortnavn: b.kortnavn, alias: b.alias,
+                    parent_id: b.foreldre ? b.foreldre.id : null
+                });
+            }
+            await send(false);
+            if (proevd % 900 === 0) {
+                const gaatt = (Date.now() - t0) / 1000;
+                const igjen = Math.round((koe.length - proevd) * (gaatt / proevd) / 60);
+                console.log('[FEIING] ' + proevd + '/' + koe.length + ' prøvd · ' + funnet
+                            + ' funnet · ' + lagret + ' lagret · ~' + igjen + ' min igjen');
+            }
+        }
+        await send(true);
+        console.log('[FEIING] FERDIG: ' + proevd + ' id-er prøvd · ' + funnet + ' steder funnet · '
+                    + lagret + ' lagret · ' + Math.round((Date.now() - t0) / 60000) + ' min');
+        return { proevd: proevd, funnet: funnet, lagret: lagret };
+    }
 
     // Full reparasjon: gå gjennom alle foreldre vi kjenner, spør NISSY hva som EGENTLIG
     // ligger under dem, og hent det vi mangler. Nye foreldre som dukker opp legges i køen,
@@ -3734,6 +3833,9 @@ document.addEventListener("visibilitychange",inj);
         //   __verktoykasseDev.reparer()   ·   __vkt_reparerStopp = true for å avbryte
         testParentSok,
         reparer: reparerRegisteret,
+        // ID-feiing — den veien som ikke er avhengig av søkefunksjonene:
+        //   __verktoykasseDev.fyllHull()  ·  __vkt_feieStopp = true for å avbryte
+        fyllHull,
         hentTurDetaljer,
         hentTurDetaljerViaRekvnr,
         hentRekvisisjon,
