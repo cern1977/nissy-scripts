@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.53-dev';  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
+    const VERSION = '38.4.54-dev';  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
     const TITTEL = 'Overvåker Avvik v' + VERSION;
     // Testvisning av vedtak-godkjente turer — kun i dev-bygg
     const VIS_VEDTAK_KOLONNE = VERSION.endsWith('-dev');
@@ -4831,8 +4831,34 @@
                 const poststed = isObj && a.poststed ? a.poststed : (adrStr.match(/\d{4}\s+(.+)$/) || ['', ''])[1];
                 const adrKey = String(adrStr).replace(/'/g, "\\'");
                 const kt = slettType === 'SLETT_KOM_ADR' ? 'kommune' : 'adresse';
+                // Klikk på kortet = rediger. Før kunne man bare slette og legge inn på
+                // nytt (Thomas 14.08). Feltene ligger i samme popup-dokument som lista,
+                // så dette gjøres lokalt — ingen runde om kanalen. Gjelder kun
+                // adresse-panelet; kommune-layouten har ikke de fire feltene.
+                // Verdien havner inne i et dobbeltfnuttet onclick-attributt OG i en
+                // enkeltfnuttet JS-streng. Backslash og ' må escapes for JS-en, mens "
+                // må bli entitet — ellers avsluttes attributtet midt i navnet. Linjeskift
+                // strippes; de hører ikke hjemme i en adresse og ville brutt uttrykket.
+                const esc = v => String(v || '')
+                    .replace(/[\r\n]+/g, ' ')
+                    .replace(/\\/g, '\\\\')
+                    .replace(/'/g, "\\'")
+                    .replace(/"/g, '&quot;');
+                const redigerAttr = kt === 'adresse'
+                    ? ' style="flex:1; line-height:1.5; cursor:pointer;" title="Klikk for å redigere"'
+                      + ' onclick="var d=document;'
+                      + "d.getElementById('adrNyNavn').value='" + esc(navn) + "';"
+                      + "d.getElementById('adrNyGate').value='" + esc(gate) + "';"
+                      + "d.getElementById('adrNyPostnr').value='" + esc(postnr) + "';"
+                      + "d.getElementById('adrNyPoststed').value='" + esc(poststed) + "';"
+                      + "d.getElementById('adrRedigerKey').value='" + adrKey + "';"
+                      + "d.getElementById('adrLeggTilBtn').textContent='Oppdater';"
+                      + "d.getElementById('adrAvbrytBtn').style.display='';"
+                      + "d.getElementById('adrStatus').textContent='Redigerer: " + esc(navn || gate) + "';"
+                      + "d.getElementById('adrNyNavn').focus();\""
+                    : ' style="flex:1; line-height:1.5;"';
                 return '<li style="border:1px solid #e2e8f0; border-radius:6px; padding:8px 10px; margin-bottom:6px; display:flex; align-items:flex-start; gap:8px;">'
-                    + '<div style="flex:1; line-height:1.5;">'
+                    + '<div' + redigerAttr + '>'
                     + (navn ? '<div style="font-weight:600; color:#334155;">' + navn + '</div>' : '<div style="font-size:11px; color:#94a3b8; cursor:pointer;" onclick="var n=prompt(\'Gi et navn:\'); if(n) window._avvikCh.postMessage({type:\'OPPDATER_ADR_NAVN\', adresse:\'' + adrKey + '\', navn:n, kortType:\'' + kt + '\'});">[+ legg til navn]</div>')
                     + '<div style="color:#475569;">' + gate + '</div>'
                     + (postnr ? '<div style="color:#64748b; font-size:12px;">' + postnr + ' ' + poststed.toUpperCase() + '</div>' : '')
@@ -4951,18 +4977,33 @@
                 ha += '<input type="text" id="adrNyPostnr" inputmode="numeric" maxlength="4" placeholder="Postnr" style="padding:5px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;" />';
                 ha += '<input type="text" id="adrNyPoststed" placeholder="Poststed" style="padding:5px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;" />';
                 ha += '</div>';
+                // Holder den OPPRINNELIGE adresse-strengen mens man redigerer, så
+                // serveren finner riktig rad å bytte ut selv om gata endres.
+                ha += '<input type="hidden" id="adrRedigerKey" value="" />';
                 // Gateadressen er det eneste som MÅ fylles ut — den er nøkkelen matchingen
                 // kjører på. Navn, postnr og poststed er nyttige, men ikke påkrevd.
-                ha += '<button class="btn-nissy" style="width:100%;" onclick="'
-                    + 'var g=document.getElementById(\'adrNyGate\').value.trim();'
-                    + 'if(!g){document.getElementById(\'adrStatus\').textContent=\'Gateadresse må fylles ut\';return;}'
+                ha += '<div style="display:flex; gap:6px;">';
+                ha += '<button class="btn-nissy" id="adrLeggTilBtn" style="flex:1;" onclick="'
+                    + 'var d=document;var g=d.getElementById(\'adrNyGate\').value.trim();'
+                    + 'if(!g){d.getElementById(\'adrStatus\').textContent=\'Gateadresse må fylles ut\';return;}'
                     + 'window._avvikCh.postMessage({type:\'LEGG_TIL_ADR\', kortType:\'adresse\','
-                    + ' navn:document.getElementById(\'adrNyNavn\').value.trim(),'
+                    + ' navn:d.getElementById(\'adrNyNavn\').value.trim(),'
                     + ' gate:g,'
-                    + ' postnr:document.getElementById(\'adrNyPostnr\').value.trim(),'
-                    + ' poststed:document.getElementById(\'adrNyPoststed\').value.trim()});'
-                    + '[\'adrNyNavn\',\'adrNyGate\',\'adrNyPostnr\',\'adrNyPoststed\'].forEach(function(i){document.getElementById(i).value=\'\';});'
+                    + ' postnr:d.getElementById(\'adrNyPostnr\').value.trim(),'
+                    + ' poststed:d.getElementById(\'adrNyPoststed\').value.trim(),'
+                    + ' rediger:d.getElementById(\'adrRedigerKey\').value});'
+                    + '[\'adrNyNavn\',\'adrNyGate\',\'adrNyPostnr\',\'adrNyPoststed\',\'adrRedigerKey\'].forEach(function(i){d.getElementById(i).value=\'\';});'
+                    + 'd.getElementById(\'adrLeggTilBtn\').textContent=\'Legg til\';'
+                    + 'd.getElementById(\'adrAvbrytBtn\').style.display=\'none\';'
                     + '">Legg til</button>';
+                ha += '<button class="btn-nissy" id="adrAvbrytBtn" style="display:none; background:#94a3b8;" onclick="'
+                    + 'var d=document;'
+                    + '[\'adrNyNavn\',\'adrNyGate\',\'adrNyPostnr\',\'adrNyPoststed\',\'adrRedigerKey\'].forEach(function(i){d.getElementById(i).value=\'\';});'
+                    + 'd.getElementById(\'adrLeggTilBtn\').textContent=\'Legg til\';'
+                    + 'd.getElementById(\'adrStatus\').textContent=\'\';'
+                    + 'this.style.display=\'none\';'
+                    + '">Avbryt</button>';
+                ha += '</div>';
                 ha += '</div></div>';
                 ha += '</div>';
                 // Høyre: Søkeord
@@ -4999,6 +5040,41 @@
                 adrStreng = data.gate + (halePN ? ', ' + halePN : '');
             }
             if (!adrStreng) { if (status) status.textContent = 'Gateadresse må fylles ut'; return; }
+
+            // Redigering: bytt ut raden på plass i stedet for å legge til en ny.
+            // Nøkkelen er den OPPRINNELIGE adresse-strengen, så også gata kan endres.
+            const redigerKey = (data.rediger || '').toLowerCase().trim();
+            if (redigerKey && kt === 'adresse') {
+                const i = godkjenteAdresserGH.findIndex(a => hentAdrStreng(a) === redigerKey);
+                if (i === -1) { if (status) status.textContent = 'Fant ikke raden — er den slettet av noen andre?'; return; }
+                const ny = adrStreng.toLowerCase().trim();
+                // Endret gata til noe som alt finnes? Da ville vi laget en dublett.
+                if (ny !== redigerKey && godkjenteAdresserGH.some((a, j) => j !== i && hentAdrStreng(a) === ny)) {
+                    if (status) status.textContent = 'Den adressen finnes allerede i listen';
+                    return;
+                }
+                const pnrM = ny.match(/(\d{4})\s+(.+)$/);
+                const gateM = ny.match(/^(.+?),?\s*\d{4}/);
+                const gammel = normaliserAdr(godkjenteAdresserGH[i]);
+                godkjenteAdresserGH = godkjenteAdresserGH.map((a, j) => j !== i ? a : {
+                    adresse: ny,
+                    gate: gateM ? gateM[1].trim() : ny,
+                    postnr: pnrM ? pnrM[1] : '',
+                    poststed: pnrM ? pnrM[2].trim() : '',
+                    navn: (data.navn || '').trim(),
+                    godkjent: gammel.godkjent !== false
+                });
+                try {
+                    await lagreGHAdr(`Endret adresse: ${redigerKey} → ${(data.navn ? data.navn + ' — ' : '')}${ny}`);
+                    if (status) status.textContent = 'Oppdatert!';
+                    fadeAlleMatchende(ny);
+                    if (win && !win.closed) win._avvikCh.postMessage({ type: 'VIS_ADR_MODAL', kortType: kt });
+                } catch (e) {
+                    if (status) status.textContent = 'Feil: ' + e.message;
+                }
+                return;
+            }
+
             const resultat = await lagreGodkjentAdresse(adrStreng, kt, data.navn || '');
             if (status) status.textContent = resultat.melding;
             if (resultat.ok) {
