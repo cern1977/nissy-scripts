@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.55-dev';  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
+    const VERSION = '38.4.56-dev';  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
     const TITTEL = 'Overvåker Avvik v' + VERSION;
     // Testvisning av vedtak-godkjente turer — kun i dev-bygg
     const VIS_VEDTAK_KOLONNE = VERSION.endsWith('-dev');
@@ -353,7 +353,11 @@
         }
     }
 
-    async function lagreGodkjentAdresse(adresse, kortType, navn) {
+    // `deler` = {gate, postnr, poststed} slik operatøren skrev dem. `adresse` holdes
+    // liten fordi HELE matchingen lowercaser (hentAdrStreng, finnAdrNavn), men gate og
+    // poststed er visningsfelt og skal beholde skrivemåten (Thomas 14.08: stor U i
+    // Ullersmovegen ble spist).
+    async function lagreGodkjentAdresse(adresse, kortType, navn, deler) {
         const ny = adresse.toLowerCase().trim();
         if (kortType === 'kommune') {
             if (godkjenteKommuneAdresserGH.some(a => hentAdrStreng(a) === ny)) return { ok: false, melding: 'Allerede i listen' };
@@ -374,9 +378,9 @@
             const gateM = ny.match(/^(.+?),?\s*\d{4}/);
             const obj = {
                 adresse: ny,
-                gate: gateM ? gateM[1].trim() : ny,
-                postnr: pnrM ? pnrM[1] : '',
-                poststed: pnrM ? pnrM[2].trim() : '',
+                gate: (deler && deler.gate) ? String(deler.gate).trim() : (gateM ? gateM[1].trim() : ny),
+                postnr: (deler && deler.postnr) ? String(deler.postnr).trim() : (pnrM ? pnrM[1] : ''),
+                poststed: (deler && deler.poststed) ? String(deler.poststed).trim() : (pnrM ? pnrM[2].trim() : ''),
                 navn: (navn || '').trim(),
                 godkjent: true
             };
@@ -5063,9 +5067,9 @@
                 const gammel = normaliserAdr(godkjenteAdresserGH[i]);
                 godkjenteAdresserGH = godkjenteAdresserGH.map((a, j) => j !== i ? a : {
                     adresse: ny,
-                    gate: gateM ? gateM[1].trim() : ny,
-                    postnr: pnrM ? pnrM[1] : '',
-                    poststed: pnrM ? pnrM[2].trim() : '',
+                    gate: data.gate ? String(data.gate).trim() : (gateM ? gateM[1].trim() : ny),
+                    postnr: data.postnr ? String(data.postnr).trim() : (pnrM ? pnrM[1] : ''),
+                    poststed: data.poststed ? String(data.poststed).trim() : (pnrM ? pnrM[2].trim() : ''),
                     navn: (data.navn || '').trim(),
                     godkjent: gammel.godkjent !== false
                 });
@@ -5080,7 +5084,8 @@
                 return;
             }
 
-            const resultat = await lagreGodkjentAdresse(adrStreng, kt, data.navn || '');
+            const resultat = await lagreGodkjentAdresse(adrStreng, kt, data.navn || '',
+                { gate: data.gate || '', postnr: data.postnr || '', poststed: data.poststed || '' });
             if (status) status.textContent = resultat.melding;
             if (resultat.ok) {
                 fadeAlleMatchende(adrStreng);
