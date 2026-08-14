@@ -1,3 +1,12 @@
+// === WESTBYS VERKTØYKASSE v2.158-dev ===
+// v2.158-dev: REPARASJON av behandlingssted-registeret. Bredde-først-vandringen er ikke
+//             komplett: NISSY bygger ikke barnelista når en forelder har >= 500 barn, og
+//             underenheter-tabellen er kappet likeså. Under «privat» (#11574) har vi 1851
+//             barn, men nesten ingen med id under 20000 — Martina Hansens Hospital (#11580)
+//             mangler, og 25 av 31 id-er rundt den (målt 14.08). NISSYs egen diggDown()
+//             viser veien: søkesiden tar «parent:<id>» og er ikke underlagt grensen.
+//             testParentSok() først (svarer på om region betyr noe), så reparer().
+
 // === WESTBYS VERKTØYKASSE v2.157-dev ===
 // v2.157-dev: behandlingsstedsregisteret i NISSY krever ADMIN-tilgang, og den har de færreste
 //             operatørene (Thomas 13.08). Toasten fyrte likevel et live-oppslag ved hvert anrop
@@ -426,7 +435,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.157-dev';
+    const VERSJON = '2.158-dev';
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1554,6 +1563,137 @@
             }
         }
         return { utlogget: false, steder: [...treff.values()] };
+    }
+
+    // === REPARASJON AV REGISTERET (v2.158) ===
+    // Bredde-først-vandringen er ikke komplett. NISSY bygger ikke barnelista når en
+    // forelder har >= 500 barn, og underenheter-tabellen er kappet på samme vis: under
+    // «privat» (#11574) har vi 1851 barn, men nesten ingen med id under 20000. Martina
+    // Hansens Hospital (#11580) mangler, og 25 av 31 id-er rundt den likeså (målt 14.08).
+    //
+    // NISSYs egen kode viser veien ut — `diggDown()` på søkesiden gjør:
+    //     $('#name').val('parent:' + id); $('#submit').click();
+    // Søket er ikke underlagt 500-grensen, så det kan enumerere de store greinene.
+    //
+    // REGION er den store usikkerheten: feltet er en radio med Helse Øst som standard.
+    // Om `parent:`-søket bryr seg om den, vet vi ikke — derfor testParentSok() først.
+    async function sokParentINissy(parentId, regioner) {
+        const treff = new Map();
+        for (const region of (regioner && regioner.length ? regioner : [1, 2, 3, 4, 5])) {
+            const felt = new URLSearchParams({
+                previousSearch: '', onlySelectable: 'false', advancedSearch: 'false',
+                altReq: 'false', reqTemp: 'false', idx: '',
+                regionId: String(region), name: 'parent:' + parentId,
+                sector: '-1', profession: '-1', dispatchCenter: '-1',
+                councilNr: '', councilName: '', address: '', postalPlace: '',
+                eRek: '0', submit_action: '', submit: 'Søk'
+            });
+            let html;
+            try {
+                const r = await fetch(TC_SOK_URL, {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: felt.toString()
+                });
+                if (!r.ok) continue;
+                html = await r.text();
+            } catch (e) { continue; }
+            if (html.indexOf('/admin/logout') === -1) return { utlogget: true, ider: [] };
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            doc.querySelectorAll('a[href*="adminTCDetails"][name="tcdata"]').forEach(a => {
+                const m = /[?&]id=(\d+)/.exec(a.getAttribute('href') || '');
+                if (m) treff.set(m[1], true);
+            });
+        }
+        return { utlogget: false, ider: [...treff.keys()] };
+    }
+
+    // Kjør denne FØRST. Svarer på om region spiller noen rolle, og om `parent:`-søket
+    // finner mer enn vi har. __verktoykasseDev.testParentSok(11574)
+    async function testParentSok(parentId) {
+        const id = parentId || 11574;
+        console.log('[REPARASJON] tester parent:' + id + ' region for region …');
+        const perRegion = {};
+        for (const r of [1, 2, 3, 4, 5]) {
+            const s = await sokParentINissy(id, [r]);
+            if (s.utlogget) { console.warn('[REPARASJON] ikke logget inn i admin'); return; }
+            perRegion[r] = s.ider.length;
+            console.log('   region ' + r + ': ' + s.ider.length + ' barn');
+        }
+        const alle = await sokParentINissy(id, [1, 2, 3, 4, 5]);
+        const vaart = await fetch(STRUKTUR_URL).then(r => r.json());
+        const mine = new Set((vaart.barn && vaart.barn[String(id)]) || []);
+        const mangler = alle.ider.filter(x => !mine.has(+x));
+        console.log('[REPARASJON] alle regioner samlet: ' + alle.ider.length + ' barn');
+        console.log('[REPARASJON] vi har: ' + mine.size + ' · MANGLER: ' + mangler.length);
+        if (mangler.length) console.log('[REPARASJON] første som mangler:', mangler.slice(0, 15).join(', '));
+        return { per_region: perRegion, nissy: alle.ider.length, vaart: mine.size, mangler: mangler.length };
+    }
+
+    const STRUKTUR_URL = 'https://thomaswestby.no/skript/behandlingssted.php?struktur=1';
+
+    // Full reparasjon: gå gjennom alle foreldre vi kjenner, spør NISSY hva som EGENTLIG
+    // ligger under dem, og hent det vi mangler. Nye foreldre som dukker opp legges i køen,
+    // så grener vi aldri har sett kommer med.
+    //   __verktoykasseDev.reparer()               — alle regioner (tryggest, tregest)
+    //   __verktoykasseDev.reparer({regioner:[1]}) — bare Helse Øst, hvis testen viser at det holder
+    async function reparerRegisteret(opts) {
+        opts = opts || {};
+        const regioner = opts.regioner || [1, 2, 3, 4, 5];
+        const struktur = await fetch(STRUKTUR_URL).then(r => r.json());
+        if (!struktur || !struktur.ok) { console.warn('[REPARASJON] fikk ikke strukturen'); return; }
+        const kjent = new Set(struktur.ider);
+        const foreldre = Object.keys(struktur.barn).map(Number);
+        // Rota er ikke barn av noen, men må også sjekkes.
+        if (!foreldre.includes(1)) foreldre.unshift(1);
+
+        console.log('[REPARASJON] ' + foreldre.length + ' foreldre å sjekke · ' + kjent.size + ' steder kjent'
+                    + ' · regioner ' + regioner.join(','));
+        window.__vkt_reparerStopp = false;
+        _bhsUtlogget = false;
+
+        const nye = [];
+        let sjekket = 0, funnet = 0;
+        for (const p of foreldre) {
+            if (window.__vkt_reparerStopp) { console.log('[REPARASJON] avbrutt'); break; }
+            if (_bhsUtlogget) { console.warn('[REPARASJON] STOPPET: admin-sesjonen har falt'); break; }
+            const s = await sokParentINissy(p, regioner);
+            if (s.utlogget) { console.warn('[REPARASJON] STOPPET: ikke logget inn'); break; }
+            sjekket++;
+            for (const id of s.ider) if (!kjent.has(+id)) { kjent.add(+id); nye.push(id); funnet++; }
+            if (sjekket % 100 === 0) console.log('[REPARASJON] ' + sjekket + '/' + foreldre.length
+                                                 + ' foreldre · ' + funnet + ' nye funnet');
+        }
+        console.log('[REPARASJON] søk ferdig: ' + funnet + ' steder NISSY har som vi ikke hadde');
+        if (!nye.length) return { nye: 0 };
+
+        // Hent detaljene og lagre, i samme bunter som den vanlige høstingen.
+        let lagret = 0;
+        for (let i = 0; i < nye.length; i += 3) {
+            if (window.__vkt_reparerStopp || _bhsUtlogget) break;
+            const bunt = await Promise.all(nye.slice(i, i + 3).map(id => hentBehandlingssted(id)));
+            const rader = [];
+            for (const b of bunt) {
+                if (!b) continue;
+                rader.push({
+                    id: b.id, navn: b.navn, type: b.type, sektor: b.sektor,
+                    adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
+                    orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
+                    kortnavn: b.kortnavn, alias: b.alias,
+                    parent_id: b.foreldre ? b.foreldre.id : null
+                });
+            }
+            if (rader.length) {
+                const r = await fetch('https://thomaswestby.no/skript/behandlingssted_lagre.php', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: jsonStringifyTrygt({ steder: rader, av: window.__vkt_brukernavn || '' })
+                }).then(x => x.json()).catch(() => null);
+                if (r && typeof r.lagret === 'number') lagret += r.lagret;
+            }
+            if (i % 60 === 0) console.log('[REPARASJON] hentet ' + Math.min(i + 3, nye.length) + '/' + nye.length);
+        }
+        console.log('[REPARASJON] FERDIG: ' + lagret + ' nye steder lagret');
+        return { nye: nye.length, lagret: lagret };
     }
 
     // Treffene hentes i full detalj og skrives inn i registeret vårt. Poenget er at
@@ -3588,6 +3728,12 @@ document.addEventListener("visibilitychange",inj);
         hentBehandlingssted,
         // Manuell høsting av behandlingssted-registeret: __verktoykasseDev.host()
         host: hostBehandlingssteder,
+        // Reparasjon av hull etter 500-barns-grensen. KJØR testParentSok FØRST — den
+        // svarer på om region spiller noen rolle, og hvor mye vi faktisk mangler.
+        //   __verktoykasseDev.testParentSok(11574)
+        //   __verktoykasseDev.reparer()   ·   __vkt_reparerStopp = true for å avbryte
+        testParentSok,
+        reparer: reparerRegisteret,
         hentTurDetaljer,
         hentTurDetaljerViaRekvnr,
         hentRekvisisjon,

@@ -101,6 +101,24 @@ try {
         exit;
     }
 
+    // === STRUKTUR (14.08) ===
+    // Gir høsteren vår egen forelder→barn-struktur, så den kan sammenligne med NISSY
+    // og bare hente det som mangler. Bakgrunn: bredde-først-vandringen er IKKE komplett
+    // for foreldre med mange barn — NISSY bygger ikke barnelista når childrenCount >= 500,
+    // og underenheter-tabellen ser ut til å være kappet på samme vis. Under «privat»
+    // (#11574) har vi 1851 barn, men nesten ingen med id under 20000: Martina Hansens
+    // Hospital (#11580) mangler, og 25 av 31 id-er rundt den likeså.
+    if (isset($_GET['struktur'])) {
+        $rader = $pdo->query("SELECT id, parent_id FROM ovr_behandlingssted")->fetchAll(PDO::FETCH_ASSOC);
+        $barn = []; $alle = [];
+        foreach ($rader as $r) {
+            $alle[] = (int)$r['id'];
+            if ($r['parent_id'] !== null) $barn[(int)$r['parent_id']][] = (int)$r['id'];
+        }
+        echo json_encode(['ok' => true, 'antall' => count($alle), 'ider' => $alle, 'barn' => $barn]);
+        exit;
+    }
+
     if (isset($_GET['status'])) {
         $n = (int)$pdo->query("SELECT COUNT(*) FROM ovr_behandlingssted")->fetchColumn();
         $sist = $pdo->query("SELECT MAX(oppdatert) FROM ovr_behandlingssted")->fetchColumn();
