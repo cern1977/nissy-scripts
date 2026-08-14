@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.54-dev';  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
+    const VERSION = '38.4.55-dev';  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
     const TITTEL = 'Overvåker Avvik v' + VERSION;
     // Testvisning av vedtak-godkjente turer — kun i dev-bygg
     const VIS_VEDTAK_KOLONNE = VERSION.endsWith('-dev');
@@ -4852,9 +4852,9 @@
                       + "d.getElementById('adrNyPostnr').value='" + esc(postnr) + "';"
                       + "d.getElementById('adrNyPoststed').value='" + esc(poststed) + "';"
                       + "d.getElementById('adrRedigerKey').value='" + adrKey + "';"
-                      + "d.getElementById('adrLeggTilBtn').textContent='Oppdater';"
+                      + "d.getElementById('adrLeggTilBtnDyn').textContent='Oppdater';"
                       + "d.getElementById('adrAvbrytBtn').style.display='';"
-                      + "d.getElementById('adrStatus').textContent='Redigerer: " + esc(navn || gate) + "';"
+                      + "d.getElementById('adrStatusDyn').textContent='Redigerer: " + esc(navn || gate) + "';"
                       + "d.getElementById('adrNyNavn').focus();\""
                     : ' style="flex:1; line-height:1.5;"';
                 return '<li style="border:1px solid #e2e8f0; border-radius:6px; padding:8px 10px; margin-bottom:6px; display:flex; align-items:flex-start; gap:8px;">'
@@ -4983,9 +4983,9 @@
                 // Gateadressen er det eneste som MÅ fylles ut — den er nøkkelen matchingen
                 // kjører på. Navn, postnr og poststed er nyttige, men ikke påkrevd.
                 ha += '<div style="display:flex; gap:6px;">';
-                ha += '<button class="btn-nissy" id="adrLeggTilBtn" style="flex:1;" onclick="'
+                ha += '<button class="btn-nissy" id="adrLeggTilBtnDyn" style="flex:1;" onclick="'
                     + 'var d=document;var g=d.getElementById(\'adrNyGate\').value.trim();'
-                    + 'if(!g){d.getElementById(\'adrStatus\').textContent=\'Gateadresse må fylles ut\';return;}'
+                    + 'if(!g){d.getElementById(\'adrStatusDyn\').textContent=\'Gateadresse må fylles ut\';return;}'
                     + 'window._avvikCh.postMessage({type:\'LEGG_TIL_ADR\', kortType:\'adresse\','
                     + ' navn:d.getElementById(\'adrNyNavn\').value.trim(),'
                     + ' gate:g,'
@@ -4993,17 +4993,18 @@
                     + ' poststed:d.getElementById(\'adrNyPoststed\').value.trim(),'
                     + ' rediger:d.getElementById(\'adrRedigerKey\').value});'
                     + '[\'adrNyNavn\',\'adrNyGate\',\'adrNyPostnr\',\'adrNyPoststed\',\'adrRedigerKey\'].forEach(function(i){d.getElementById(i).value=\'\';});'
-                    + 'd.getElementById(\'adrLeggTilBtn\').textContent=\'Legg til\';'
+                    + 'd.getElementById(\'adrLeggTilBtnDyn\').textContent=\'Legg til\';'
                     + 'd.getElementById(\'adrAvbrytBtn\').style.display=\'none\';'
                     + '">Legg til</button>';
                 ha += '<button class="btn-nissy" id="adrAvbrytBtn" style="display:none; background:#94a3b8;" onclick="'
                     + 'var d=document;'
                     + '[\'adrNyNavn\',\'adrNyGate\',\'adrNyPostnr\',\'adrNyPoststed\',\'adrRedigerKey\'].forEach(function(i){d.getElementById(i).value=\'\';});'
-                    + 'd.getElementById(\'adrLeggTilBtn\').textContent=\'Legg til\';'
-                    + 'd.getElementById(\'adrStatus\').textContent=\'\';'
+                    + 'd.getElementById(\'adrLeggTilBtnDyn\').textContent=\'Legg til\';'
+                    + 'd.getElementById(\'adrStatusDyn\').textContent=\'\';'
                     + 'this.style.display=\'none\';'
                     + '">Avbryt</button>';
                 ha += '</div>';
+                ha += '<div class="adr-status" id="adrStatusDyn" style="margin-top:6px; font-size:12px; color:#166534;"></div>';
                 ha += '</div></div>';
                 ha += '</div>';
                 // Høyre: Søkeord
@@ -5029,7 +5030,11 @@
         if (data.type === 'LEGG_TIL_ADR') {
             const win = window.mqWin;
             const kt = data.kortType || 'adresse';
-            const status = win && !win.closed ? win.document.getElementById('adrStatus') : null;
+            // Den statiske adrStatus ligger i adrStatiskInnhold, som skjules for
+            // adresse-layouten — meldinger dit var usynlige, også feilmeldingene.
+            const status = win && !win.closed
+                ? (win.document.getElementById('adrStatusDyn') || win.document.getElementById('adrStatus'))
+                : null;
             // Skjemaet sender nå fire felt. Vi setter sammen den samme strengen som før
             // — «gate, postnr poststed» — så matchingen og de 72 gamle radene ser
             // nøyaktig samme format. `data.adresse` beholdes for de andre kallstedene
