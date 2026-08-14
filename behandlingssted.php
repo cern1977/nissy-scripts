@@ -7,6 +7,7 @@
 //   ?id=37665      → ett sted + underenheter
 //   ?sok=skårer    → navnesøk (fallback når nummeret ikke gir treff)
 //   ?status        → antall rader + når registeret sist ble oppdatert
+//   ?adresse=…&postnr=…[&navn=…]  → hva ligger på adressen, og hvilken SEKTOR har det
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
@@ -20,6 +21,86 @@ $pdo = getDb();
 $FELT = "id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, parent_id, utm_n, utm_o, oppdatert";
 
 try {
+    // === ADRESSEOPPSLAG MED SEKTOR (14.08) ===
+    // For kommuneavvik-skanningen: reiser over kommunegrensen godkjennes for
+    // AVTALESPESIALIST og HELSEFORETAK (Thomas 14.08). Sektoren står i registeret, så
+    // regelen kan avgjøre i stedet for at 44 adresser vedlikeholdes for hånd.
+    //
+    // MEN: et helsehus har mange behandlingssteder på samme adresse, og de kan ha ulik
+    // sektor. Derfor svarer vi «entydig» bare når adressen gir ETT sted — eller når
+    // navnet peker ut ett av dem. Ellers må operatøren/søkeordene avgjøre, som i dag.
+    if (isset($_GET['adresse'])) {
+        $normA = function ($s) {
+            $s = mb_strtolower(trim((string)$s));
+            $s = str_replace(['veien','vegen','gaten','gata'], ['vei','veg','gate','gate'], $s);
+            return preg_replace('/[^a-zà-ÿ0-9]+/u', '', $s);
+        };
+        $gate   = (string)$_GET['adresse'];
+        $postnr = preg_replace('/\D/', '', (string)($_GET['postnr'] ?? ''));
+        $navnQ  = trim((string)($_GET['navn'] ?? ''));
+        // Er hele «gate, postnr poststed» sendt i ett felt, plukk delene ut.
+        if ($postnr === '' && preg_match('/(\d{4})/', $gate, $m)) {
+            $postnr = $m[1];
+            $gate = preg_replace('/,?\s*\d{4}.*$/', '', $gate);
+        }
+        if ($normA($gate) === '') { echo json_encode(['ok' => false, 'feil' => 'mangler adresse']); exit; }
+
+        $s = $pdo->prepare("SELECT $FELT FROM ovr_behandlingssted
+                            WHERE postnr = ? AND adresse IS NOT NULL AND adresse <> ''");
+        $s->execute([$postnr]);
+        $paaAdressen = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $b) {
+            if ($normA($b['adresse']) === $normA($gate)) $paaAdressen[] = $b;
+        }
+
+        // Navnet kan peke ut ett av flere. Samme «deler et særpreget ord»-regel som
+        // koblingen av de 54 kommune-adressene brukte.
+        $navnTreff = [];
+        if ($navnQ !== '' && count($paaAdressen) > 1) {
+            $ord = array_values(array_filter(preg_split('/\s+/', mb_strtolower($navnQ)),
+                fn($w) => mb_strlen(preg_replace('/[^a-zà-ÿ0-9]/u', '', $w)) >= 5));
+            foreach ($paaAdressen as $b) {
+                $bn = mb_strtolower($b['navn']);
+                foreach ($ord as $w) {
+                    $w = preg_replace('/[^a-zà-ÿ0-9]/u', '', $w);
+                    if ($w !== '' && str_contains($normA($bn), $w)) { $navnTreff[] = $b; break; }
+                }
+            }
+        }
+
+        $valgt = count($paaAdressen) === 1 ? $paaAdressen[0]
+               : (count($navnTreff) === 1 ? $navnTreff[0] : null);
+        $GODKJENTE_SEKTORER = ['Avtalespesialist', 'Helseforetak'];
+
+        // Et sykehus har mange behandlingssteder på én adresse — Ullevål har 174 — men
+        // alle er samme sektor. Da kan regelen avgjøre selv om vi ikke vet HVILKET av
+        // dem reisen gjelder. Er sektorene BLANDET (et helsehus med både fastleger og
+        // en DPS), kan vi ikke avgjøre, og søkeordene tar over som i dag.
+        $sektorer = [];
+        foreach ($paaAdressen as $b) $sektorer[(string)($b['sektor'] ?: 'ukjent')] = true;
+        $sektorer = array_keys($sektorer);
+        $alleGodkjent = $paaAdressen && !array_diff($sektorer, $GODKJENTE_SEKTORER);
+        $valgtGodkjent = $valgt !== null && in_array((string)$valgt['sektor'], $GODKJENTE_SEKTORER, true);
+
+        if (!$paaAdressen)          $grunn = 'ikke i registeret';
+        elseif ($alleGodkjent)      $grunn = count($paaAdressen) . ' sted' . (count($paaAdressen) === 1 ? '' : 'er')
+                                             . ' på adressen, alle ' . implode('/', $sektorer);
+        elseif ($valgtGodkjent)     $grunn = 'navnet peker på ' . $valgt['navn'] . ' (' . $valgt['sektor'] . ')';
+        else                        $grunn = 'blandet: ' . implode(', ', $sektorer) . ' — kan ikke avgjøres på adressen alene';
+
+        echo json_encode([
+            'ok' => true,
+            'antall' => count($paaAdressen),
+            'sektorer' => $sektorer,
+            'entydig' => $valgt !== null,
+            'sted' => $valgt,
+            'godkjenn_kommunegrense' => $alleGodkjent || $valgtGodkjent,
+            'grunn' => $grunn,
+            'steder' => array_slice($paaAdressen, 0, 25),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if (isset($_GET['status'])) {
         $n = (int)$pdo->query("SELECT COUNT(*) FROM ovr_behandlingssted")->fetchColumn();
         $sist = $pdo->query("SELECT MAX(oppdatert) FROM ovr_behandlingssted")->fetchColumn();
