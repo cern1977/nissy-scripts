@@ -13,21 +13,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 // pasientens eksakte adresse — og da slipper vi å sende adressen ut av NISSY.
 $postnr = preg_replace('/\D/', '', $_GET['postnr'] ?? '');
 if (strlen($postnr) === 4) {
-    $u = 'https://ws.geonorge.no/adresser/v1/sok?treffPerSide=1&utkoordsys=4258&postnummer=' . $postnr;
+    // ⚠️ ETT TREFF ER IKKE STABILT. Geonorge returnerer ikke adressene i fast rekkefølge, så
+    //    treffPerSide=1 ga ulikt punkt fra kall til kall — og dermed ulik avstand til flyplassen
+    //    for samme postnummer (målt 8450: 15 km i ett kall, 5 km i det neste). Vi henter mange
+    //    og bruker SNITTET: stabilt mellom kall, og nærmere tyngdepunktet i bygda enn en
+    //    tilfeldig adresse i utkanten.
+    $u = 'https://ws.geonorge.no/adresser/v1/sok?treffPerSide=200&utkoordsys=4258&postnummer=' . $postnr;
     $c = curl_init($u);
     curl_setopt_array($c, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6, CURLOPT_CONNECTTIMEOUT => 3]);
     $sv = curl_exec($c);
     curl_close($c);
     $a = ($sv === false) ? [] : (json_decode($sv, true)['adresser'] ?? []);
     if (!$a) { echo json_encode(['ok' => false, 'postnr' => $postnr, 'feil' => 'ukjent postnummer']); exit; }
-    $pt = $a[0]['representasjonspunkt'] ?? null;
+    $sumLat = 0.0; $sumLon = 0.0; $n = 0;
+    foreach ($a as $rad) {
+        $pt = $rad['representasjonspunkt'] ?? null;
+        if (!$pt || !isset($pt['lat'], $pt['lon'])) continue;
+        $sumLat += (float)$pt['lat']; $sumLon += (float)$pt['lon']; $n++;
+    }
+    if ($n === 0) { echo json_encode(['ok' => false, 'postnr' => $postnr, 'feil' => 'ingen koordinater']); exit; }
     echo json_encode([
-        'ok'       => true,
-        'postnr'   => $postnr,
-        'poststed' => $a[0]['poststed'] ?? '',
-        'kommune'  => $a[0]['kommunenavn'] ?? '',
-        'lat'      => $pt['lat'] ?? null,
-        'lon'      => $pt['lon'] ?? null,
+        'ok'        => true,
+        'postnr'    => $postnr,
+        'poststed'  => $a[0]['poststed'] ?? '',
+        'kommune'   => $a[0]['kommunenavn'] ?? '',
+        'lat'       => round($sumLat / $n, 6),
+        'lon'       => round($sumLon / $n, 6),
+        'adresser'  => $n,          // hvor mange punkter snittet bygger på
     ]);
     exit;
 }

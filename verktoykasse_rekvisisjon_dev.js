@@ -1,4 +1,34 @@
 // === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT (DEV) v1.39-dev ===
+// v1.46-dev: VARSEL NÅR REISEN BRUKER EN ANNEN FLYPLASS enn pasientens nærmeste (Thomas 27.08,
+//            testet med Gardermoen→Værnes for en pasient i Hadsel). Leser Reise-seksjonen i
+//            sammendraget og kjenner igjen flyplassene der. ⚠️ Sier fra, påstår ikke feil — en
+//            reise kan lovlig gå mellom to fjerne flyplasser (mellomlanding, eller et ben andre
+//            kjører). Utløses kun når reisen faktisk nevner en flyplass.
+//            ⚠️ Matcher på HELE navnet med slakke skilletegn, eller IATA — aldri på stedsnavnet
+//            alene: «Bodø» og «Alta» er like gjerne pasientens hjemsted som en lufthavn.
+// v1.45-dev: FEIL POSTNUMMER var én dump unna. Da jeg åpnet for summary_middle i 1.44, ble
+//            REKVIRENTTILHØRIGHETEN med i søket — «1337 Sandvika» står rett over pasientens
+//            «8450 STOKMARKNES» og ser identisk ut for et mønstersøk, men kommer først i
+//            dokumentet. Boksen ville vist Bærum som kjørekontor for en pasient i Hadsel.
+//            Avgrenser nå til pasient-SEKSJONEN («2. Pasient» → «Egenandel»/«3. Reise») før
+//            postnummeret leses.
+// v1.44-dev: FIX boksen forsvant ved stegbytte (Thomas 27.08: «skriptet blir borte»). Agenten
+//            levde hele tiden — loggen viste v1.43-dev aktiv på editRequisitionTrip — men
+//            postnummer-cellen ble ikke funnet. td.summary_current markerer STEGET DU STÅR PÅ,
+//            ikke pasienten: på Reise-steget faller pasientblokken tilbake til summary_middle.
+//            Leser nå begge klassene.
+// v1.43-dev: boksen NEDERST i sammendraget — mellom Pasient og Egenandel brøt den NISSYs egen
+//            steg-rekkefølge (2, boks, Egenandel, 3, 4). Nederst er den en fotnote til hele
+//            bestillingen, og flytter ikke på noe av NISSYs innhold.
+//            + geokod_sok.php: postnummerets punkt er nå SNITTET av inntil 200 adresser. Ett
+//            treff var ikke stabilt — Geonorge svarer i vilkårlig rekkefølge, så samme
+//            postnummer ga 15 km i ett kall og 5 km i det neste (målt på 8450).
+// v1.42-dev: BOKSEN INN I SAMMENDRAGET til høyre (Thomas 27.08) — det panelet følger
+//            bestillingen gjennom alle stegene, mens pasienttabellen bare finnes på ett av dem.
+//            Postnummeret leses derfra (td.summary_current «8450 STOKMARKNES»).
+//            SPLITTET: kjørekontor vises på postnummer ALENE, lufthavnene kun ved «fly» i
+//            Begrunnelse. Begrunnelsen finnes bare på pasient-steget, så fly-flagget huskes i
+//            sessionStorage nøklet på POSTNUMMER — et postnummer er ikke en pasient.
 // v1.41-dev: FIX flyreise-boksen reagerte ikke. Jeg lette etter etiketten blant ALLE <td>, men
 //            textContent er REKURSIV — en ytre celle «inneholder» teksten i alt under seg, så
 //            wizard-wrapperen matcher før etiketten gjør det. NISSY merker feltene selv
@@ -79,7 +109,7 @@
 //   window.opener.__vkt_registerAgentTab() hvert poll-tick så Map i planlegger
 //   alltid har fersk window-referanse, uavhengig av F5 i planlegger.
 (function () {
-    const VERSJON = '1.41-dev';
+    const VERSJON = '1.46-dev';
     // Hardkodet — dette er dev-fila, så den re-injiserer alltid dev-versjoner
     const KILDE = 'dev';
     const NAVN = 'VKT-REKVISISJON-DEV';
@@ -661,61 +691,159 @@
         return null;
     }
 
+    // Postnummeret står i SAMMENDRAGET til høyre, som følger bestillingen gjennom alle stegene
+    // (Thomas 27.08). Begrunnelsen finnes derimot bare på pasient-steget — derfor huskes
+    // fly-flagget i sessionStorage, nøklet på postnummer. Et postnummer er ikke en pasient.
+    // ⚠️ TO FELLER I SAMME SELEKTOR, begge påvist på ekte markup:
+    //
+    //  1) td.summary_current markerer STEGET DU STÅR PÅ, ikke pasienten. På pasient-steget er
+    //     pasientblokken «current»; på Reise-steget er den «summary_middle». Å låse seg til
+    //     current gjorde at boksen forsvant på alle steg unntatt ett.
+    //
+    //  2) Men «alle summary_middle» er for vidt: REKVIRENTTILHØRIGHETEN står rett over pasienten
+    //     og ser helt lik ut — «1337 Sandvika» mot «8450 STOKMARKNES». Den kommer FØRST i
+    //     dokumentet, så et rent mønstersøk plukker rekvirentens postnummer og viser feil
+    //     kjørekontor for pasienten. Det er verre enn at boksen uteblir.
+    //
+    // Derfor: avgrens til SEKSJONEN først («2. Pasient» → «Egenandel»/«3. Reise»), let så etter
+    // postnummeret der. Overskriftene finnes i begge former — <strong>2. Pasient</strong> når
+    // steget er aktivt, <a>-lenke ellers — og begge gir samme tekst.
+    function flySummaryPostnrCelle() {
+        const rot = document.querySelector('.summary_container');
+        if (!rot) return null;
+        const celler = [...rot.querySelectorAll('td')];
+        const tekst = c => (c.textContent || '').replace(/\s+/g, ' ').trim();
+        let start = -1, slutt = celler.length;
+        for (let i = 0; i < celler.length; i++) {
+            const t = tekst(celler[i]);
+            if (start < 0) { if (/^2\.\s*Pasient$/i.test(t)) start = i; continue; }
+            if (/^(Egenandel|3\.\s*Reise|4\.\s*Ferdigstill)$/i.test(t)) { slutt = i; break; }
+        }
+        if (start < 0) return null;
+        for (let i = start + 1; i < slutt; i++) {
+            if (/^\d{4}\s+[A-ZÆØÅ]/.test(tekst(celler[i]))) return celler[i];   // «8450 STOKMARKNES»
+        }
+        return null;
+    }
+
+    // Reise-seksjonen i sammendraget, avgrenset på samme måte som pasientblokken.
+    function flyReiseTekst() {
+        const rot = document.querySelector('.summary_container');
+        if (!rot) return '';
+        const celler = [...rot.querySelectorAll('td')];
+        const tekst = c => (c.textContent || '').replace(/\s+/g, ' ').trim();
+        let start = -1, slutt = celler.length;
+        for (let i = 0; i < celler.length; i++) {
+            const t = tekst(celler[i]);
+            if (start < 0) { if (/^3\.\s*Reise$/i.test(t)) start = i; continue; }
+            if (/^4\.\s*Ferdigstill$/i.test(t)) { slutt = i; break; }
+        }
+        if (start < 0) return '';
+        return celler.slice(start + 1, slutt).map(tekst).join(' ');
+    }
+
+    // ⚠️ NISSY SKRIVER FLYPLASSNAVN FRITT: «Oslo Lufthavn Gardermoen/Avgang» og
+    //    «Trondheim lufthavn,Værnes,TRD» i samme rekvisisjon. Vi matcher derfor på HELE navnet
+    //    med slakke skilletegn, og godtar IATA-koden som alternativ — aldri på stedsnavnet alene
+    //    («Bodø», «Alta») som like gjerne er pasientens hjemsted.
+    function flyGjenkjennIReise(reisetekst) {
+        if (!reisetekst) return [];
+        const funn = [];
+        for (const f of FLYPLASSER) {
+            const deler = f[0].split(',').map(d => d.trim()).filter(Boolean);
+            const navnRe = new RegExp(deler.map(d =>
+                d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*,?\\s*'), 'i');
+            const iataRe = new RegExp('\\b' + f[1] + '\\b');
+            if (navnRe.test(reisetekst) || iataRe.test(reisetekst)) funn.push({ navn: f[0], iata: f[1] });
+        }
+        return funn;
+    }
+
+    function flyFlagg(postnr, verdi) {
+        const n = 'vkt_fly_' + postnr;
+        try {
+            if (verdi === undefined) return sessionStorage.getItem(n) === '1';
+            if (verdi) sessionStorage.setItem(n, '1'); else sessionStorage.removeItem(n);
+        } catch (_) {}
+        return !!verdi;
+    }
+
     let _flyLoggetMangel = false;
     function dekorerFlyreise() {
-        const beg = flyFinnFelt(/^Begrunnelse\b/i);
-        const pn  = flyFinnFelt(/^Postnr\s*\/?\s*Sted\b/i);
-        if (!beg || !pn) {
-            if (!_flyLoggetMangel && document.querySelector('td.fieldname')) {
+        const celle = flySummaryPostnrCelle();
+        if (!celle) {
+            if (!_flyLoggetMangel && document.querySelector('.summary_container')) {
                 _flyLoggetMangel = true;
-                console.log(`[${NAVN}] flyreise: fant ${beg ? '' : 'IKKE '}«Begrunnelse», `
-                    + `${pn ? '' : 'IKKE '}«Postnr/Sted». Etiketter på siden: `
-                    + [...document.querySelectorAll('td.fieldname')].map(e => e.textContent.trim()).join(' | '));
+                console.log(`[${NAVN}] flyreise: fant ingen postnummer-celle i sammendraget`);
             }
             return;
         }
-        const fjern = () => {
-            const g = document.getElementById('vkt-fly-boks');
-            if (g && g.parentNode) g.parentNode.removeChild(g);
-        };
-        if (!/\bfly\w*/i.test(beg.verdi)) { fjern(); return; }
+        const postnr = ((celle.textContent || '').match(/\b(\d{4})\b/) || [])[1];
+        if (!postnr) return;
 
-        const postnr = (pn.verdi.match(/\b(\d{4})\b/) || [])[1];
-        if (!postnr) { fjern(); return; }
+        // Begrunnelsen finnes kun på pasient-steget. Ser vi den, oppdaterer vi flagget —
+        // ellers stoler vi på det som allerede er satt for dette postnummeret.
+        const beg = flyFinnFelt(/^Begrunnelse\b/i);
+        if (beg) flyFlagg(postnr, /\bfly\w*/i.test(beg.verdi));
+        const fly = flyFlagg(postnr);
 
         let boks = document.getElementById('vkt-fly-boks');
-        if (boks && boks.dataset.postnr === postnr) return;      // allerede tegnet for dette nr
+        // Reisen kan endres uten at postnummeret gjør det, og varselet henger på reisen.
+        const reiseNoekkel = flyReiseTekst().slice(0, 300);
+        if (boks && boks.dataset.postnr === postnr && boks.dataset.fly === String(fly)
+            && boks.dataset.reise === reiseNoekkel) return;
         if (!boks) {
             boks = document.createElement('div');
             boks.id = 'vkt-fly-boks';
-            boks.style.cssText = 'margin:8px 0;padding:8px 10px;border:1px solid #d97706;'
-                + 'border-left:4px solid #d97706;background:#fffbeb;border-radius:0 5px 5px 0;'
-                + 'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;'
-                + 'color:#1c1917;line-height:1.5;max-width:420px;';
-            // Forankres til PASIENT-tabellen (der Postnr/Sted står), ikke til begrunnelsen:
-            // det er pasientens adresse boksen handler om, og den tabellen kjenner vi markupen på.
-            const tab = pn.rad && pn.rad.closest('table');
-            if (tab && tab.parentNode) tab.parentNode.insertBefore(boks, tab.nextSibling);
-            else document.body.appendChild(boks);
+            // Smal kolonne: liten skrift, ordbryting, ingen fast bredde.
+            boks.style.cssText = 'margin:10px 0 4px 18px;padding:6px 8px;border:1px solid #d97706;'
+                + 'border-left:3px solid #d97706;background:#fffbeb;border-radius:0 4px 4px 0;'
+                + 'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;'
+                + 'color:#1c1917;line-height:1.45;overflow-wrap:anywhere;';
         }
+        // Nederst i sammendraget (Thomas 27.08). Mellom Pasient og Egenandel brøt boksen NISSYs
+        // egen steg-rekkefølge — 2, boks, Egenandel, 3, 4. Nederst står den som en fotnote til
+        // hele bestillingen, som er det den er, og den flytter ikke på noe av NISSYs innhold.
+        const vert = document.querySelector('.summary_container td.summary_middle');
+        if (vert && boks.parentNode !== vert) vert.appendChild(boks);
+        else if (vert && vert.lastElementChild !== boks) vert.appendChild(boks);
         boks.dataset.postnr = postnr;
-        boks.innerHTML = '<b>✈️ Flyreise</b> — slår opp lufthavn for ' + postnr + '…';
+        boks.dataset.fly = String(fly);
+        boks.dataset.reise = reiseNoekkel;
+        boks.innerHTML = '<div style="color:#78716c;">slår opp ' + postnr + '…</div>';
 
         flySlaaOpp(postnr).then(d => {
-            if (!d) { boks.innerHTML = '<b>✈️ Flyreise</b><br>Fant ikke postnummer ' + postnr + '.'; return; }
-            const rader = d.flyplasser.map((f, i) =>
-                '<div style="' + (i === 0 ? 'font-weight:700;' : 'color:#57534e;') + '">'
-                + (i === 0 ? '→ ' : '&nbsp;&nbsp;&nbsp;')
-                + f.navn + ' (' + f.iata + ') · ' + Math.round(f.km) + ' km</div>').join('');
-            boks.innerHTML =
-                '<div style="font-weight:700;margin-bottom:4px;">✈️ Flyreise — ' + postnr + ' '
-                + (d.poststed || '') + (d.kommune ? ' (' + d.kommune + ')' : '') + '</div>'
-                + (d.kontor ? '<div style="margin-bottom:5px;">Kjørekontor: <b>' + d.kontor + '</b></div>' : '')
-                + '<div style="font-size:10px;color:#78716c;text-transform:uppercase;letter-spacing:.4px;">'
-                + 'Nærmeste lufthavn (luftlinje)</div>'
-                + rader
-                + '<div style="margin-top:5px;font-size:11px;color:#78716c;">Forslag — rutetilbudet '
-                + 'avgjør hvilken som faktisk brukes.</div>';
+            if (boks.dataset.postnr !== postnr) return;              // rekvisisjonen byttet under oss
+            if (!d) { boks.innerHTML = 'Fant ikke postnummer ' + postnr + '.'; return; }
+            let h = '<div style="font-size:9px;color:#78716c;text-transform:uppercase;'
+                  + 'letter-spacing:.4px;">Kjørekontor</div>'
+                  + '<div style="font-weight:700;">' + (d.kontor || 'ukjent for ' + postnr) + '</div>';
+            if (fly) {
+                h += '<div style="font-size:9px;color:#78716c;text-transform:uppercase;'
+                   + 'letter-spacing:.4px;margin-top:5px;">✈️ Nærmeste lufthavn</div>'
+                   + d.flyplasser.map((f, i) =>
+                        '<div style="' + (i === 0 ? 'font-weight:700;' : 'color:#57534e;') + '">'
+                        + f.navn + ' (' + f.iata + ') · ' + Math.round(f.km) + ' km</div>').join('')
+                   + '<div style="margin-top:3px;color:#78716c;">Forslag — rutetilbudet avgjør.</div>';
+
+                // ⚠️ SIER FRA, PÅSTÅR IKKE FEIL. En reise kan lovlig gå mellom to fjerne
+                //    flyplasser — mellomlanding, eller et ben andre kjører. Men står pasienten i
+                //    Hadsel mens reisen går Gardermoen–Værnes, er det verdt et blikk. Varselet
+                //    utløses kun når reisen faktisk nevner en flyplass, og pasientens nærmeste
+                //    ikke er blant dem: da har vi noe å sammenligne med.
+                const iReisen = flyGjenkjennIReise(flyReiseTekst());
+                const naermest = d.flyplasser[0];
+                if (iReisen.length && naermest
+                    && !iReisen.some(x => x.iata === naermest.iata)) {
+                    h += '<div style="margin-top:6px;padding:5px 7px;background:#fef2f2;'
+                       + 'border:1px solid #fca5a5;border-radius:4px;color:#991b1b;">'
+                       + '<b>⚠ Sjekk flyplassen.</b> Reisen bruker '
+                       + iReisen.map(x => x.navn + ' (' + x.iata + ')').join(' og ')
+                       + '. Pasientens nærmeste er ' + naermest.navn + ' (' + naermest.iata + '), '
+                       + Math.round(naermest.km) + ' km.</div>';
+                }
+            }
+            boks.innerHTML = h;
         });
     }
 

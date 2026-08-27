@@ -435,7 +435,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.211-dev';   // ULIK KNAPPEHØYDE I FOOTEREN (Thomas 27.08: «størrelsesforskjell på høyden enda»). Knappene bygges i TO filer og hadde drevet fra hverandre — 3px/12px uten line-height i verktoykasse, 3px/10px med line-height:1 i basic_tools. Uten line-height er det skriften og EMOJIENE som bestemmer linjeboksen, og de er ikke like høye: 🔧 og 🕘 og ⚙️ gir hver sin. Alle seks har nå samme låste boks (inline-flex, height:22px, line-height:1), så innholdet ikke kan dytte høyden  // FOOTER-PYNT (Thomas 27.08): verktøy-ikonet 🧰 → 🔧, og søkelogg-telleren fra opphøyd tall til «(3)». vertical-align:super løfter tallet over grunnlinja og linjeboksen vokser med det, så Logg-knappen sto et par piksler høyere enn naboene i rekka. Parentesene ligger utenfor tallspennet, slik at begge stedene som oppdaterer telleren fortsatt kan skrive ren textContent  // PASSERTE REKVISISJONER TELLES IKKE (Thomas 26.08: «den har vært»). Badgen sa «3 rekv» mens lista viste 2 — differansen var en retur fra 14.08 som fortsatt sto «Ny». Tallet var riktig, men svarte på et annet spørsmål enn operatøren stiller. Samme målestokk som pnr-vakten; passerte flyttes til tooltipen, ikke bort   // attest-prikken sto grå selv om agenten meldte seg: fargen hvilte på `.closed` mot et KRYSS-ORIGIN vindu, inne i en try med tom catch — feilet det, ble prikken grå uten et pip. Måler nå tid siden siste heartbeat (10 s vindu), som også fanger en fane som henger uten å være lukket   // «attest-agent klar» ble logget hvert 3. sekund — meldingen er en HEARTBEAT, ikke en hendelse. Logger nå kun tilstandsendring (grå → grønn) og ny versjon   // attest-prikken ble grønn først ved neste status-poll: vkt_attest_klar satte flaggene, men fargen settes i tegnAdminStatus. Males nå med én gang agenten melder seg   // kryss-opprinnelse er en FORVENTET tilstand i attest-flyten (pastrans → attest-ui), ikke en feil. Ga SecurityError hvert 300. ms og fylte konsollen med «feil» mens alt virket. Logges nå én gang per fane, og timeout-varselet er stille når årsaken er kjent   // Rekvisisjon/Admin/Attest som EGNE footer-knapper med hver sin statusprikk (Thomas 26.08) — slipper å åpne menyen for et nytt rekvisisjonsbilde. Delt konfig VKT_SNARVEIER brukes av både menyen og footeren, så de kan ikke divergere. Fast rekkefølge via insertBefore søkelogg-cellen   // footer-prikkene sto grå: tegnAdminStatus() maler alle [data-status-for], men hadde kjørt før knappen fantes og kjører først igjen ved statusENDRING. Kaller den nå når knappen bygges   // påloggingsstatus (admin/rekvisisjon/attest) som prikker på «🧰 Verktøy»-knappen, med skille foran. Kobler seg gratis på eksisterende oppdatering — den treffer [data-status-for] hvor som helst, så prikkene kan aldri komme i utakt med menyens   // tlf-toasten vokser nedover etter at den er plassert (innholdet fylles asynkront), så treff falt ut av vinduet når operatøren hadde dratt den ned. ResizeObserver holder den innenfor viewporten — når nedre kant treffer bunnen, flyttes top opp, altså bygger den oppover. Rører den ikke så lenge den får plass   // NISSY admin-KAPABILITETER (Thomas 26.08: «ikke alle har like mye tilgang»). «admin=true» var bare en sesjonssjekk og sa ingenting om hvilke menypunkter brukeren når — et oppslag mot noe man mangler gir innloggingsside, tom parse og «fant ingen data» i stedet for «du mangler tilgang». Leser nå admin-menyen én gang → window.__vkt_nissyAdmin.har()/mangler()   // «🧰 Verktøy»-knapp i footeren åpner samme meny som skjoldet, og skjoldet kan skjules (vkt_vis_skjold, default PÅ) fra Innstillinger. Menyen forankres nedenfra mot knappen; stopPropagation er påkrevd, ellers lukker skjoldets egen document-lytter menyen i samme klikk
+    const VERSJON = '2.213-dev';   // KEEPEREN BRUKTE ~30 SEKUNDER (Thomas 27.08). Klokka var problemet, ikke sveipen: keeperen bodde i en setInterval i PLANLEGGERVINDUET, som ligger bak mens operatøren jobber i rekvisisjons-popupen, og Chrome budsjett-struper timere i vinduer den regner som skjulte. Symptomet stemte — agenten kom tilbake i det man byttet til planleggeren. Taktgiveren er nå en Worker (1s): den lever i egen tråd og meldingene kjører i siden selv om vinduet er skjult. Sveipen er uendret, og setInterval-et beholdes som reserve. Innskytingen gjøres DIREKTE per tikk i stedet for via en intern 300 ms-løkke — den løkka var også en timer i det samme skjulte vinduet og arvet samme struping; å fikse klokka uten løkka hadde vært halve jobben  // DIAGNOSE __vkt_keeperStatus() (Thomas 27.08: «bytter jeg steg i rekvisisjonsmodulen blir skriptet borte, og kommer ikke tilbake før jeg bytter til planlegging og tilbake»). Keeperens Map er en lukket variabel, så spørsmålet var ikke mulig å svare på fra konsollen. Skiller de tre kandidatene: fanen står ikke i Map (ble aldri fanget), timeren strupes fordi planleggervinduet er skjult, eller innskytingen kjører men slår feil. Viser også document.visibilityState  // ULIK KNAPPEHØYDE I FOOTEREN (Thomas 27.08: «størrelsesforskjell på høyden enda»). Knappene bygges i TO filer og hadde drevet fra hverandre — 3px/12px uten line-height i verktoykasse, 3px/10px med line-height:1 i basic_tools. Uten line-height er det skriften og EMOJIENE som bestemmer linjeboksen, og de er ikke like høye: 🔧 og 🕘 og ⚙️ gir hver sin. Alle seks har nå samme låste boks (inline-flex, height:22px, line-height:1), så innholdet ikke kan dytte høyden  // FOOTER-PYNT (Thomas 27.08): verktøy-ikonet 🧰 → 🔧, og søkelogg-telleren fra opphøyd tall til «(3)». vertical-align:super løfter tallet over grunnlinja og linjeboksen vokser med det, så Logg-knappen sto et par piksler høyere enn naboene i rekka. Parentesene ligger utenfor tallspennet, slik at begge stedene som oppdaterer telleren fortsatt kan skrive ren textContent  // PASSERTE REKVISISJONER TELLES IKKE (Thomas 26.08: «den har vært»). Badgen sa «3 rekv» mens lista viste 2 — differansen var en retur fra 14.08 som fortsatt sto «Ny». Tallet var riktig, men svarte på et annet spørsmål enn operatøren stiller. Samme målestokk som pnr-vakten; passerte flyttes til tooltipen, ikke bort   // attest-prikken sto grå selv om agenten meldte seg: fargen hvilte på `.closed` mot et KRYSS-ORIGIN vindu, inne i en try med tom catch — feilet det, ble prikken grå uten et pip. Måler nå tid siden siste heartbeat (10 s vindu), som også fanger en fane som henger uten å være lukket   // «attest-agent klar» ble logget hvert 3. sekund — meldingen er en HEARTBEAT, ikke en hendelse. Logger nå kun tilstandsendring (grå → grønn) og ny versjon   // attest-prikken ble grønn først ved neste status-poll: vkt_attest_klar satte flaggene, men fargen settes i tegnAdminStatus. Males nå med én gang agenten melder seg   // kryss-opprinnelse er en FORVENTET tilstand i attest-flyten (pastrans → attest-ui), ikke en feil. Ga SecurityError hvert 300. ms og fylte konsollen med «feil» mens alt virket. Logges nå én gang per fane, og timeout-varselet er stille når årsaken er kjent   // Rekvisisjon/Admin/Attest som EGNE footer-knapper med hver sin statusprikk (Thomas 26.08) — slipper å åpne menyen for et nytt rekvisisjonsbilde. Delt konfig VKT_SNARVEIER brukes av både menyen og footeren, så de kan ikke divergere. Fast rekkefølge via insertBefore søkelogg-cellen   // footer-prikkene sto grå: tegnAdminStatus() maler alle [data-status-for], men hadde kjørt før knappen fantes og kjører først igjen ved statusENDRING. Kaller den nå når knappen bygges   // påloggingsstatus (admin/rekvisisjon/attest) som prikker på «🧰 Verktøy»-knappen, med skille foran. Kobler seg gratis på eksisterende oppdatering — den treffer [data-status-for] hvor som helst, så prikkene kan aldri komme i utakt med menyens   // tlf-toasten vokser nedover etter at den er plassert (innholdet fylles asynkront), så treff falt ut av vinduet når operatøren hadde dratt den ned. ResizeObserver holder den innenfor viewporten — når nedre kant treffer bunnen, flyttes top opp, altså bygger den oppover. Rører den ikke så lenge den får plass   // NISSY admin-KAPABILITETER (Thomas 26.08: «ikke alle har like mye tilgang»). «admin=true» var bare en sesjonssjekk og sa ingenting om hvilke menypunkter brukeren når — et oppslag mot noe man mangler gir innloggingsside, tom parse og «fant ingen data» i stedet for «du mangler tilgang». Leser nå admin-menyen én gang → window.__vkt_nissyAdmin.har()/mangler()   // «🧰 Verktøy»-knapp i footeren åpner samme meny som skjoldet, og skjoldet kan skjules (vkt_vis_skjold, default PÅ) fra Innstillinger. Menyen forankres nedenfra mot knappen; stopPropagation er påkrevd, ellers lukker skjoldets egen document-lytter menyen i samme klikk
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -4273,9 +4273,42 @@ document.addEventListener("visibilitychange",inj);
         overvåkedeTaber.set(name, { w, url, filnavn, flagName, pathPrefix });
         if (fersk) console.log(`[VERKTØYKASSE] agent registrerte seg: ${name} (${filnavn})`);
     };
-    // Per-tab guard så vi ikke starter en ny rask-poller mens en allerede pågår (unngår stabling).
+    // Diagnose: keeperens tilstand er en lukket variabel, så uten dette er «hvorfor kom ikke
+    // agenten tilbake» umulig å svare på fra konsollen. Skiller de tre kandidatene fra hverandre:
+    // fanen står ikke i Map (ble aldri fanget), timeren strupes (skjult vindu), eller
+    // innskytingen kjører men slår feil.
     const reinjiserPågår = new Set();
-    setInterval(() => {
+    window.__vkt_keeperStatus = function () {
+        const ut = [];
+        for (const [name, i] of overvåkedeTaber) {
+            let lukket = null, path = '?', flagg = null;
+            try { lukket = !!(i.w && i.w.closed); } catch (_) {}
+            try { path = i.w.location.pathname; } catch (_) {}
+            try { flagg = !!i.w[i.flagName]; } catch (e) { flagg = 'utilgjengelig'; }
+            ut.push({ navn: name, fil: i.filnavn, flagg: i.flagName, flaggSatt: flagg,
+                      path: path, lukket: lukket, reinjiserPågår: reinjiserPågår.has(name) });
+        }
+        console.log('[KEEPER] planlegger visibilityState =', document.visibilityState,
+                    '| overvåkede faner:', ut.length);
+        console.table(ut);
+        return ut;
+    };
+
+    // ⚠️ KLOKKA ER PROBLEMET, IKKE SVEIPEN (Thomas 27.08: «keeper bruker fryktelig lang tid på å
+    //    loade skript i rekvisisjonsmodulen — sikkert 30 sekunder»). Keeperen bodde i en
+    //    setInterval i PLANLEGGERVINDUET, og mens operatøren jobber i rekvisisjons-popupen ligger
+    //    planleggeren bak. Chrome budsjett-struper timere i vinduer den regner som skjulte, så et
+    //    2-sekunders intervall kan bli titalls sekunder. Symptomet stemte: agenten kom tilbake
+    //    med én gang man byttet til planleggeren — vinduet ble synlig og timeren løp normalt igjen.
+    //
+    //    En Worker strupes ikke likt: den lever i sin egen tråd, og meldingene den sender kjører
+    //    i siden selv om vinduet er skjult. Vi bytter altså BARE taktgiveren; sveipen er den samme.
+    //
+    // ⚠️ Innskytingen gjøres nå DIREKTE, ett forsøk per tikk, i stedet for å starte en intern
+    //    300 ms-løkke. Den løkka var også en timer i det samme skjulte vinduet, så den arvet
+    //    nøyaktig samme struping — å fikse klokka uten å fikse løkka hadde vært halve jobben.
+    //    injiserAgent er idempotent (sjekker flagget først), så gjentatte forsøk er gratis.
+    function keeperSveip() {
         for (const [name, info] of overvåkedeTaber) {
             try {
                 if (!info.w || info.w.closed) {
@@ -4286,21 +4319,32 @@ document.addEventListener("visibilitychange",inj);
                 }
                 let flagSet = false;
                 try { flagSet = !!info.w[info.flagName]; } catch (_) {}
-                if (!flagSet && !reinjiserPågår.has(name)) {
-                    // F5 → tap av flag. Bytt til RASK 300ms-polling straks: skyter inn så snart
-                    // siden er klar (head + path matcher), i stedet for å vente til neste 2s-runde.
-                    let pathname = '?';
-                    try { pathname = info.w.location.pathname; } catch (_) {}
-                    console.log(`[VERKTØYKASSE keeper] ${name}: flag mangler, re-injiserer raskt (${pathname})`);
-                    reinjiserPågår.add(name);
-                    injiserAgentNårKlar(info.w, info.filnavn, info.flagName, info.pathPrefix)
-                        .finally(() => reinjiserPågår.delete(name));
+                if (flagSet) continue;
+                if (injiserAgent(info.w, info.filnavn, info.flagName, info.pathPrefix)) {
+                    console.log(`[VERKTØYKASSE keeper] ${name}: agent gjeninnsatt`);
                 }
             } catch (e) {
                 console.warn(`[VERKTØYKASSE keeper] ${name}: feil`, e);
             }
         }
-    }, 2000);  // 5s → 2s: oppdager F5-tap raskere
+    }
+
+    setInterval(keeperSveip, 2000);          // beholdes: virker når vinduet er synlig
+
+    // Worker-taktgiver. Faller stille tilbake til intervallet over hvis blob-workere er sperret
+    // av CSP — da er vi ikke dårligere stilt enn før.
+    (function keeperWorkerTakt() {
+        try {
+            const kode = 'setInterval(function(){ postMessage(1); }, 1000);';
+            const url = URL.createObjectURL(new Blob([kode], { type: 'application/javascript' }));
+            const w = new Worker(url);
+            w.onmessage = keeperSveip;
+            console.log('[VERKTØYKASSE keeper] taktgiver: Worker (1s, strupes ikke i skjult vindu)');
+        } catch (e) {
+            console.log('[VERKTØYKASSE keeper] taktgiver: setInterval — Worker utilgjengelig ('
+                + ((e && e.message) || e) + ')');
+        }
+    })();
 
     // Auto-fang popups som NISSY åpner SELV: verktøykassen injiserer raskt kun i vinduer den selv
     // åpner (Rekvisisjon-snarvei / auto-naviger). Et /rekvisisjon/- eller /administrasjon/-popup NISSY
