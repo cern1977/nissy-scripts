@@ -17,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.30-dev';
+    const VERSJON_FULL = '6.2.31-dev';
     // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
     //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
     //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
@@ -1269,9 +1269,24 @@ function kjorOvrvaker() {
         const avviksLogg = [];
         let sisteKontaktFraAvvik = null, sisteEPT = null, sisteIFS = null, eptAntall = 0;
         // Hjelper: klassifiser én enkelt linje. hashTekst brukes for avvikHash (full tekst slik den vises),
+    // ⚠️ RTP/RTB ER DE SAMME HENDELSENE UNDER NYE NAVN (leders vedtak 27.08.2026):
+    //      RTP = ringt til pasient  → KMP (kontakt med pasient)
+    //      RTB = ringt til behandler → KMB (kontakt med behandler)
+    //    Verktøykassen skriver de nye kodene i avviksfeltet fra basic_tools 1.222. Live kjente
+    //    dem ikke, så kontakten sluttet å telle i sist-kontakt-logikken i det «T.» gikk ut av bruk.
+    //
+    //    Vi NORMALISERER ved parsingen i stedet for å spre de nye kodene utover: alt nedenfor —
+    //    sist kontakt, SMS-timingen, etikettene, de manuelle merkingene — fortsetter å regne i
+    //    KMP/KMB, og trenger ingen endring. Da finnes de nye kodene bare ett sted.
+    const MARKOR_MONSTER = 'KMP|KMB|RTP|RTB|EPT|IFS|IST';
+    const markorNorm = (t) => {
+        const u = String(t || '').toUpperCase();
+        return u === 'RTP' ? 'KMP' : u === 'RTB' ? 'KMB' : u;
+    };
+
         // raw brukes for tid/type-parsing (uten [MERKNAD]-prefiks).
         function klassifiser(hashTekst, raw) {
-            const km = raw.match(/^(\d{2}:\d{2})\s*-\s*(KMP|KMB|EPT|IFS|IST)\b/i);
+            const km = raw.match(new RegExp('^(\\d{2}:\\d{2})\\s*-\\s*(' + MARKOR_MONSTER + ')\\b', 'i'));
             const manueltType = resId ? avvikMerkGet(resId, avvikHash(hashTekst)) : null;
             if (manueltType) {
                 const lagretTid = resId ? _avvikMerkTidMap.get(`${resId}_${avvikHash(hashTekst)}`) : null;
@@ -1282,7 +1297,7 @@ function kjorOvrvaker() {
                     sisteKontaktFraAvvik = { tid, type: manueltType };
                 }
             } else if (km) {
-                const type = km[2].toUpperCase();
+                const type = markorNorm(km[2]);
                 const rest = raw.substring(km[0].length).trim();
                 if (type !== 'EPT' && type !== 'IFS' && type !== 'IST') sisteKontaktFraAvvik = { tid: km[1], type };
                 if (type === 'EPT') { sisteEPT = { tid: km[1], tekst: rest }; eptAntall++; }
@@ -1305,7 +1320,7 @@ function kjorOvrvaker() {
                 // Operatører dropper ofte kolon i tidspunkt (1330 i stedet for 13:30),
                 // og kan ha flere EPT/IFS/KMP/KMB/IST-markører i samme felt (spesielt Merknad).
                 // Finn hver markør (med valgfritt tidspunkt foran) og splitt på indeksene.
-                const markerRegex = /(?:(\d{2}:?\d{2})\s*-?\s*)?(EPT|IFS|KMP|KMB|IST)\b/gi;
+                const markerRegex = new RegExp('(?:(\\d{2}:?\\d{2})\\s*-?\\s*)?(' + MARKOR_MONSTER + ')\\b', 'gi');
                 const funn = [...txt.matchAll(markerRegex)];
                 let segmenter;
                 if (funn.length >= 2) {
@@ -3197,7 +3212,7 @@ function kjorOvrvaker() {
                     if (avviksLogg.length > 0) {
                         addDebugLog(`[AVVIK] ${reise.navn} (${reise.resId}): ${avviksLogg.length} avvik, KMP=${sisteKontaktFraAvvik ? sisteKontaktFraAvvik.tid : 'null'}, EPT=${sisteEPT ? sisteEPT.tid : 'null'}, IFS=${sisteIFS ? sisteIFS.tid : 'null'}`);
                         avviksLogg.forEach((a, i) => {
-                            const m = a.match(/^(\d{2}:\d{2})\s*-\s*(KMP|KMB|EPT|IFS|IST)\b/i);
+                            const m = a.match(new RegExp('^(\\d{2}:\\d{2})\\s*-\\s*(' + MARKOR_MONSTER + ')\\b', 'i'));
                             if (m) addDebugLog(`  [AVVIK ${i}] MATCH: "${a.substring(0, 60)}" → type=${m[2]}`);
                         });
                     }
@@ -4794,9 +4809,9 @@ function kjorOvrvaker() {
                         return `<span onclick="${merkCall('fjern')}" style="background:${col}; color:white; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:700; margin-right:4px; cursor:pointer;" title="Manuelt merket · klikk for å fjerne">✓ ${manuell}</span>`;
                     }
                     // 2) Standard HH:MM - TYPE format (uforanderlig)
-                    const std = a.match(/^(\d{2}:\d{2})\s*-\s*(KMP|KMB|EPT|IFS|IST)\b/i);
+                    const std = a.match(new RegExp('^(\\d{2}:\\d{2})\\s*-\\s*(' + MARKOR_MONSTER + ')\\b', 'i'));
                     if (std) {
-                        const t = std[2].toUpperCase();
+                        const t = markorNorm(std[2]);
                         const col = t === 'EPT' ? '#dc2626' : t === 'IFS' ? '#10b981' : '#64748b';
                         return `<span style="background:${col}; color:white; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:700; margin-right:4px;">${t}</span>`;
                     }
@@ -5130,7 +5145,7 @@ function kjorOvrvaker() {
             const rader = avviksLogg.map(a => {
                 const hash = avvikHash(a);
                 const manuell = avvikMerkGet(resId, hash);
-                const std = a.match(/^(\d{2}:\d{2})\s*-\s*(KMP|KMB|EPT|IFS|IST)\b/i);
+                const std = a.match(new RegExp('^(\\d{2}:\\d{2})\\s*-\\s*(' + MARKOR_MONSTER + ')\\b', 'i'));
                 const klassi = klassifiserAvvikTekst(a);
                 const tekstB64 = btoa(unescape(encodeURIComponent(a)));
                 const merkCall = (type) => `event.stopPropagation(); window._popupChannel.postMessage({type:'MERK_AVVIK', resId:'${resId}', hash:'${hash}', tekstB64:'${tekstB64}', merkType:'${type}'});`;
