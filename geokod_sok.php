@@ -8,6 +8,30 @@ header('Access-Control-Allow-Headers: Content-Type');
 header('Cache-Control: no-store');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
+// ?postnr=NNNN → ett representasjonspunkt for postnummeret. Brukes til å finne nærmeste
+// flyplass når en rekvisisjon gjelder flyreise: vi trenger bare et punkt i riktig bygd, ikke
+// pasientens eksakte adresse — og da slipper vi å sende adressen ut av NISSY.
+$postnr = preg_replace('/\D/', '', $_GET['postnr'] ?? '');
+if (strlen($postnr) === 4) {
+    $u = 'https://ws.geonorge.no/adresser/v1/sok?treffPerSide=1&utkoordsys=4258&postnummer=' . $postnr;
+    $c = curl_init($u);
+    curl_setopt_array($c, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6, CURLOPT_CONNECTTIMEOUT => 3]);
+    $sv = curl_exec($c);
+    curl_close($c);
+    $a = ($sv === false) ? [] : (json_decode($sv, true)['adresser'] ?? []);
+    if (!$a) { echo json_encode(['ok' => false, 'postnr' => $postnr, 'feil' => 'ukjent postnummer']); exit; }
+    $pt = $a[0]['representasjonspunkt'] ?? null;
+    echo json_encode([
+        'ok'       => true,
+        'postnr'   => $postnr,
+        'poststed' => $a[0]['poststed'] ?? '',
+        'kommune'  => $a[0]['kommunenavn'] ?? '',
+        'lat'      => $pt['lat'] ?? null,
+        'lon'      => $pt['lon'] ?? null,
+    ]);
+    exit;
+}
+
 $q = trim($_GET['q'] ?? '');
 if (mb_strlen($q) < 3) { echo json_encode(['ok' => true, 'treff' => []]); exit; }
 

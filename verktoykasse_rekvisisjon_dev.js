@@ -1,4 +1,18 @@
 // === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT (DEV) v1.39-dev ===
+// v1.41-dev: FIX flyreise-boksen reagerte ikke. Jeg lette etter etiketten blant ALLE <td>, men
+//            textContent er REKURSIV — en ytre celle «inneholder» teksten i alt under seg, så
+//            wizard-wrapperen matcher før etiketten gjør det. NISSY merker feltene selv
+//            (td.fieldname / td.fieldvalue); vi leser kun dem nå. Boksen forankres til
+//            PASIENT-tabellen der Postnr/Sted står, ikke til begrunnelsen. Dev-konsollen lister
+//            alle etikettene på siden når et felt ikke blir funnet.
+// v1.40-dev: FLYREISE → RIKTIG LUFTHAVN (Thomas 27.08). Står «flyreise» i Begrunnelse, slås
+//            postnummeret opp: kjørekontor (kjorekontor.php — samme kilde som telefon-toasten)
+//            og de tre nærmeste lufthavnene i luftlinje. En operatør i Oslo har Gardermoen i
+//            fingrene, men pasienten i Hadsel reiser fra Stokmarknes.
+//            ⚠️ Forslag, ikke fasit — rutenettet avgjør, så ingenting fylles inn automatisk.
+//            ⚠️ Kun POSTNUMMERET forlater NISSY. Et punkt i riktig bygd holder for å rangere
+//            lufthavner; pasientens gateadresse har ingenting hos en ekstern tjeneste å gjøre.
+//            geokod_sok.php fikk ?postnr=NNNN for dette (Geonorge, ett representasjonspunkt).
 // v1.39-dev: tegnforklaring nederst i feltet: «Attributtene i oransje kan kun endres i samråd med
 //            behandler» (oransje swatch). Forklarer hva oransje-markeringen betyr.
 // v1.38-dev: FIX «Antall reiseledsagere» på énsides «locus»-skjema (altRequisition): teksten ligger i
@@ -65,7 +79,7 @@
 //   window.opener.__vkt_registerAgentTab() hvert poll-tick så Map i planlegger
 //   alltid har fersk window-referanse, uavhengig av F5 i planlegger.
 (function () {
-    const VERSJON = '1.39-dev';
+    const VERSJON = '1.41-dev';
     // Hardkodet — dette er dev-fila, så den re-injiserer alltid dev-versjoner
     const KILDE = 'dev';
     const NAVN = 'VKT-REKVISISJON-DEV';
@@ -527,6 +541,184 @@
     }
 
     let rafPlanlagt = null;
+    // ══ FLYREISE → RIKTIG FLYPLASS ═══════════════════════════════════════════════════════
+    // Thomas 27.08: «hvis jeg skriver flyreise og postnummeret ikke tilhører Oslo, da må vi finne
+    // riktig flyplass». En operatør i Oslo har Gardermoen i fingrene — men en pasient i Hadsel
+    // reiser fra Stokmarknes, og det er ikke opplagt hvilken lufthavn som hører til et postnummer
+    // man ikke kjenner.
+    //
+    // ⚠️ VI FORESLÅR, VI VELGER IKKE. Nærmeste lufthavn i luftlinje er et godt utgangspunkt, men
+    //    ikke en fasit: rutenettet, fjorder og været avgjør hvor pasienten faktisk flyr fra. Derfor
+    //    vises de tre nærmeste med avstand, og ingenting fylles inn automatisk.
+    //
+    // ⚠️ POSTNUMMERET, IKKE ADRESSEN, sendes ut av NISSY. Vi trenger bare et punkt i riktig bygd
+    //    for å rangere lufthavner, og da er det ingen grunn til å sende pasientens gateadresse
+    //    til en ekstern tjeneste.
+    //
+    // Listen er VÅR — den er ikke hentet fra Avinor, så feil rettes her. Rutetilbudet endrer seg;
+    // koordinatene gjør det ikke.
+    const FLYPLASSER = [
+        ['Oslo lufthavn, Gardermoen', 'OSL', 60.1939, 11.1004],
+        ['Sandefjord lufthavn, Torp', 'TRF', 59.1867, 10.2586],
+        ['Kristiansand lufthavn, Kjevik', 'KRS', 58.2042, 8.0853],
+        ['Stavanger lufthavn, Sola', 'SVG', 58.8767, 5.6378],
+        ['Haugesund lufthavn, Karmøy', 'HAU', 59.3453, 5.2084],
+        ['Stord lufthamn, Sørstokken', 'SRP', 59.7919, 5.3409],
+        ['Bergen lufthavn, Flesland', 'BGO', 60.2934, 5.2181],
+        ['Florø lufthamn', 'FRO', 61.5836, 5.0247],
+        ['Førde lufthamn, Bringeland', 'FDE', 61.3911, 5.7569],
+        ['Sogndal lufthamn, Haukåsen', 'SOG', 61.1561, 7.1378],
+        ['Fagernes lufthavn, Leirin', 'VDB', 61.0156, 9.2881],
+        ['Ørsta-Volda lufthamn, Hovden', 'HOV', 62.1800, 6.0741],
+        ['Ålesund lufthavn, Vigra', 'AES', 62.5625, 6.1197],
+        ['Molde lufthavn, Årø', 'MOL', 62.7447, 7.2625],
+        ['Kristiansund lufthavn, Kvernberget', 'KSU', 63.1118, 7.8245],
+        ['Trondheim lufthavn, Værnes', 'TRD', 63.4578, 10.9240],
+        ['Røros lufthavn', 'RRS', 62.5783, 11.3423],
+        ['Ørland lufthavn', 'OLA', 63.6989, 9.6040],
+        ['Namsos lufthavn, Høknesøra', 'OSY', 64.4722, 11.5786],
+        ['Rørvik lufthavn, Ryum', 'RVK', 64.8383, 11.1461],
+        ['Brønnøysund lufthavn, Brønnøy', 'BNN', 65.4611, 12.2175],
+        ['Sandnessjøen lufthavn, Stokka', 'SSJ', 65.9568, 12.4689],
+        ['Mosjøen lufthavn, Kjærstad', 'MJF', 65.7840, 13.2149],
+        ['Mo i Rana lufthavn, Røssvoll', 'MQN', 66.3639, 14.3014],
+        ['Bodø lufthavn', 'BOO', 67.2692, 14.3653],
+        ['Røst lufthavn', 'RET', 67.5278, 12.1033],
+        ['Leknes lufthavn', 'LKN', 68.1525, 13.6094],
+        ['Svolvær lufthavn, Helle', 'SVJ', 68.2433, 14.6692],
+        ['Stokmarknes lufthavn, Skagen', 'SKN', 68.5789, 15.0336],
+        ['Harstad/Narvik lufthavn, Evenes', 'EVE', 68.4913, 16.6781],
+        ['Andøya lufthavn, Andenes', 'ANX', 69.2925, 16.1442],
+        ['Bardufoss lufthavn', 'BDU', 69.0558, 18.5404],
+        ['Tromsø lufthavn, Langnes', 'TOS', 69.6833, 18.9189],
+        ['Sørkjosen lufthavn', 'SOJ', 69.7868, 20.9594],
+        ['Hasvik lufthavn', 'HAA', 70.4867, 22.1397],
+        ['Hammerfest lufthavn', 'HFT', 70.6797, 23.6686],
+        ['Alta lufthavn', 'ALF', 69.9761, 23.3717],
+        ['Lakselv lufthavn, Banak', 'LKL', 70.0688, 24.9735],
+        ['Honningsvåg lufthavn, Valan', 'HVG', 71.0097, 25.9836],
+        ['Mehamn lufthavn', 'MEH', 71.0297, 27.8267],
+        ['Berlevåg lufthavn', 'BVG', 70.8714, 29.0342],
+        ['Båtsfjord lufthavn', 'BJF', 70.6005, 29.6914],
+        ['Vadsø lufthavn', 'VDS', 70.0653, 29.8447],
+        ['Vardø lufthavn, Svartnes', 'VAW', 70.3554, 31.0449],
+        ['Kirkenes lufthavn, Høybuktmoen', 'KKN', 69.7258, 29.8913],
+        ['Svalbard lufthavn, Longyear', 'LYR', 78.2461, 15.4656],
+    ];
+
+    function flyAvstandKm(a1, o1, a2, o2) {
+        const R = 6371, r = Math.PI / 180;
+        const dA = (a2 - a1) * r, dO = (o2 - o1) * r;
+        const x = Math.sin(dA / 2) ** 2
+                + Math.cos(a1 * r) * Math.cos(a2 * r) * Math.sin(dO / 2) ** 2;
+        return 2 * R * Math.asin(Math.sqrt(x));
+    }
+
+    const SERVER = 'https://thomaswestby.no/skript';
+    const _flyCache = {};
+
+    async function flySlaaOpp(postnr) {
+        if (_flyCache[postnr] !== undefined) return _flyCache[postnr];
+        _flyCache[postnr] = null;                       // hindrer parallelle oppslag på samme nr
+        try {
+            // Kjørekontoret er allerede løst server-side (samme kilde som telefon-toasten bruker).
+            const [pt, kk] = await Promise.all([
+                fetch(`${SERVER}/geokod_sok.php?postnr=${encodeURIComponent(postnr)}`).then(r => r.json()).catch(() => null),
+                fetch(`${SERVER}/kjorekontor.php?postnr=${encodeURIComponent(postnr)}`).then(r => r.json()).catch(() => null),
+            ]);
+            if (!pt || !pt.ok || pt.lat == null) { _flyCache[postnr] = null; return null; }
+            const naer = FLYPLASSER
+                .map(f => ({ navn: f[0], iata: f[1], km: flyAvstandKm(pt.lat, pt.lon, f[2], f[3]) }))
+                .sort((a, b) => a.km - b.km)
+                .slice(0, 3);
+            _flyCache[postnr] = {
+                poststed: pt.poststed || '', kommune: pt.kommune || '',
+                kontor: (kk && kk.ok) ? kk.kontor : null,
+                flyplasser: naer,
+            };
+        } catch (_) { _flyCache[postnr] = null; }
+        return _flyCache[postnr];
+    }
+
+    // ⚠️ IKKE SØK I ALLE <td>. textContent er REKURSIV, så en ytre celle «inneholder» teksten i
+    //    alt under seg — et generisk søk treffer wizard-wrapperen, ikke etiketten. NISSY merker
+    //    feltene selv: <td class="fieldname">Postnr/Sted:</td><td class="fieldvalue">8450 …</td>.
+    //    Vi leter derfor kun blant fieldname-cellene, og tar verdien fra fieldvalue i samme rad.
+    function flyFinnFelt(mnster) {
+        const etiketter = document.querySelectorAll('td.fieldname, th.fieldname');
+        for (const c of etiketter) {
+            if (!mnster.test((c.textContent || '').replace(/ /g, ' ').trim())) continue;
+            const rad = c.closest('tr');
+            let v = rad && rad.querySelector('td.fieldvalue');
+            if (!v) v = c.nextElementSibling;
+            let verdi = v ? (v.textContent || '').replace(/ /g, ' ').trim() : '';
+            // Er verdicellen tom, står verdien gjerne på linja under (som i egenandel-panelet).
+            if (!verdi && rad && rad.nextElementSibling) {
+                verdi = (rad.nextElementSibling.textContent || '').replace(/ /g, ' ').trim();
+            }
+            return { celle: c, rad: rad, verdi: verdi };
+        }
+        return null;
+    }
+
+    let _flyLoggetMangel = false;
+    function dekorerFlyreise() {
+        const beg = flyFinnFelt(/^Begrunnelse\b/i);
+        const pn  = flyFinnFelt(/^Postnr\s*\/?\s*Sted\b/i);
+        if (!beg || !pn) {
+            if (!_flyLoggetMangel && document.querySelector('td.fieldname')) {
+                _flyLoggetMangel = true;
+                console.log(`[${NAVN}] flyreise: fant ${beg ? '' : 'IKKE '}«Begrunnelse», `
+                    + `${pn ? '' : 'IKKE '}«Postnr/Sted». Etiketter på siden: `
+                    + [...document.querySelectorAll('td.fieldname')].map(e => e.textContent.trim()).join(' | '));
+            }
+            return;
+        }
+        const fjern = () => {
+            const g = document.getElementById('vkt-fly-boks');
+            if (g && g.parentNode) g.parentNode.removeChild(g);
+        };
+        if (!/\bfly\w*/i.test(beg.verdi)) { fjern(); return; }
+
+        const postnr = (pn.verdi.match(/\b(\d{4})\b/) || [])[1];
+        if (!postnr) { fjern(); return; }
+
+        let boks = document.getElementById('vkt-fly-boks');
+        if (boks && boks.dataset.postnr === postnr) return;      // allerede tegnet for dette nr
+        if (!boks) {
+            boks = document.createElement('div');
+            boks.id = 'vkt-fly-boks';
+            boks.style.cssText = 'margin:8px 0;padding:8px 10px;border:1px solid #d97706;'
+                + 'border-left:4px solid #d97706;background:#fffbeb;border-radius:0 5px 5px 0;'
+                + 'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;'
+                + 'color:#1c1917;line-height:1.5;max-width:420px;';
+            // Forankres til PASIENT-tabellen (der Postnr/Sted står), ikke til begrunnelsen:
+            // det er pasientens adresse boksen handler om, og den tabellen kjenner vi markupen på.
+            const tab = pn.rad && pn.rad.closest('table');
+            if (tab && tab.parentNode) tab.parentNode.insertBefore(boks, tab.nextSibling);
+            else document.body.appendChild(boks);
+        }
+        boks.dataset.postnr = postnr;
+        boks.innerHTML = '<b>✈️ Flyreise</b> — slår opp lufthavn for ' + postnr + '…';
+
+        flySlaaOpp(postnr).then(d => {
+            if (!d) { boks.innerHTML = '<b>✈️ Flyreise</b><br>Fant ikke postnummer ' + postnr + '.'; return; }
+            const rader = d.flyplasser.map((f, i) =>
+                '<div style="' + (i === 0 ? 'font-weight:700;' : 'color:#57534e;') + '">'
+                + (i === 0 ? '→ ' : '&nbsp;&nbsp;&nbsp;')
+                + f.navn + ' (' + f.iata + ') · ' + Math.round(f.km) + ' km</div>').join('');
+            boks.innerHTML =
+                '<div style="font-weight:700;margin-bottom:4px;">✈️ Flyreise — ' + postnr + ' '
+                + (d.poststed || '') + (d.kommune ? ' (' + d.kommune + ')' : '') + '</div>'
+                + (d.kontor ? '<div style="margin-bottom:5px;">Kjørekontor: <b>' + d.kontor + '</b></div>' : '')
+                + '<div style="font-size:10px;color:#78716c;text-transform:uppercase;letter-spacing:.4px;">'
+                + 'Nærmeste lufthavn (luftlinje)</div>'
+                + rader
+                + '<div style="margin-top:5px;font-size:11px;color:#78716c;">Forslag — rutetilbudet '
+                + 'avgjør hvilken som faktisk brukes.</div>';
+        });
+    }
+
     function planleggDekorasjon() {
         if (rafPlanlagt !== null) return;
         rafPlanlagt = requestAnimationFrame(() => {
@@ -536,6 +728,7 @@
             dekorerSpesielleBehov();
             fargeLaasteBehov();
             lagKalender();
+            dekorerFlyreise();
         });
     }
     const datoObs = new MutationObserver(planleggDekorasjon);
@@ -545,6 +738,7 @@
     dekorerSpesielleBehov();
     fargeLaasteBehov();
     lagKalender();
+    dekorerFlyreise();
 
     poll();
     holdOpenerLevende();

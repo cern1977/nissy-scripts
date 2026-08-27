@@ -1,40 +1,64 @@
-// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT v1.23 ===
-// v1.23: tegnforklaring nederst i feltet — «Attributtene i oransje kan kun endres i samråd med
-//        behandler» (oransje swatch). Forklarer oransje-markeringen. (dev v1.39)
-// v1.22: FIX «Antall reiseledsagere» på énsides «locus»-skjema (altRequisition) — teksten i
-//        <div class=col-md-4> (ikke <td>), input trip.noOfCompanions. Matcher nå <td>/<div> m/ teksten
-//        som direkte tekstnode + input[id/name$=noOfCompanions]. Regex case-insensitiv (4x4). (dev v1.38)
-// v1.21: info-plakat ferdigstilt (promotert dev v1.36-dev) — GRØNN boks/badge med «Disse behovene
-//        kan du som pasientreiseoperatør endre:» (babystol/barnestol/sittepute, rullator, rullestoler,
-//        trappeklatrer, førerhund, ekstra bagasje, assistanse, firehjulstrekk, manuell håndtering).
-//        Behov operatøren IKKE kan endre farges ORANSJE i feltet — komplementet av SPES_BEHOV_TILLATT
-//        (AL,LF,HI,LI,IA,SF,LB,A) + «Antall reiseledsagere». fargeLaasteBehov() i dekoratør-loopen.
-// v1.20: info-plakat — la til Trappeklatrer (TK) i lista over behov pasienten selv kan legge til.
-// v1.19: info-plakat fylt med innhold (fra ledelsen) — behov pasienten selv kan legge til på
-//        Helsenorge: barnestol/sittepute (alle), rullator, rullestol (+ sammenleggbar/elektrisk),
-//        førerhund/servicehund, ekstra bagasje, assistanse til/fra transportmiddel, firehjulstrekk.
-// v1.18: INFO-PLAKAT ved «Spesielle behov» (addTrip) — oransje «i»-badge i feltets <legend> som
-//        toggler en oransje overlay-plakat (øverst til høyre, skyver ikke ned): hva en
-//        pasientreiseoperatør har lov til å endre / ikke. Statisk/hardkodet (SPES_BEHOV_INFO_HTML —
-//        placeholder «Innhold kommer» inntil teksten er klar). Promotert fra rekvisisjon_dev v1.28-dev.
-// v1.16: promotert kalender fra dev — kompakt månedskalender m/ukenummer i ledig høyrefelt,
-//        drabar + minimerbar, posisjon/tilstand i localStorage.
-// v1.15: superkrefter finjustert 4px ned + 4px venstre (top:36, left:376).
-// v1.14: superkrefter nærmere PASIENTREISER (left:380) og litt lavere (top:32).
-// v1.13: superkrefter top:14 → top:24 (havnet 10px for høyt i v1.12).
-// v1.12: superkrefter-merket på samme baseline som PASIENTREISER (top:14, font:22px).
-// v1.11: superkrefter-merket flyttet til høyre (left:420px, top:28px, 16px) så det ikke
-//        overlapper PASIENTREISER-logoen.
-// v1.10: Fix superkrefter-merket — "PASIENTREISER" er et bilde (NISSYlogo.jpg), ikke tekst.
-//        Targeter logo-TD-en og legger på et absolutt-posisjonert overlay-span ved siden av.
-// v1.9: "PASIENTREISER med superkrefter" — header-merket signaliserer at agenten er aktiv.
-// v1.8: Raskere dato-dekorering. (a) Sort + ramme hopper nå over når ingenting nytt ble
-//        dekorert — sparer 50-100 unødvendige passeringer per Rico-render. (b) rAF-batcher
-//        MutationObserver-ticks så dusinvis av mutasjoner i samme frame gir ÉN scan.
-// v1.7: Promotert hele dev → prod (v1.7-dev til v1.14-dev). Bringer inn:
-//        dato-dekoratør med dagnavn under "Oppm. dato" / "Pasient klar fra";
-//        ISO-ukenummer ("fredag · uke 20"); oransje farge + weight 600;
-//        ukes-gruppering med horisontale skiller; sortering synkende på "Pasient klar fra".
+// === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT (DEV) v1.39-dev ===
+// v1.41-dev: FIX flyreise-boksen reagerte ikke. Jeg lette etter etiketten blant ALLE <td>, men
+//            textContent er REKURSIV — en ytre celle «inneholder» teksten i alt under seg, så
+//            wizard-wrapperen matcher før etiketten gjør det. NISSY merker feltene selv
+//            (td.fieldname / td.fieldvalue); vi leser kun dem nå. Boksen forankres til
+//            PASIENT-tabellen der Postnr/Sted står, ikke til begrunnelsen. Dev-konsollen lister
+//            alle etikettene på siden når et felt ikke blir funnet.
+// v1.40-dev: FLYREISE → RIKTIG LUFTHAVN (Thomas 27.08). Står «flyreise» i Begrunnelse, slås
+//            postnummeret opp: kjørekontor (kjorekontor.php — samme kilde som telefon-toasten)
+//            og de tre nærmeste lufthavnene i luftlinje. En operatør i Oslo har Gardermoen i
+//            fingrene, men pasienten i Hadsel reiser fra Stokmarknes.
+//            ⚠️ Forslag, ikke fasit — rutenettet avgjør, så ingenting fylles inn automatisk.
+//            ⚠️ Kun POSTNUMMERET forlater NISSY. Et punkt i riktig bygd holder for å rangere
+//            lufthavner; pasientens gateadresse har ingenting hos en ekstern tjeneste å gjøre.
+//            geokod_sok.php fikk ?postnr=NNNN for dette (Geonorge, ett representasjonspunkt).
+// v1.39-dev: tegnforklaring nederst i feltet: «Attributtene i oransje kan kun endres i samråd med
+//            behandler» (oransje swatch). Forklarer hva oransje-markeringen betyr.
+// v1.38-dev: FIX «Antall reiseledsagere» på énsides «locus»-skjema (altRequisition): teksten ligger i
+//            <div class=col-md-4> (ikke <td>) og input heter trip.noOfCompanions. Matcher nå <td> ELLER
+//            <div> m/ teksten som direkte tekstnode + input[id/name$=noOfCompanions]. Regex case-insensitiv
+//            (4x4 m/ liten x) så ingen låst kode med små bokstaver slipper unna.
+// v1.37-dev: FIX «Antall reiseledsagere» traff ikke — teksten ligger i EGEN <td> (skilt fra
+//            input#noOfCompanions), så feil celle ble farget. Matcher nå cellen m/ teksten som
+//            direkte tekstnode. (Gjelder også énsides altRequisition-skjemaet med flere koder.)
+// v1.36-dev: ordlyd → «Disse behovene kan du som pasientreiseoperatør endre:».
+// v1.35-dev: popup-boks + «i»-badge GRØNN (det operatøren HAR lov til); låste behov forblir oransje
+//            tekst i feltet. Grønn = lov, oransje = ikke lov.
+// v1.34-dev: ordlyd → «…pasienten selv legge til på Helsenorge, og du som pasientreiseoperatør kan
+//            også endre dem:». «Antall reiseledsagere» (input#noOfCompanions) farges oransje —
+//            operatøren kan ikke endre den (ikke en <label>, så fargelegges eksplisitt).
+// v1.33-dev: internt verktøy — ordlyd «Disse behovene kan du endre som pasientreiseoperatør:».
+//            BS0 (babystol) + MH (manuell håndtering) er IKKE oransje (lagt i TILLATT). Babystol +
+//            «Manuell håndtering av kjøreoppdrag» lagt i lista.
+// v1.32-dev: FORSLAG til ledelsen — markér behov operatøren ikke kan endre i oransje. Definerer de
+//            TILLATTE kodene (pasient-selvvalg) og farger alt annet automatisk = komplementet, så
+//            det aldri kommer i utakt med Helsenorge-lista. Avventer godkjenning før prod.
+// v1.31-dev: DEMO — markér behov operatøren IKKE kan endre i oransje (label-tekst). Kun AL (Allergi)
+//            inntil ledelsen gir full liste over låste koder. fargeLaasteBehov() matcher «(KODE)» i
+//            label-tekst, idempotent pr. label. IKKE promotert (avventer full liste).
+// v1.30-dev: info-plakat — la til Trappeklatrer (TK) (synket med prod v1.20).
+// v1.29-dev: info-plakat fylt med innhold (fra ledelsen) — behov pasienten selv kan legge til
+//            på Helsenorge (synket med prod v1.19).
+// v1.28-dev: info-plakat — oransje «i»-badge (superkrefter-tema) + panelet som OVERLAY
+//            (position:absolute ift. fieldset) så det legger seg over feltet, skyver ikke ned. Oransje tema.
+//            Panelet forankret øverst til HØYRE i fieldset (top:8px;right:10px).
+// v1.27-dev: INFO-PLAKAT ved «Spesielle behov» (addTrip) — liten ℹ️-knapp i feltets <legend> som
+//            toggler en skjult veiledningsdiv: hva en pasientreiseoperatør har lov til å endre / ikke.
+//            Statisk/hardkodet (SPES_BEHOV_INFO_HTML — placeholder inntil teksten er klar).
+//            Anker: <fieldset> m/ <table id="transportRequirements">; kjøres via dekoratør-loopen.
+// v1.25-dev: kalender kan dras (oransje header) + minimeres (–/+); posisjon + tilstand huskes i localStorage.
+// v1.24-dev: kompakt månedskalender med ukenummer i ledig høyrefelt (fixed, oransje tema).
+//            ‹ › måned-nav + «I dag», i dag uthevet, helg i rødt. Gjenbruker isoUkenummer().
+// v1.23-dev: superkrefter finjustert 4px ned + 4px venstre (top:36, left:376).
+// v1.22-dev: superkrefter nærmere PASIENTREISER (left:380) og litt lavere (top:32).
+// v1.21-dev: superkrefter top:14 → top:24 (havnet 10px for høyt i v1.20-dev).
+// v1.20-dev: superkrefter på samme baseline som PASIENTREISER (top:14, 22px).
+// v1.19-dev: superkrefter flyttet til høyre (left:420px) for å ikke overlappe logo.
+// v1.18-dev: Fix superkrefter — targeter logo-TD (PASIENTREISER er bilde), absolute overlay.
+// v1.17-dev: "PASIENTREISER med superkrefter" — header-merket signaliserer at agenten er aktiv.
+// v1.16-dev: Raskere dekorering — sort+ramme hopper over når intet nytt + rAF-batching.
+// v1.15-dev: synket med prod v1.7.
 // v1.14-dev: sorter rekvisisjons-listen synkende etter Pasient klar fra + klokkeslett
 // v1.13-dev: ukes-skille — kun ÉN orange topp-linje på rad der uka skifter
 //            (ingen topp på første gruppe, ingen bunn på siste, ikke rør tabell-styling)
@@ -45,9 +69,9 @@
 // v1.9-dev: dagnavn-farge til orange (#f97316) + weight 600 — grå druknet i blå rader
 // v1.8-dev: dato-dekoratør — scan alle <td> direkte i stedet for header-lookup
 //   (header-strukturen varierer); dekorer celler som eksakt matcher dato-regex.
-// Headless agent som lastes inn på /rekvisisjon/-modulen.
-// Injiseres automatisk av planlegger-verktøykassen når en rekvisisjon-tab åpnes,
-// eller manuelt via bookmarklet.
+// Dev-versjon av rekvisisjons-agenten. Injiseres kun av DEV-planlegger-
+// verktøykassen, ikke av prod. Isolert fra produksjonsflyt så vi kan
+// eksperimentere uten å påvirke kollegene.
 //
 // v1.7-dev: dato-dekoratør — legger dagnavn (mandag/tirsdag/...) under
 //   "Oppm. dato" og "Pasient klar fra" i rekvisisjons-listen.
@@ -55,7 +79,7 @@
 //   window.opener.__vkt_registerAgentTab() hvert poll-tick så Map i planlegger
 //   alltid har fersk window-referanse, uavhengig av F5 i planlegger.
 (function () {
-    const VERSJON = '1.23';
+    const VERSJON = '1.41';
     const KILDE = 'prod';
     const NAVN = 'VKT-REKVISISJON';
     const MODUL = 'rekvisisjon';
@@ -152,15 +176,16 @@
         }
     }
 
-    // Mutual keeper: hvis planlegger (window.opener) har F5'et og mister
-    // prod-verktøykassen, re-injiserer vi prod. Hvis dev kjører hos opener,
-    // la dev være — ikke override. Re-registrer alltid oss selv så Map er fersk.
+    // Mutual keeper: hvis planlegger (window.opener) har F5'et og mistet verktøykassen,
+    // re-injiserer vi den. I tillegg: ALLTID ringe inn til opener.__vkt_registerAgentTab()
+    // så overvåkedeTaber Map er fersk uavhengig av F5 i planlegger.
     function holdOpenerLevende() {
         try {
             const opener = window.opener;
             if (!opener || opener.closed) return;
             if (!/\/planlegging\//.test(opener.location.pathname)) return;
-            // Hvis dev kjører — la dev være, ikke re-injiser prod
+            // ⚠️ PROD MÅ VIKE FOR DEV. Kjører dev i planleggeren, lar vi den være — ellers
+            //    ville prod-agenten dyttet prod-verktøykassen inn i en dev-økt.
             if (opener.__westbyVerktoykasse_dev) {
                 if (typeof opener.__vkt_registerAgentTab === 'function') {
                     opener.__vkt_registerAgentTab(window, FIL, FLAG, PATH_PREFIX);
@@ -176,8 +201,9 @@
                 s.src = 'https://thomaswestby.no/skript/skript.php?fil=' + fil + '&_=' + Date.now();
                 opener.document.head.appendChild(s);
                 console.log(`[${NAVN}] re-injiserte ${fil} (aktiv variant=${variant}) i opener (planlegger)`);
-                return;
+                return; // ikke klar enda — registrer på neste tick
             }
+            // Re-registrer oss selv hos opener så Map alltid er fersk
             if (typeof opener.__vkt_registerAgentTab === 'function') {
                 opener.__vkt_registerAgentTab(window, FIL, FLAG, PATH_PREFIX);
             }
@@ -214,16 +240,12 @@
         return Math.ceil((((t - aarStart) / 86400000) + 1) / 7);
     }
 
-    // Merker PASIENTREISER-header med "med superkrefter" så det er åpenbart at agenten er aktiv.
-    // "PASIENTREISER" er et BILDE (NISSYlogo.jpg) som background-image på en TD — derfor må vi
-    // posisjonere et overlay-span absolut, ikke appende tekst til et eksisterende tekst-element.
     function dekorerHeader() {
         if (document.querySelector('[data-vkt-superkrefter]')) return;
         const td = Array.from(document.querySelectorAll('td')).find(el =>
             /NISSYlogo/i.test(el.getAttribute('style') || '')
         );
         if (!td) return;
-        // TD må være positioning-anchor for vår absolute child
         if (getComputedStyle(td).position === 'static') td.style.position = 'relative';
         const tilbygg = document.createElement('span');
         tilbygg.dataset.vktSuperkrefter = '1';
@@ -236,7 +258,6 @@
     function dekorerRekvisisjonsListen() {
         let dekorert = 0;
         document.querySelectorAll('td:not([data-vkt-dag-dekorert])').forEach(td => {
-            // Bruk innerText (eller første tekst-node) — hopper over barneelementer fra tidligere dekorasjoner
             const tekst = (td.firstChild && td.firstChild.nodeType === 3)
                 ? td.firstChild.textContent
                 : td.textContent;
@@ -250,8 +271,6 @@
             td.appendChild(dagEl);
             dekorert++;
         });
-        // Hopp helt over sort + ramme hvis ingenting nytt ble dekorert.
-        // Sparer mye CPU på MutationObserver-ticks som ikke gjelder rekv-listen.
         if (dekorert === 0) return;
         console.log(`[${NAVN}] dato-dekoratør: la til dagnavn på ${dekorert} celle(r)`);
         sorterEtterDato();
@@ -329,10 +348,6 @@
             }
         });
     }
-
-    // Coalesce MutationObserver-ticks via rAF — NISSYs Rico-render kan trigge dusinvis av
-    // mutasjoner per "frame". Uten batching kjørte vi full tabell-scan på hver, som ga
-    // synlig latens før dagnavn/uke kom opp.
 
     // Kompakt månedskalender med ukenummer i det ledige høyrefeltet (oransje «superkrefter»-tema).
     // Operatørene jobber i ukenummer («mandag · uke 25»), så uke-kolonnen er hovedpoenget.
@@ -427,10 +442,9 @@
     }
 
     // === SPESIELLE BEHOV — info-plakat ===
-    // Oransje «i»-badge i «Spesielle behov»-feltets <legend> (rekvisisjon/requisition/addTrip).
-    // Klikk → toggler en oransje overlay-plakat (skyver ikke ned), øverst til høyre i fieldset:
-    // veiledning til hva en pasientreiseoperatør HAR LOV til å endre / ikke.
-    // Statisk og hardkodet — fyll inn SPES_BEHOV_INFO_HTML når teksten er klar.
+    // Liten ℹ️-knapp i «Spesielle behov»-feltets <legend> (rekvisisjon/requisition/addTrip).
+    // Klikk → toggler en veiledningsdiv: hva en pasientreiseoperatør HAR LOV til å endre / ikke.
+    // Statisk og hardkodet (Thomas' valg) — fyll inn SPES_BEHOV_INFO_HTML når teksten er klar.
     // Anker: <fieldset> som inneholder <table id="transportRequirements"> + dens <legend>.
     const SPES_BEHOV_INFO_HTML =
         '<p style="margin:0 0 7px;">Disse behovene kan <b>du som pasientreiseoperatør</b> endre:</p>'
@@ -484,7 +498,7 @@
         let fs = tbl;
         while (fs && fs.tagName !== 'FIELDSET') fs = fs.parentNode;
         const legend = fs ? fs.querySelector('legend') : null;
-        // Grønn «i»-badge (det operatøren HAR lov til).
+        // Oransje «i»-badge à la «superkrefter»-temaet.
         const knapp = document.createElement('span');
         knapp.id = 'vkt-spesbehov-knapp';
         knapp.textContent = 'i';
@@ -531,6 +545,184 @@
     }
 
     let rafPlanlagt = null;
+    // ══ FLYREISE → RIKTIG FLYPLASS ═══════════════════════════════════════════════════════
+    // Thomas 27.08: «hvis jeg skriver flyreise og postnummeret ikke tilhører Oslo, da må vi finne
+    // riktig flyplass». En operatør i Oslo har Gardermoen i fingrene — men en pasient i Hadsel
+    // reiser fra Stokmarknes, og det er ikke opplagt hvilken lufthavn som hører til et postnummer
+    // man ikke kjenner.
+    //
+    // ⚠️ VI FORESLÅR, VI VELGER IKKE. Nærmeste lufthavn i luftlinje er et godt utgangspunkt, men
+    //    ikke en fasit: rutenettet, fjorder og været avgjør hvor pasienten faktisk flyr fra. Derfor
+    //    vises de tre nærmeste med avstand, og ingenting fylles inn automatisk.
+    //
+    // ⚠️ POSTNUMMERET, IKKE ADRESSEN, sendes ut av NISSY. Vi trenger bare et punkt i riktig bygd
+    //    for å rangere lufthavner, og da er det ingen grunn til å sende pasientens gateadresse
+    //    til en ekstern tjeneste.
+    //
+    // Listen er VÅR — den er ikke hentet fra Avinor, så feil rettes her. Rutetilbudet endrer seg;
+    // koordinatene gjør det ikke.
+    const FLYPLASSER = [
+        ['Oslo lufthavn, Gardermoen', 'OSL', 60.1939, 11.1004],
+        ['Sandefjord lufthavn, Torp', 'TRF', 59.1867, 10.2586],
+        ['Kristiansand lufthavn, Kjevik', 'KRS', 58.2042, 8.0853],
+        ['Stavanger lufthavn, Sola', 'SVG', 58.8767, 5.6378],
+        ['Haugesund lufthavn, Karmøy', 'HAU', 59.3453, 5.2084],
+        ['Stord lufthamn, Sørstokken', 'SRP', 59.7919, 5.3409],
+        ['Bergen lufthavn, Flesland', 'BGO', 60.2934, 5.2181],
+        ['Florø lufthamn', 'FRO', 61.5836, 5.0247],
+        ['Førde lufthamn, Bringeland', 'FDE', 61.3911, 5.7569],
+        ['Sogndal lufthamn, Haukåsen', 'SOG', 61.1561, 7.1378],
+        ['Fagernes lufthavn, Leirin', 'VDB', 61.0156, 9.2881],
+        ['Ørsta-Volda lufthamn, Hovden', 'HOV', 62.1800, 6.0741],
+        ['Ålesund lufthavn, Vigra', 'AES', 62.5625, 6.1197],
+        ['Molde lufthavn, Årø', 'MOL', 62.7447, 7.2625],
+        ['Kristiansund lufthavn, Kvernberget', 'KSU', 63.1118, 7.8245],
+        ['Trondheim lufthavn, Værnes', 'TRD', 63.4578, 10.9240],
+        ['Røros lufthavn', 'RRS', 62.5783, 11.3423],
+        ['Ørland lufthavn', 'OLA', 63.6989, 9.6040],
+        ['Namsos lufthavn, Høknesøra', 'OSY', 64.4722, 11.5786],
+        ['Rørvik lufthavn, Ryum', 'RVK', 64.8383, 11.1461],
+        ['Brønnøysund lufthavn, Brønnøy', 'BNN', 65.4611, 12.2175],
+        ['Sandnessjøen lufthavn, Stokka', 'SSJ', 65.9568, 12.4689],
+        ['Mosjøen lufthavn, Kjærstad', 'MJF', 65.7840, 13.2149],
+        ['Mo i Rana lufthavn, Røssvoll', 'MQN', 66.3639, 14.3014],
+        ['Bodø lufthavn', 'BOO', 67.2692, 14.3653],
+        ['Røst lufthavn', 'RET', 67.5278, 12.1033],
+        ['Leknes lufthavn', 'LKN', 68.1525, 13.6094],
+        ['Svolvær lufthavn, Helle', 'SVJ', 68.2433, 14.6692],
+        ['Stokmarknes lufthavn, Skagen', 'SKN', 68.5789, 15.0336],
+        ['Harstad/Narvik lufthavn, Evenes', 'EVE', 68.4913, 16.6781],
+        ['Andøya lufthavn, Andenes', 'ANX', 69.2925, 16.1442],
+        ['Bardufoss lufthavn', 'BDU', 69.0558, 18.5404],
+        ['Tromsø lufthavn, Langnes', 'TOS', 69.6833, 18.9189],
+        ['Sørkjosen lufthavn', 'SOJ', 69.7868, 20.9594],
+        ['Hasvik lufthavn', 'HAA', 70.4867, 22.1397],
+        ['Hammerfest lufthavn', 'HFT', 70.6797, 23.6686],
+        ['Alta lufthavn', 'ALF', 69.9761, 23.3717],
+        ['Lakselv lufthavn, Banak', 'LKL', 70.0688, 24.9735],
+        ['Honningsvåg lufthavn, Valan', 'HVG', 71.0097, 25.9836],
+        ['Mehamn lufthavn', 'MEH', 71.0297, 27.8267],
+        ['Berlevåg lufthavn', 'BVG', 70.8714, 29.0342],
+        ['Båtsfjord lufthavn', 'BJF', 70.6005, 29.6914],
+        ['Vadsø lufthavn', 'VDS', 70.0653, 29.8447],
+        ['Vardø lufthavn, Svartnes', 'VAW', 70.3554, 31.0449],
+        ['Kirkenes lufthavn, Høybuktmoen', 'KKN', 69.7258, 29.8913],
+        ['Svalbard lufthavn, Longyear', 'LYR', 78.2461, 15.4656],
+    ];
+
+    function flyAvstandKm(a1, o1, a2, o2) {
+        const R = 6371, r = Math.PI / 180;
+        const dA = (a2 - a1) * r, dO = (o2 - o1) * r;
+        const x = Math.sin(dA / 2) ** 2
+                + Math.cos(a1 * r) * Math.cos(a2 * r) * Math.sin(dO / 2) ** 2;
+        return 2 * R * Math.asin(Math.sqrt(x));
+    }
+
+    const SERVER = 'https://thomaswestby.no/skript';
+    const _flyCache = {};
+
+    async function flySlaaOpp(postnr) {
+        if (_flyCache[postnr] !== undefined) return _flyCache[postnr];
+        _flyCache[postnr] = null;                       // hindrer parallelle oppslag på samme nr
+        try {
+            // Kjørekontoret er allerede løst server-side (samme kilde som telefon-toasten bruker).
+            const [pt, kk] = await Promise.all([
+                fetch(`${SERVER}/geokod_sok.php?postnr=${encodeURIComponent(postnr)}`).then(r => r.json()).catch(() => null),
+                fetch(`${SERVER}/kjorekontor.php?postnr=${encodeURIComponent(postnr)}`).then(r => r.json()).catch(() => null),
+            ]);
+            if (!pt || !pt.ok || pt.lat == null) { _flyCache[postnr] = null; return null; }
+            const naer = FLYPLASSER
+                .map(f => ({ navn: f[0], iata: f[1], km: flyAvstandKm(pt.lat, pt.lon, f[2], f[3]) }))
+                .sort((a, b) => a.km - b.km)
+                .slice(0, 3);
+            _flyCache[postnr] = {
+                poststed: pt.poststed || '', kommune: pt.kommune || '',
+                kontor: (kk && kk.ok) ? kk.kontor : null,
+                flyplasser: naer,
+            };
+        } catch (_) { _flyCache[postnr] = null; }
+        return _flyCache[postnr];
+    }
+
+    // ⚠️ IKKE SØK I ALLE <td>. textContent er REKURSIV, så en ytre celle «inneholder» teksten i
+    //    alt under seg — et generisk søk treffer wizard-wrapperen, ikke etiketten. NISSY merker
+    //    feltene selv: <td class="fieldname">Postnr/Sted:</td><td class="fieldvalue">8450 …</td>.
+    //    Vi leter derfor kun blant fieldname-cellene, og tar verdien fra fieldvalue i samme rad.
+    function flyFinnFelt(mnster) {
+        const etiketter = document.querySelectorAll('td.fieldname, th.fieldname');
+        for (const c of etiketter) {
+            if (!mnster.test((c.textContent || '').replace(/ /g, ' ').trim())) continue;
+            const rad = c.closest('tr');
+            let v = rad && rad.querySelector('td.fieldvalue');
+            if (!v) v = c.nextElementSibling;
+            let verdi = v ? (v.textContent || '').replace(/ /g, ' ').trim() : '';
+            // Er verdicellen tom, står verdien gjerne på linja under (som i egenandel-panelet).
+            if (!verdi && rad && rad.nextElementSibling) {
+                verdi = (rad.nextElementSibling.textContent || '').replace(/ /g, ' ').trim();
+            }
+            return { celle: c, rad: rad, verdi: verdi };
+        }
+        return null;
+    }
+
+    let _flyLoggetMangel = false;
+    function dekorerFlyreise() {
+        const beg = flyFinnFelt(/^Begrunnelse\b/i);
+        const pn  = flyFinnFelt(/^Postnr\s*\/?\s*Sted\b/i);
+        if (!beg || !pn) {
+            if (!_flyLoggetMangel && document.querySelector('td.fieldname')) {
+                _flyLoggetMangel = true;
+                console.log(`[${NAVN}] flyreise: fant ${beg ? '' : 'IKKE '}«Begrunnelse», `
+                    + `${pn ? '' : 'IKKE '}«Postnr/Sted». Etiketter på siden: `
+                    + [...document.querySelectorAll('td.fieldname')].map(e => e.textContent.trim()).join(' | '));
+            }
+            return;
+        }
+        const fjern = () => {
+            const g = document.getElementById('vkt-fly-boks');
+            if (g && g.parentNode) g.parentNode.removeChild(g);
+        };
+        if (!/\bfly\w*/i.test(beg.verdi)) { fjern(); return; }
+
+        const postnr = (pn.verdi.match(/\b(\d{4})\b/) || [])[1];
+        if (!postnr) { fjern(); return; }
+
+        let boks = document.getElementById('vkt-fly-boks');
+        if (boks && boks.dataset.postnr === postnr) return;      // allerede tegnet for dette nr
+        if (!boks) {
+            boks = document.createElement('div');
+            boks.id = 'vkt-fly-boks';
+            boks.style.cssText = 'margin:8px 0;padding:8px 10px;border:1px solid #d97706;'
+                + 'border-left:4px solid #d97706;background:#fffbeb;border-radius:0 5px 5px 0;'
+                + 'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;'
+                + 'color:#1c1917;line-height:1.5;max-width:420px;';
+            // Forankres til PASIENT-tabellen (der Postnr/Sted står), ikke til begrunnelsen:
+            // det er pasientens adresse boksen handler om, og den tabellen kjenner vi markupen på.
+            const tab = pn.rad && pn.rad.closest('table');
+            if (tab && tab.parentNode) tab.parentNode.insertBefore(boks, tab.nextSibling);
+            else document.body.appendChild(boks);
+        }
+        boks.dataset.postnr = postnr;
+        boks.innerHTML = '<b>✈️ Flyreise</b> — slår opp lufthavn for ' + postnr + '…';
+
+        flySlaaOpp(postnr).then(d => {
+            if (!d) { boks.innerHTML = '<b>✈️ Flyreise</b><br>Fant ikke postnummer ' + postnr + '.'; return; }
+            const rader = d.flyplasser.map((f, i) =>
+                '<div style="' + (i === 0 ? 'font-weight:700;' : 'color:#57534e;') + '">'
+                + (i === 0 ? '→ ' : '&nbsp;&nbsp;&nbsp;')
+                + f.navn + ' (' + f.iata + ') · ' + Math.round(f.km) + ' km</div>').join('');
+            boks.innerHTML =
+                '<div style="font-weight:700;margin-bottom:4px;">✈️ Flyreise — ' + postnr + ' '
+                + (d.poststed || '') + (d.kommune ? ' (' + d.kommune + ')' : '') + '</div>'
+                + (d.kontor ? '<div style="margin-bottom:5px;">Kjørekontor: <b>' + d.kontor + '</b></div>' : '')
+                + '<div style="font-size:10px;color:#78716c;text-transform:uppercase;letter-spacing:.4px;">'
+                + 'Nærmeste lufthavn (luftlinje)</div>'
+                + rader
+                + '<div style="margin-top:5px;font-size:11px;color:#78716c;">Forslag — rutetilbudet '
+                + 'avgjør hvilken som faktisk brukes.</div>';
+        });
+    }
+
     function planleggDekorasjon() {
         if (rafPlanlagt !== null) return;
         rafPlanlagt = requestAnimationFrame(() => {
@@ -540,16 +732,17 @@
             dekorerSpesielleBehov();
             fargeLaasteBehov();
             lagKalender();
+            dekorerFlyreise();
         });
     }
     const datoObs = new MutationObserver(planleggDekorasjon);
     datoObs.observe(document.body, { childList: true, subtree: true });
-    // Initial synchron pass — eksisterende rader dekoreres umiddelbart ved agent-load
     dekorerHeader();
     dekorerRekvisisjonsListen();
     dekorerSpesielleBehov();
     fargeLaasteBehov();
     lagKalender();
+    dekorerFlyreise();
 
     poll();
     holdOpenerLevende();
