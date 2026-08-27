@@ -13,14 +13,18 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.56-dev';  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
+    const VERSION = '38.4.74-dev';  // HOTFIX TDZ: nissySokFra ble brukt fem linjer FØR sin egen const-deklarasjon (innført i 38.4.73). hentDispatchData kastet ved første kall og hele skanningen stoppet — ikke bare dublettsjekken. Meldt av Gunn-Heidi 26.08  //  // FILTERET SATT FAST LIKEVEL: kolonneryddingen (38.4.63) kjører rfilter=<hvert filter> ETTER hentDispatchDatas gjenoppretting, så sesjonen endte på siste skannefilter — min egen fiks fra 38.4.62 ble opphevet av min egen kolonnerydding. Gjenoppretting er nå en gjenbrukbar funksjon som kalles etter ALLE rfilter-serier  // ANTALL LEDSAGERE fra admin (samme kall). Regex kopiert fra omraade_assistent — NB: L-kolonnen i planleggeren er pr RESSURS/samkjørt bil, IKKE pr pasient, så den duger ikke som pasientens ledsagerantall. Tre-tilstand null/0/N  // Behov-badges dempet: ingen rød variant og ingen «Spesialbil/tilgangskrav»-advarsel. Behovene er kontekst, ikke varsel — kortet er allerede rødt fordi det er et avvik  // «Ingen behov» vises nå EKSPLISITT på kortet. Før ga tomt felt ingen linje i det hele tatt, og da kunne «ingen behov» ikke skilles fra «ikke sjekket» — nøyaktig tvetydigheten designet skulle unngå  // FIKS: VIS_VEDTAK_KOLONNE leste CONFIG før den var deklarert (temporal dead zone) → «Cannot access CONFIG before initialization», skriptet startet ikke. Flyttet ned til de andre CONFIG-avledede flaggene  // «Godkjent via vedtak»-kolonnen er default AV (var på i alle dev-bygg). Godkjente saker er ferdig vurdert og skal ikke opp; telleren i statuslinjen står igjen  // KOMMUNEKORTET manglet behov-visningen fra 38.4.66 — behovene var parset og lå i f.adminData, men ble aldri rendret der. Nå badges i header + egen linje, som på adresse- og dublettkortet  // SPESIELLE BEHOV hentes i SAMME admin-kall (ingen ny fetch) + admin-cache per skanning så samme rekvisisjon ikke hentes to ganger. Behov vises som badges på adresse- og dublettkort, og dublettkortet varsler ved ULIKE behov (typisk ombestilling). Tre-tilstand null/tom/koder — «ingen badge» må aldri leses som «ingen behov». BEHOV_PAAVIRKER_ADRESSE er bak flagg, default AV  // RETNING PÅ VENTENDE UTEN ADMIN: hentetiden heter REISETID på ventende (ikke START), så erTur ble null for hele fanen. Nå utledes tur/retur rett fra tabellen — «Hent < Opp ⇒ tur»  // BLIKSUND IKKE LENGER PÅKREVD (operatørtilbakemelding). Feltet står, «Ferdig» er aktiv uten det, og nummeret tas med i NISSY-merknaden når det fylles ut — «Skrevet avvik: 12345.» ellers «Skrevet avvik.». Merk: betingelsen krevde bliksund, så merknaden ville forsvunnet helt for tomme felt  // RYDDER BORT KOLONNENE Avvik aktiverte når skanningen er ferdig (kun de vi selv la til) + Behadr leses ikke lenger, den var ubrukt  // FILTERET LÅSTE SEG: gjenoppretting kjørte kun `if (nissyFilterFra)`, og cookie-regexen (\d+) ga null når operatøren sto på «- Velg filter -». Da ble Avviks siste skannefilter stående i NISSY-sesjonen og festet seg på nytt hver skanning. Nå leses selecten (fasit), tom verdi er gyldig, og gjenoppretting skjer i finally — også ved avbrutt skanning  // VENTENDE FALT UT AV ADRESSESJEKKEN: ventende oppdrag har ÉN kolonne «FraTil» (fra<br>til), ikke to — harFullInfo krevde begge og hoppet over hele fanen. Returer ligger på ventende til de tildeles, så turen dit ble flagget mens returen ikke ble sjekket i det hele tatt. Samme rotårsak som dublett-saken 21.08  // KM-HØSTING: hvert ORS-beregnet par spørres også mot NISSYs manualtrip i bakgrunnen (fire-and-forget, feiler stille, rører ikke Avviks logikk). Bygger ORS-mot-NISSY-grunnlag fra EKTE avvikssaker. Adresser lagres aldri — kun SHA-256 av paret  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
     const TITTEL = 'Overvåker Avvik v' + VERSION;
-    // Testvisning av vedtak-godkjente turer — kun i dev-bygg
-    const VIS_VEDTAK_KOLONNE = VERSION.endsWith('-dev');
 
     const CONFIG = {
+        // Når true: behov som RB/ERS/TK/B lar ORS regne ferdig i stedet for at haversine
+        // (postnummer-sentroider) avgjør. Slås på FØRST etter måling av «[ADR] Filtrert»-loggen.
+        VIS_VEDTAK_KOLONNE: false,        // testvisning av vedtak-godkjente — kun ved feilsøking
+        BEHOV_PAAVIRKER_ADRESSE: false,
+        RYDD_KOLONNER: true,   // fjern kolonnene Avvik aktiverte når skanningen er ferdig
         RFILTER_IDS: [19249, 19250, 19251, 19259, 19260, 19261, 19262, 19263, 19275, 19276, 19277, 19278],
         BARN_ALDER_GRENSE: 12,
+        // BLIKSUND_URL: brukes ikke i koden, men beholdes som referanse til hendelsesskjemaet.
         BLIKSUND_URL: 'https://zone1.bliksundhub.com/65113/grid/v2/prk_incident/131/incidents/create',
         RAPPORT_EPOST: 'thomas.westby@ous-hf.no'
     };
@@ -894,8 +898,82 @@
         }
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    //    SPESIELLE BEHOV (v38.4.66-dev, Thomas 24.08.2026)
+    // ══════════════════════════════════════════════════════════════════════════
+    // KOPIERT INN — hvert skript er selvstendig i dette repoet (Thomas' valg):
+    //   · Kodetabell: omraade_assistent.js:626-637 (BEHOV_NAVN), ordrett 24.08.2026
+    //   · Parsing:    overvaker-live/overvaaker_live.js:2193-2202, samme dato
+    // Endres tabellen ett sted må den endres alle tre.
+    const BEHOV_NAVN = {
+        AL: 'Allergi', BS0: 'Babystol 0–13 kg', BS5: 'Barnesete spesial 15–36 kg',
+        BS4: 'Barnestol 15–25 kg', BS1: 'Barnestol 9–18 kg', BS: 'Barnesete',
+        LIFO: 'Direktebil', SV: 'Ekstra bagasjeplass', ERS: 'Elektrisk rullestol',
+        '4X4': 'Firehjulstrekk', TH: 'Førerhund/servicehund', LF: 'God benplass og regulerbart sete',
+        HJE: 'Hjelpes til/fra transportmiddel', HI: 'Høy innstigning', C19: 'Korona relatert',
+        LI: 'Lav innstigning', TB: 'Manuell håndtering', MH: 'Manuell håndtering (NY)',
+        B: 'Må bæres', IA: 'Må ikke overlates til seg selv', VA: 'Beskyttet/fullvaksinert',
+        RU: 'Rullator', RB: 'Rullestolbil', RS: 'Sammenleggbar rullestol', SF: 'Sitte foran',
+        BSP: 'Sittepute', TMS: 'Ta med rullestol/transportstol', TK: 'Trappeklatrer',
+        LB: 'Trenger hele baksetet', 'ØH': 'Øyeblikkelig hjelp', A: 'Alenebil',
+    };
+    // Koder der HENTEADRESSEN er operativt kritisk — bilen må faktisk frem til riktig dør.
+    // Brukes KUN i logikken (BEHOV_PAAVIRKER_ADRESSE), ikke til farging: Thomas 24.08 —
+    // behovene er kontekst, ikke varsel, og kortet er allerede rødt fordi det ER et avvik.
+    const BEHOV_ADR_KRITISK = ['RB', 'ERS', 'TK', 'B', 'HJE', 'LI', 'HI', 'TMS'];
+    // Koder som gjør en dublett dyr: hver bestilling binder opp en egen spesialbil.
+    const BEHOV_KOSTBAR = ['RB', 'ERS', 'A', 'LIFO', 'TK'];
+
+    // Fritekst → koder. NISSY skriver «Rullestolbil (RB), Trappeklatrer (TK)».
+    // Parentesen er fasit; finnes den ikke, slås NAVNET opp i BEHOV_NAVN.
+    // ⚠️ Vi finner ALDRI opp en kode. Live gjør substring(0,3) som fallback
+    // (overvaaker_live.js:4589-4606): «Rullator» → «RUL», som hverken er en ekte kode
+    // eller matcher RU. Badgen ser autoritativ ut og er feil — og verre:
+    // BEHOV_ADR_KRITISK.includes('RUL') er false, så et ekte behov slår aldri ut.
+    // Ukjente biter beholdes som fritekst og vises som egen grå badge.
+    function parseBehov(fritekst) {
+        if (!fritekst) return { koder: [], ukjent: [] };
+        const koder = [], ukjent = [];
+        for (const bit of String(fritekst).split(/,\s*/)) {
+            const b = bit.trim();
+            if (!b) continue;
+            const paren = b.match(/\(([^)]+)\)/);
+            let kode = paren ? paren[1].trim().toUpperCase() : '';
+            if (!kode) {
+                const navn = b.toLowerCase();
+                kode = Object.keys(BEHOV_NAVN).find(k => BEHOV_NAVN[k].toLowerCase() === navn) || '';
+            }
+            if (kode) { if (!koder.includes(kode)) koder.push(kode); }
+            else if (!ukjent.includes(b)) ukjent.push(b);
+        }
+        return { koder, ukjent };
+    }
+
+    // ── ADMIN-CACHE (PER SKANNING, kun i minnet) ──────────────────────────────
+    // Thomas' krav 24.08: behov skal hentes i SAMME admin-henting, ingen dobbel henting.
+    // NØKKEL må inneholde resId — URL-en har &tripid=${resId||reqId}, og samme
+    // rekvisisjon kan ha flere ben med ulik tripid.
+    // LEVETID: én skanning. Aldri localStorage/server — adresser og meldinger endres
+    // kontinuerlig, og et stale hentested på et avvikskort er nøyaktig feilen vi ikke
+    // tåler. (adminFalskPositivCache kan trygt persisteres: den lagrer en DOM om et
+    // rekNr for en turdato, ikke rådata.)
+    // null caches ALDRI — ett nettverksblaff ville ellers låst hele skanningen.
+    const _adminCache = new Map();
+    let _adminCacheTreff = 0, _adminCacheHent = 0;
+    function tomAdminCache(grunn) {
+        if (_adminCache.size || _adminCacheTreff) {
+            console.log(`[ADMIN-CACHE] Tømmer (${grunn}): ${_adminCache.size} oppføringer, ${_adminCacheTreff} treff / ${_adminCacheHent} henting(er)`);
+        }
+        _adminCache.clear();
+        _adminCacheTreff = 0; _adminCacheHent = 0;
+    }
+
     // Hent fulle adresser + retning fra admin (ajax_reqdetails)
-    async function hentAdminData(reqId, resId) {
+    // tvingFersk=true forbi cachen — MÅ brukes fra operatørknapper (se kallsted).
+    async function hentAdminData(reqId, resId, tvingFersk) {
+        const _cacheNokkel = `${reqId}|${resId || reqId}`;
+        if (!tvingFersk && _adminCache.has(_cacheNokkel)) { _adminCacheTreff++; return _adminCache.get(_cacheNokkel); }
+        _adminCacheHent++;
         try {
             const url = `${ADMIN_BASE}/ajax_reqdetails?id=${reqId}&db=1&tripid=${resId || reqId}&showSutiXml=true&hideEvents=&full=true`;
             const res = await fetch(url);
@@ -929,6 +1007,43 @@
             const meldPasReiseM = html.match(/Melding[^<]*[Pp]asient[Rr]eise[^<]*<\/td>\s*<td[^>]*>\s*([^<]*)/i)
                 || html.match(/[Pp]asient[Rr]eise[^<]*[Mm]elding[^<]*<\/td>\s*<td[^>]*>\s*([^<]*)/i);
             const meldPasReise = meldPasReiseM ? meldPasReiseM[1].trim() : '';
+
+            // Spesielle behov — TRE-TILSTAND, ikke to:
+            //   null  = feltet fantes ikke i HTML-en   → VET IKKE
+            //   ''    = feltet fantes og var tomt      → INGEN behov
+            //   tekst = behov
+            // Skillet er hele poenget: et kort uten badge må ALDRI leses som «ingen behov».
+            let spesielleBehov = null;
+            const behovMatch = html.match(/Spesielle behov:<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/i);
+            if (behovMatch) {
+                spesielleBehov = behovMatch[1].trim()
+                    .replace(/<br\s*\/?>/gi, ', ').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ')
+                    .replace(/&oslash;/g, 'ø').replace(/&aelig;/g, 'æ').replace(/&aring;/g, 'å')
+                    .replace(/&Oslash;/g, 'Ø').replace(/&Aelig;/g, 'Æ').replace(/&Aring;/g, 'Å')
+                    .replace(/&amp;/g, '&')
+                    .replace(/\s+/g, ' ').trim();
+                if (spesielleBehov.endsWith(',')) spesielleBehov = spesielleBehov.slice(0, -1).trim();
+                if (/^-?\s*ingen\s*-?$/i.test(spesielleBehov)) spesielleBehov = '';
+                // Sanity: [\s\S]*? er ikke-grådig og stopper på første </td>, men en nestet
+                // tabell i cellen ville gitt oss halve dokumentet. Da er «vet ikke» tryggere
+                // enn å vise søppel som om det var behov.
+                if (spesielleBehov.length > 300) {
+                    console.warn(`[ADMIN] RID=${reqId}: «Spesielle behov» ga ${spesielleBehov.length} tegn — parsing mistenkelig, behandles som ukjent`);
+                    spesielleBehov = null;
+                }
+            }
+            const behov = parseBehov(spesielleBehov);
+
+            // Antall ledsagere — AUTORITATIVT pr pasient.
+            // ⚠️ L-kolonnen i planleggeren er pr RESSURS (samkjørt bil), ikke pr pasient —
+            //    den kan derfor ikke brukes som pasientens ledsagerantall.
+            // Regex kopiert ordrett fra omraade_assistent.js (omrHentRekvDetalj), 24.08.2026:
+            // to varianter fordi labelen varierer, med noOfCompanions-feltet som fallback.
+            // Tre-tilstand som for behov: null = vet ikke, 0 = alene, N = antall.
+            let ledsagere = null;
+            const ledsM = html.match(/(?:Antall\s+)?(?:reise)?ledsager(?:e)?\s*:?\s*<\/td>\s*<td[^>]*>\s*<?[^>]*>?\s*(\d+)/i)
+                       || html.match(/noOfCompanions[^>]*value\s*=\s*["']?(\d+)/i);
+            if (ledsM) ledsagere = parseInt(ledsM[1], 10);
 
             // Klipp ut Hentested- og Leveringssted-blokker basert på posisjon
             let fraNavn = '', fraAdr = '', tilNavn = '', tilAdr = '';
@@ -997,8 +1112,18 @@
             const ringAnkM = html.match(/Ring ved ankomst:<\/td>\s*<td[^>]*>\s*([^<]+)/i);
             if (ringAnkM && ringAnkM[1].trim()) telefonKilder.push({ nr: ringAnkM[1].trim().replace(/\s+/g, ' '), kilde: 'Ring ankomst' });
 
-            console.log(`[ADMIN] RID=${reqId}: rek=${rekNr} rekv="${rekvirent}" folk="${folkAdr.substring(0,50)}" fraNavn="${fraNavn}" fra="${fraAdr.substring(0,50)}" tilNavn="${tilNavn}" til="${tilAdr.substring(0,50)}" erTur=${erTur} tlf=${telefonKilder.length}`);
-            return { fra: fraAdr, til: tilAdr, folk: folkAdr, fraNavn, tilNavn, fraKommentar, tilKommentar, erTur, rekNr, rekvirent, bestiller, ansvarligRekvirent, sistEndretBruker, pasientNavn, pnr, meldTransport, meldPasReise, telefoner: telefonKilder };
+            const behovLogg = behov.koder.join('/') || (spesielleBehov === null ? 'UKJENT' : 'ingen');
+            console.log(`[ADMIN] RID=${reqId}: rek=${rekNr} rekv="${rekvirent}" folk="${folkAdr.substring(0,50)}" fraNavn="${fraNavn}" fra="${fraAdr.substring(0,50)}" tilNavn="${tilNavn}" til="${tilAdr.substring(0,50)}" erTur=${erTur} tlf=${telefonKilder.length} behov=${behovLogg} leds=${ledsagere === null ? 'UKJENT' : ledsagere}`);
+            const resultat = { fra: fraAdr, til: tilAdr, folk: folkAdr, fraNavn, tilNavn, fraKommentar, tilKommentar, erTur, rekNr, rekvirent, bestiller, ansvarligRekvirent, sistEndretBruker, pasientNavn, pnr, meldTransport, meldPasReise, telefoner: telefonKilder,
+                spesielleBehov,               // fritekst | '' (ingen) | null (ukjent)
+                behovKoder: behov.koder,      // ['RB','TK']
+                behovUkjent: behov.ukjent,
+                ledsagere };                   // null = ukjent, 0 = alene, N = antall  // biter uten gjenkjent kode — MÅ vises
+            // Cachen deler ÉN instans mellom k.adminData (Stage 2) og f.adminData (kommune).
+            // Frys så en fremtidig .push() ikke lekker mellom kort.
+            Object.freeze(resultat.behovKoder); Object.freeze(resultat.behovUkjent); Object.freeze(resultat);
+            _adminCache.set(_cacheNokkel, resultat);
+            return resultat;
         } catch (e) {
             console.warn(`[ADMIN] Feil ved henting av RID=${reqId}:`, e.message);
             return null;
@@ -1179,6 +1304,91 @@
     // faller vi tilbake til Google (reisetid.php) — men FLAGGER da usikker + kilde='google' så
     // operatøren verifiserer (Google kan gi falske avvik). Returnerer
     // {km, tid, usikker, kilde:'geonorge'|'google'|null, usikreAdr:[...]}.
+    // ══════════════════════════════════════════════════════════════════════════════
+    // KM-HØSTING (v38.4.60-dev, Thomas' idé 21.08)
+    // Ligger VED SIDEN AV Avviks logikk, ikke inni den: kalles fire-and-forget, feiler
+    // stille, og returverdien fra beregnKm er urørt. Avvik er i drift hos kolleger —
+    // høstingen skal ikke kunne velte noe.
+    //
+    // Hver gang ORS har beregnet et par, spør vi NISSYs manualtrip om det samme paret i
+    // bakgrunnen. Over tid gir det ORS mot NISSY målt på EKTE avvikssaker, som er et
+    // bedre grunnlag for terskler enn gmaps_logg-korpuset (se reference_km_motorer).
+    //
+    // PERSONVERN: adressene sendes ALDRI. Nøkkelen er SHA-256 av det normaliserte paret
+    // — nok til dedup, umulig å lese tilbake. Se feedback_pasientdata_ikke_apent.
+    // ══════════════════════════════════════════════════════════════════════════════
+    // Testvisning av vedtak-godkjente turer.
+    // v38.4.68 (Thomas 24.08): var PÅ i alle dev-bygg (VERSION.endsWith('-dev')), og siden alt
+    // arbeid skjer i dev så Thomas den alltid. Er saken godkjent via vedtak, er den ferdig
+    // vurdert og skal ikke opp. Default AV; sett CONFIG.VIS_VEDTAK_KOLONNE = true ved feilsøking.
+    // (Sakene ligger ikke i Avvik-kolonnen uansett: `vanlige` filtrerer på !f.vedtakGodkjent.)
+    // ⚠️ MÅ stå etter CONFIG — sto først på linje 25 og ga «Cannot access 'CONFIG' before
+    //    initialization» (temporal dead zone). node --check fanger ikke det.
+    const VIS_VEDTAK_KOLONNE = CONFIG.VIS_VEDTAK_KOLONNE === true;
+    const BEHOV_PAAVIRKER_ADRESSE = CONFIG.BEHOV_PAAVIRKER_ADRESSE === true;
+    const RYDD_KOLONNER = CONFIG.RYDD_KOLONNER !== false;
+    const HOEST_KM = true;              // sett false for å skru av all høsting
+    const _hoestKoe = [];
+    const _hoestSett = new Set();       // hasher sendt i denne økten
+    let _hoestTimer = null;
+
+    async function _hoestHash(tekst) {
+        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tekst));
+        return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+    }
+
+    // NISSYs egen ruteberegner. Egen implementasjon her framfor __basicTools.nissyEnkelttur,
+    // slik at høstingen ikke avhenger av at verktøykassen er lastet i fanen.
+    // ⚠️ Serverens eget skjema (action=manualTrip, fromStreet…) gir 404 — bruk norske feltnavn.
+    async function _hoestNissyKm(fra, til) {
+        const del = (a) => {
+            const m = String(a || '').match(/^(.*?),?\s*(\d{4})\s+(.+)$/);
+            const gate = m ? m[1].trim() : String(a || '').trim();
+            const g2 = gate.match(/^(.*?)\s+(\d+)\s*([A-Za-zÆØÅæøå])?$/);
+            return { g: g2 ? g2[1].trim() : gate, n: g2 ? g2[2] : '',
+                     b: (g2 && g2[3]) ? g2[3].toUpperCase() : '', p: m ? m[2] : '' };
+        };
+        const f = del(fra), t = del(til);
+        if (!f.p || !t.p || !f.n || !t.n) return null;      // NISSY avviser gate uten husnummer
+        const origin = /\.nhn\.no$/i.test(location.hostname || '') ? location.origin
+                                                                  : 'https://pastrans-sorost.mq.nhn.no';
+        const r = await fetch(origin + '/planlegging/manualtrip', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ fra_gate: f.g, fra_husnr: f.n, fra_husnr_sub: f.b, fra_postnr: f.p,
+                                        til_gate: t.g, til_husnr: t.n, til_husnr_sub: t.b, til_postnr: t.p }).toString()
+        });
+        if (!r.ok) return null;
+        const h = new TextDecoder('iso-8859-1').decode(await r.arrayBuffer());
+        const mk = h.match(/Forventet distanse:[\s\S]*?transcostcont[^>]*>\s*([\d.,]+)\s*km/i);
+        const mm = h.match(/Forventet kj[^<]*tid:[\s\S]*?transcostcont[^>]*>\s*(\d+)\s*min/i);
+        return mk ? { km: parseFloat(mk[1].replace(',', '.')), min: mm ? parseInt(mm[1], 10) : null } : null;
+    }
+
+    function _hoestSend() {
+        if (!_hoestKoe.length) return;
+        const par = _hoestKoe.splice(0, _hoestKoe.length);
+        fetch(`${SERVER_BASE}/km_hoest.php`, {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'data=' + encodeURIComponent(JSON.stringify({ par }))   // form-encoded: ingen preflight
+        }).then(r => r.json())
+          .then(j => console.log(`[KM-HØST] sendt ${par.length}, nye ${j.nye}, totalt ${j.totalt}`))
+          .catch(() => {});
+    }
+
+    function hoestKmPar(fraRen, tilRen, orsKm) {
+        if (!HOEST_KM || !fraRen || !tilRen || !orsKm) return;
+        (async () => {
+            const h = await _hoestHash(fraRen.toLowerCase().trim() + '|' + tilRen.toLowerCase().trim());
+            if (_hoestSett.has(h)) return;
+            _hoestSett.add(h);
+            const n = await _hoestNissyKm(fraRen, tilRen);
+            _hoestKoe.push({ h, ors: orsKm, nissy: n ? n.km : null, min: n ? n.min : null, lengde: orsKm });
+            clearTimeout(_hoestTimer);
+            _hoestTimer = setTimeout(_hoestSend, 15000);   // samler opp, sender i bolk
+        })().catch(() => {});                              // feiler stille — Avvik skal ikke merke noe
+    }
+
     async function beregnKm(fraAdresse, tilAdresse, handling, seksjon) {
         try {
             const fraRen = renskAdr(fraAdresse);
@@ -1194,6 +1404,7 @@
                 const tilUs = d.tilNivaa !== 'adresse';
                 if (!fraUs && !tilUs) {
                     console.log(`[KM] ORS: ${fraRen.substring(0,30)} → ${tilRen.substring(0,30)} = ${Math.round(d.meter/100)/10} km (adresse)`);
+                    hoestKmPar(fraRen, tilRen, d.meter / 1000);   // fire-and-forget, se KM-HØSTING
                     return { km: Math.round(d.meter / 100) / 10, tid: d.sek ? Math.round(d.sek / 60) : null, usikker: false, kilde: 'geonorge', usikreAdr: [] };
                 }
                 // Geonorge traff kun postnr på minst én adresse → Google-fallback (flagges usikker).
@@ -1486,6 +1697,10 @@
         .label { font-size: 10px; color: #666; font-weight: bold; text-transform: uppercase; }
         .value { font-size: 13px; font-weight: 600; display: block; margin-bottom: 8px; line-height: 1.4; }
         .highlight { color: #d32f2f; background: #fff1f2; padding: 2px 4px; border-radius: 2px; }
+        .behov-rad { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+        .behov-badge { display: inline-block; background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; cursor: default; }
+        .behov-badge.ukjent { background: #f1f5f9; color: #475569; border-color: #cbd5e1; font-weight: 600; letter-spacing: 0; }
+        .behov-ukjent { display: inline-block; background: #f1f5f9; color: #64748b; border: 1px dashed #cbd5e1; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
         .warning-text { color: #92400e; font-weight: bold; background: #fef3c7; padding: 4px 8px; border-radius: 4px; border: 1px solid #f59e0b; margin-bottom: 10px; display: inline-block; font-size: 12px; }
         .card-actions { padding: 10px 15px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 8px; }
         .btn-check { background: #10b981; color: white; border: none; padding: 8px 14px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 12px; }
@@ -1734,6 +1949,15 @@
 
         xml.querySelectorAll('response').forEach(resp => {
             const fane = resp.getAttribute('id');
+            // DIAGNOSE 21.08 (Thomas: «bare turen dukker opp som dobbeltbestilling»):
+            // returene fantes ikke i datasettet i det hele tatt. Vi leser KUN to faner —
+            // ligger returen i en tredje, blir den aldri sett. Logg hva NISSY faktisk sender.
+            try {
+                window.__avvik = window.__avvik || {};
+                window.__avvik._faner = window.__avvik._faner || {};
+                const d0 = document.createElement('div'); d0.innerHTML = resp.textContent;
+                window.__avvik._faner[fane] = d0.querySelectorAll('tbody tr[name]').length;
+            } catch (_) {}
             if (!['ventendeOppdrag', 'paagaaendeOppdrag'].includes(fane)) return;
             const d = document.createElement('div');
             d.innerHTML = resp.textContent;
@@ -1757,7 +1981,11 @@
             if (h.length === 0) return;
 
             const idx = {
-                start: h.findIndex(s => s.includes('START')),
+                // Ventende har ingen START-kolonne — der heter hentetiden REISETID (se
+                // docs/NISSY-Planlegging.md §3: «REISETID = operativ hentetid, OPPTID =
+                // oppmøtetid. Hent < Opp ⇒ tur»). Uten dette ble erTur null for ALLE ventende,
+                // og retningen måtte hentes fra admin. Nå utledes den rett fra tabellen.
+                start: h.findIndex(s => s.includes('START') || s === 'REISETID'),
                 fra: h.findIndex(s => s === 'FRA'),
                 til: h.findIndex(s => s === 'TIL'),
                 status: h.findIndex(s => s.includes('STATUS')),
@@ -1769,16 +1997,25 @@
                 oppmtid: h.findIndex(s => s === 'OPPMTID' || s === 'OPPTID'),
                 rmate: h.findIndex(s => s === 'RMÅTE' || s === 'REISEMÅTE'),
                 behadr: h.findIndex(s => s === 'BEHADR'),
+                // Ventende oppdrag har ÉN kombinert kolonne «FraTil» i stedet for to (Thomas 24.08).
+                // Formatet er «fra<br>til», én adresse per linje: «Navn/gate, postnr poststed».
+                fratil: h.findIndex(s => s === 'FRATIL'),
             };
 
             console.log(`[DISPATCH] Kolonneindekser:`, JSON.stringify(idx));
 
-            const harFullInfo = idx.fra >= 0 && idx.til >= 0;
+            // v38.4.61 (Thomas 24.08): harFullInfo betyr «tabellen har adressene», ikke «raden er
+            // komplett». Ventende oppdrag har dem i den kombinerte kolonnen FraTil — uten dette
+            // falt HELE ventende-fanen ut av både adresse- og dublettsjekken. Symptom: turen dit
+            // ble flagget som adresseavvik, returen ikke, fordi returen lå på ventende.
+            const harFullInfo = (idx.fra >= 0 && idx.til >= 0) || idx.fratil >= 0;
 
             if (idx.pnr < 0) manglendeKolonner.add('PNR');
             if (harFullInfo && idx.padr < 0) manglendeKolonner.add('Padr');
             if (harFullInfo && idx.oppmtid < 0) manglendeKolonner.add('Oppmtid');
-            if (harFullInfo && idx.behadr < 0) manglendeKolonner.add('Behadr');
+            // Behadr leses inn, men brukes ingen steder og står ikke i `krevde` — ikke meld
+            // den som manglende (Thomas 24.08: færre kolonner i planleggeren).
+            // if (harFullInfo && idx.behadr < 0) manglendeKolonner.add('Behadr');
             if (idx.rmate < 0) manglendeKolonner.add('RMÅTE');
 
             d.querySelectorAll('tbody tr[name]').forEach(tr => {
@@ -1794,6 +2031,19 @@
                 const divs = (i) => i >= 0 && tr.cells[i] ? tr.cells[i].querySelectorAll('div') : [];
                 const txt = (i) => i >= 0 && tr.cells[i] ? tr.cells[i].textContent.trim() : '';
                 const htm = (i) => i >= 0 && tr.cells[i] ? tr.cells[i].innerHTML : '';
+
+                // FraTil-cellen: «fra<br>til». Hver adresse er én linje, så <br> er entydig skille.
+                // Faller tilbake på egne Fra/Til-kolonner når de finnes (pågående oppdrag).
+                const fratilDel = () => {
+                    if (idx.fratil < 0 || !tr.cells[idx.fratil]) return null;
+                    const biter = tr.cells[idx.fratil].innerHTML.split(/<br\s*\/?>/i)
+                        .map(x => x.trim()).filter(Boolean);
+                    return biter.length >= 2 ? { fra: biter[0], til: biter.slice(1).join(' ') } : null;
+                };
+                const _ft = fratilDel();
+                const stripp = (h) => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent.trim(); };
+                const adrTxt = (i, side) => (_ft && idx.fra < 0) ? stripp(_ft[side]) : txt(i);
+                const adrHtm = (i, side) => (_ft && idx.fra < 0) ? _ft[side] : htm(i);
 
                 // For samkjøring på pågående: splitt til individuelle reiser
                 if (erSamkjoring && fane === 'paagaaendeOppdrag') {
@@ -1831,8 +2081,8 @@
                 rader.push({
                     reqId, resId, turid, rekNr, fane, erSamkjoring: false, harFullInfo,
                     start: txt(idx.start),
-                    fra: txt(idx.fra), fraHtml: htm(idx.fra),
-                    til: txt(idx.til), tilHtml: htm(idx.til),
+                    fra: adrTxt(idx.fra, 'fra'), fraHtml: adrHtm(idx.fra, 'fra'),
+                    til: adrTxt(idx.til, 'til'), tilHtml: adrHtm(idx.til, 'til'),
                     status: txt(idx.status),
                     rekvirent: txt(idx.rekv),
                     pnr: txt(idx.pnr).replace(/[^\d]/g, ''),
@@ -1861,6 +2111,27 @@
     // ==================================================================
     //    HENT DISPATCH DATA (looper gjennom alle aktive filtre)
     // ==================================================================
+    // ── NISSY-SESJONENS FILTER ────────────────────────────────────────────────
+    // v38.4.73 (Thomas 24.08): «kommer ikke ut av filteret». Årsak: kolonneryddingen som kom
+    // i 38.4.63 kjører `rfilter=<hvert aktivt filter>` ETTER at hentDispatchData har gjenopprettet
+    // — så sesjonen endte på det SISTE skannefilteret. Filter-fiksen fra 38.4.62 ble dermed
+    // opphevet av min egen kolonnerydding. Regel: enhver serie ajax-dispatch-kall med &rfilter=
+    // MÅ etterfølges av gjenopprettNissyFilter().
+    let _nissyFilterFoer = null, _nissySokFoer = '', _rfilterCookieNavn = null;
+    async function gjenopprettNissyFilter(hvorfra) {
+        if (_nissyFilterFoer === null) return;      // ingen skanning har kjørt ennå
+        try {
+            const sok = _nissySokFoer ? encodeURIComponent(_nissySokFoer) : 'none';
+            await xhrRequest(`ajax-dispatch?did=all&rfilter=${_nissyFilterFoer}&search=${sok}&t=${Date.now()}`, { timeout: 10000 });
+            if (_rfilterCookieNavn) document.cookie = `${_rfilterCookieNavn}=${_nissyFilterFoer}; path=/`;
+            const sel = document.querySelector('select[name="filter-ventende-oppdrag"]');
+            if (sel && sel.value !== _nissyFilterFoer) sel.value = _nissyFilterFoer;   // synk UI med sesjon
+            console.log(`[DISPATCH] Filter gjenopprettet (${hvorfra}): "${_nissyFilterFoer || '(ingen)'}"`);
+        } catch (e) {
+            console.warn(`[DISPATCH] Gjenoppretting (${hvorfra}) feilet:`, e.message);
+        }
+    }
+
     async function hentDispatchData() {
         const filtreArr = [...aktiveFiltre];
         console.log(`[DISPATCH] hentDispatchData() -- ${filtreArr.length} filtre: [${filtreArr.join(', ')}]`);
@@ -1869,11 +2140,30 @@
         const nissyCookie = _rfilterNavn
             ? document.cookie.match(new RegExp(_rfilterNavn + '=(\\d+)'))
             : null;
-        const nissyFilterFra = nissyCookie ? nissyCookie[1] : null;
-
-        // Hent NISSY sin nåværende søkestreng (fra input-feltet) for å gjenopprette etterpå
+        // v38.4.62 (Thomas 24.08): FILTERET LÅSTE SEG. Cookie-regexen krever (\d+), så «- Velg
+        // filter -» ga null — og gjenopprettingen under kjørte bare `if (nissyFilterFra)`.
+        // Hadde operatøren intet filter, ble Avviks SISTE skannefilter stående i NISSY-sesjonen,
+        // og festet seg på nytt ved hver skanning. Selecten er fasit for hva operatøren ser;
+        // cookien er fallback. Tom streng er en gyldig verdi som skal gjenopprettes.
+        const _filterSel = document.querySelector('select[name="filter-ventende-oppdrag"]');
+        const nissyFilterFra = (_filterSel && _filterSel.value) ? _filterSel.value
+                             : (nissyCookie ? nissyCookie[1] : '');
+        // v38.4.73: husk på modulnivå. ALLE ajax-dispatch-kall med &rfilter= endrer NISSY-sesjonen,
+        // ikke bare skanningen — også showcol/hidecol. Gjenopprettingen må derfor kunne kjøres
+        // etter DEM også, ikke bare her.
+        // Hent NISSY sin nåværende søkestreng (fra input-feltet) for å gjenopprette etterpå.
+        // ⚠️ MÅ leses FØR den brukes under. I 38.4.73 sto denne deklarasjonen FEM LINJER ETTER
+        //    `_nissySokFoer = nissySokFra`, altså temporal dead zone: hentDispatchData kastet
+        //    «Cannot access 'nissySokFra' before initialization» ved første kall, og HELE
+        //    skanningen falt på gulvet — ikke bare dublettsjekken (Gunn-Heidi 26.08).
+        //    Tredje TDZ-feil på to dager. `node lasttest.js` fanger dem kun hvis kodestien faktisk
+        //    kjøres ved oppstart; denne ligger bak en skanning og slapp derfor igjennom.
         const nissySokFelt = document.querySelector('input[name="search"], input.dispatch-search, #searchInput');
         const nissySokFra = nissySokFelt ? nissySokFelt.value : '';
+
+        _nissyFilterFoer = nissyFilterFra;
+        _nissySokFoer = nissySokFra;
+        _rfilterCookieNavn = _rfilterNavn;
 
         const alleRader = [];
         const alleManglendeKolonner = new Set();
@@ -1889,6 +2179,7 @@
             console.warn('[DISPATCH] Kunne ikke nullstille søk:', e.message);
         }
 
+        try {
         for (const filterId of filtreArr) {
             const url = `ajax-dispatch?did=all&action=openres&rid=-1&rfilter=${filterId}&t=${t}`;
             console.log(`[DISPATCH] Henter filter ${filterId}:`, url.substring(0, 140));
@@ -1909,19 +2200,20 @@
             }
             result.manglendeKolonner.forEach(k => alleManglendeKolonner.add(k));
         }
-
-        // Gjenopprett NISSY sin sesjonstilstand (filter + evt. søk)
-        if (nissyFilterFra) {
+        } finally {
+            // Gjenopprett NISSY sin sesjonstilstand ALLTID — også når operatøren ikke hadde
+            // filter (tom verdi) og også om skanningen feilet underveis. Ellers blir Avviks
+            // siste skannefilter stående i planleggeren.
             try {
-                // Sett serveren tilbake til NISSY sitt opprinnelige filter
                 const restoreSok = nissySokFra ? encodeURIComponent(nissySokFra) : 'none';
                 const restoreUrl = `ajax-dispatch?did=all&rfilter=${nissyFilterFra}&search=${restoreSok}&t=${Date.now()}`;
-                console.log(`[DISPATCH] Gjenoppretter NISSY-sesjon: filter=${nissyFilterFra}, søk="${nissySokFra}"`);
+                console.log(`[DISPATCH] Gjenoppretter NISSY-sesjon: filter="${nissyFilterFra || '(ingen)'}", søk="${nissySokFra}"`);
                 await xhrRequest(restoreUrl, { timeout: 10000 });
+                if (_rfilterNavn) document.cookie = `${_rfilterNavn}=${nissyFilterFra}; path=/`;
+                if (_filterSel && _filterSel.value !== nissyFilterFra) _filterSel.value = nissyFilterFra;  // synk UI med sesjon
             } catch (e) {
                 console.warn('[DISPATCH] Kunne ikke gjenopprette NISSY-sesjon:', e.message);
             }
-            if (_rfilterNavn) document.cookie = `${_rfilterNavn}=${nissyFilterFra}; path=/`;
         }
 
         console.log(`[DISPATCH] Totalt: ${alleRader.length} unike rader fra ${filtreArr.length} filtre`);
@@ -2000,7 +2292,92 @@
     // ==================================================================
     //    SJEKK: DOBBELTBESTILLING                                      
     // ==================================================================
+    // DIAGNOSE (Thomas 21.08, hastesak): «bare turen dukker opp som dobbeltbestilling».
+    // Viser hva dublettsjekken faktisk ser per pasient — retning, tider og hvilke par
+    // som ble parret. Kjør fra planleggeren:  __avvik.diagDublett('<pnr>')
+    window.__avvik = window.__avvik || {};
+    window.__avvik.diagDublett = function (pnrFilter) {
+        const rader = (window._sisteRader || []);
+        if (!rader.length) { console.warn('[DIAG] ingen rader i minnet — kjør et dublett-skann først'); return; }
+        const rel = rader.filter(r => !pnrFilter || (r.pnr || '').includes(String(pnrFilter).replace(/\D/g, '')));
+        console.log('[DIAG] %d rader%s', rel.length, pnrFilter ? ' for pnr ' + pnrFilter : '');
+        if (window.__avvik._faner) {
+            console.log('[DIAG] FANER NISSY SENDTE (rader per fane):');
+            console.table(Object.entries(window.__avvik._faner).map(([f, n]) => ({
+                fane: f, rader: n, lest: ['ventendeOppdrag', 'paagaaendeOppdrag'].includes(f) ? 'JA' : 'NEI — hoppes over'
+            })));
+        }
+        console.table(rel.map(r => {
+            const sm = parseTidMinutter(r.start), om = parseTidMinutter(r.oppmtid);
+            return {
+                rekNr: r.rekNr, reqId: r.reqId, pnr: (r.pnr || '').slice(0, 6) + '…',
+                start: r.start, oppmtid: r.oppmtid,
+                startMin: sm, oppmMin: om,
+                erTur: (sm !== null && om !== null) ? (sm < om) : null,
+                harFullInfo: r.harFullInfo, status: r.status, rmate: r.rmate
+            };
+        }));
+        const utenRetning = rel.filter(r => {
+            const sm = parseTidMinutter(r.start), om = parseTidMinutter(r.oppmtid);
+            return sm === null || om === null;
+        });
+        if (utenRetning.length) console.warn('[DIAG] %d rad(er) UTEN retning (start/oppmtid mangler) — disse kan parres feil:', utenRetning.length, utenRetning.map(r => r.rekNr));
+        const filtrert = rel.filter(r => !r.harFullInfo || !r.pnr || r.pnr.length !== 11);
+        if (filtrert.length) console.warn('[DIAG] %d rad(er) FILTRERT BORT (mangler fra/til eller pnr):', filtrert.length, filtrert.map(r => r.rekNr));
+        return rel;
+    };
+
+    // v38.4.59 (Thomas 21.08): DUBLETTSJEKKEN SÅ BARE DET PLANLEGGEREN VISTE.
+    // Symptom: to turer flagget som dobbeltbestilling, men de tilsvarende RETURENE ikke —
+    // de lå ikke i XML-en planleggeren hadde lastet (annet tidsvindu/filter/ikke tildelt).
+    // Målt: 119 rader i visningen totalt, pasienten hadde 2 av dem; returene fantes i NISSY.
+    //
+    // Fiks: for hver pasient med minst ÉN rad i visningen, hent ALLE turene direkte fra
+    // admin (ssnSearch). Da er sjekken uavhengig av hva operatøren har filtrert fram.
+    // Ett kall per KANDIDAT-pasient — ikke per rad — så kostnaden er lav.
+    // Søkeformen er Overvåker Lives, se reference_nissy_searchstatus_sok.
+    const _ssnCache = new Map();
+    async function hentAllePasientTurer(pnr) {
+        if (_ssnCache.has(pnr)) return _ssnCache.get(pnr);
+        try {
+            const body = `submit_action=ssnSearch&ssn=${encodeURIComponent(pnr)}`
+                       + `&council=-999999&chosenDispatchCenter.id=560&_attentionUnresolvedOnly=on&dbSelect=1`;
+            const r = await fetch(`${ADMIN_BASE}/searchStatus`, {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body
+            });
+            if (!r.ok) { _ssnCache.set(pnr, []); return []; }
+            const html = await r.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            // Finn Status-kolonnen slik sokPnrINissy gjør i verktøykassen
+            let statusIdx = -1;
+            const alle = doc.querySelectorAll('tr');
+            for (let i = 0; i < alle.length && statusIdx < 0; i++) {
+                const c = alle[i].cells || [];
+                for (let j = 0; j < c.length; j++)
+                    if ((c[j].textContent || '').trim().toLowerCase() === 'status') { statusIdx = j; break; }
+            }
+            const ut = [];
+            alle.forEach(tr => {
+                const kilde = (tr.getAttribute('onclick') || '') + ' ' + (tr.innerHTML || '');
+                const m = kilde.match(/getRequisitionDetails\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*(null|\d+))?/i);
+                if (!m || !tr.cells || tr.cells.length < 4) return;
+                const tekst = (i) => tr.cells[i] ? (tr.cells[i].textContent || '').replace(/\s+/g, ' ').trim() : '';
+                ut.push({
+                    reqId: m[1], db: m[2], tripid: m[3],
+                    rekNr: tekst(1), turNr: tekst(2),
+                    oppmtid: tekst(3), start: tekst(4),
+                    status: statusIdx > -1 ? tekst(statusIdx) : '',
+                    fraSsnSok: true
+                });
+            });
+            _ssnCache.set(pnr, ut);
+            return ut;
+        } catch (e) { console.warn('[DUBLETT] ssnSearch feilet for pnr:', e.message); _ssnCache.set(pnr, []); return []; }
+    }
+
     async function sjekkDublett(rader, statusFn) {
+        window._sisteRader = rader;   // for __avvik.diagDublett
         const KANSELLERT = ['ikke møtt', 'bomtur', 'kansellert', 'avbestilt'];
         const grupper = {};
         for (const r of rader) {
@@ -2011,6 +2388,11 @@
             if (r.rmate && ['RFLY', 'HLSX', 'RP'].includes(r.rmate.toUpperCase())) continue;
             if (!grupper[r.pnr]) grupper[r.pnr] = [];
 
+            // INVARIANT (v38.4.66): ingen behov-basert filtrering i paringen, med vilje.
+            // Ulike spesielle behov på to bestillinger for samme pasient, samme dag, samme
+            // retning er som regel BEVIS på en ombestilling der den gamle ikke ble kansellert
+            // — altså en ekte dublett. Legg aldri inn «ulike behov → continue».
+            // (Teknisk er det uansett umulig her: admin hentes FØRST etter paringen.)
             // Bestem retning
             const startMin = parseTidMinutter(r.start);
             const oppmMin = parseTidMinutter(r.oppmtid);
@@ -2066,6 +2448,27 @@
                 }
             }
         }
+        // v38.4.59: KONTROLL mot admin — fant vi alle benene? Kjøres KUN for pasienter som
+        // allerede har et dublett-funn, og BARE som logging i denne omgang: vi flagger ikke
+        // nye avvik ennå, vi verifiserer at oppslaget finner det visningen ikke hadde.
+        // Slå av med __avvik.ssnKontroll = false
+        if (window.__avvik?.ssnKontroll !== false && funn.length) {
+            const pnrMedFunn = [...new Set(funn.map(f => f.reise1?.pnr).filter(Boolean))];
+            for (const pnr of pnrMedFunn.slice(0, 10)) {
+                const alle = await hentAllePasientTurer(pnr);
+                if (!alle.length) continue;
+                const synlige = new Set((grupper[pnr] || []).map(r => String(r.rekNr)));
+                const skjulte = alle.filter(t => t.rekNr && !synlige.has(String(t.rekNr))
+                                                 && !/slettet|kansellert|avbestilt/i.test(t.status || ''));
+                if (skjulte.length) {
+                    console.warn('[DUBLETT] pnr %s…: %d tur(er) i visningen, men admin har %d aktive til som IKKE vises:',
+                        pnr.slice(0, 6), synlige.size, skjulte.length);
+                    console.table(skjulte.map(t => ({ rekNr: t.rekNr, turNr: t.turNr, oppmtid: t.oppmtid, start: t.start, status: t.status })));
+                } else {
+                    console.log('[DUBLETT] pnr %s…: visningen er komplett (%d turer, ingen skjulte)', pnr.slice(0, 6), synlige.size);
+                }
+            }
+        }
         // Sorter etter tidligste starttid (haster mest først)
         funn.sort((x, y) => {
             const tidFra = (s) => {
@@ -2099,6 +2502,9 @@
     // ==================================================================
     //    SJEKK: ADRESSEAVVIK                                           
     // ==================================================================
+    // INVARIANT (v38.4.66): spesielle behov kan bare BEHOLDE en sak, aldri fjerne den.
+    // Ikke innfør regler som «RB hentes ofte på institusjon, derfor skjul» — usikkerhet
+    // skal gi «sjekk manuelt», aldri stille bortfiltrering.
     async function sjekkAdresse(rader, statusFn) {
         let hoppetGodkjent = 0, hoppetKortPadr = 0, hoppetGateMatch = 0, hoppetGodkjentOrd = 0;
         let hoppetAdminCache = 0;
@@ -2300,12 +2706,34 @@
 
                 const bestiltFraAdr = erTur ? fraAdr : tilAdr;
 
+                // v38.4.61: UKJENT RETNING FEILET STILLE I PASIENTENS DISFAVØR.
+                // Ventende oppdrag har ingen Start-kolonne (bare Opptid), så k.erTur blir null når
+                // admin ikke svarer. Da pekte behandlingsAdr og bestiltFraAdr på SAMME adresse,
+                // avstanden ble ~0, og saken ble filtrert bort som «sikkert OK» på linje ~2534.
+                // Nå flagges den som usikker i stedet — usikkerhet skal alltid gi «sjekk manuelt»,
+                // aldri «ingen forskjell». Se project_km_fasit_organisatorisk.
+                if (erTur === null) {
+                    console.warn(`[ADR] Ukjent retning RID=${k.reqId} rek=${k.rekNr} (fane=${k.fane}) — flagges usikker, ikke filtrert`);
+                    k.kmInfo = { folkKm: null, bestiltKm: null, usikker: true, usikreAdr: [], kilde: 'ukjent-retning' };
+                    funn.push(k);
+                    continue;
+                }
+
                 // Haversine pre-check: hvis bestilt er soleklart kortere, hopp over Google-kall
                 const hav = await sjekkHaversine(folkAdr, bestiltFraAdr, behandlingsAdr);
+                // v38.4.66: sjekkHaversine bruker POSTNUMMER-SENTROIDER, ikke ekte adresser.
+                // For RB/ERS/TK/B sier en postnummer-tilnærming ingenting om bilen kommer frem til
+                // riktig dør. Vi undertrykker ingenting — vi nekter bare å AVGJØRE på grovt grunnlag.
+                const behovKrit = BEHOV_PAAVIRKER_ADRESSE && admin
+                    && (admin.behovKoder || []).some(k2 => BEHOV_ADR_KRITISK.includes(k2));
                 if (hav && hav.ratio < HAVERSINE_TERSKEL) {
-                    console.log(`[ADR] Haversine-skip RID=${k.reqId}: bestilt=${hav.bestHav.toFixed(1)} folk=${hav.folkHav.toFixed(1)} ratio=${(hav.ratio*100).toFixed(0)}% — filtrert (terskel ${HAVERSINE_TERSKEL*100}%)`);
-                    loggHaversineSkip(bestiltFraAdr, behandlingsAdr, hav.ratio, 'auto');
-                    continue;
+                    if (behovKrit) {
+                        console.log(`[ADR] Haversine-skip OVERSTYRT av behov RID=${k.reqId} behov=${admin.behovKoder.join('/')} ratio=${(hav.ratio*100).toFixed(0)}% — går videre til ORS`);
+                    } else {
+                        console.log(`[ADR] Haversine-skip RID=${k.reqId}: bestilt=${hav.bestHav.toFixed(1)} folk=${hav.folkHav.toFixed(1)} ratio=${(hav.ratio*100).toFixed(0)}% behov=${(admin && admin.behovKoder || []).join('/') || '-'} — filtrert (terskel ${HAVERSINE_TERSKEL*100}%)`);
+                        loggHaversineSkip(bestiltFraAdr, behandlingsAdr, hav.ratio, 'auto');
+                        continue;
+                    }
                 }
 
                 const folkKm = await beregnKm(folkAdr, behandlingsAdr, 'auto', 'adresse');
@@ -2326,7 +2754,13 @@
                     lagreKmResultat(autoRekNr, folkKm ? folkKm.km : null, bestiltKm ? bestiltKm.km : null, turDatoISO, kmUsikker);
                 }
 
-                if (!kmUsikker && bestiltKm.km <= folkKm.km) continue; // sikkert OK → bort
+                // v38.4.66: logg det som filtreres bort. Dette er den STØRSTE bortfiltreringen
+                // i hele adressesjekken, og den var helt stum — vi kunne ikke se hva som forsvant
+                // eller med hvilke behov. Tallet herfra avgjør om BEHOV_PAAVIRKER_ADRESSE skal på.
+                if (!kmUsikker && bestiltKm.km <= folkKm.km) {
+                    console.log(`[ADR] Filtrert (bestilt ${bestiltKm.km} <= folk ${folkKm.km}) RID=${k.reqId} rek=${k.rekNr} behov=${(admin && admin.behovKoder || []).join('/') || '-'}`);
+                    continue;
+                }
 
                 k.erTur = erTur;
                 const usikreAdr = [...new Set([...(folkKm?.usikreAdr || []), ...(bestiltKm?.usikreAdr || [])])];
@@ -2352,10 +2786,32 @@
 
                 const bestiltFraAdr = erTur ? fraAdr : tilAdr;
 
+                // v38.4.61: samme vern som auto-grenen — ukjent retning skal ikke filtreres bort.
+                if (erTur === null) {
+                    console.warn(`[ADR] Ukjent retning RID=${k.reqId} rek=${k.rekNr} (fane=${k.fane}) — flagges usikker, ikke filtrert`);
+                    k.kmInfo = { folkKm: null, bestiltKm: null, usikker: true, usikreAdr: [], kilde: 'ukjent-retning' };
+                    funn.push(k);
+                    continue;
+                }
+
                 // Haversine pre-check: hvis bestilt er soleklart kortere, fjern fra avvik-listen
                 const hav = await sjekkHaversine(folkAdr, bestiltFraAdr, behandlingsAdr);
+                // v38.4.66: sjekkHaversine bruker POSTNUMMER-SENTROIDER, ikke ekte adresser.
+                // For RB/ERS/TK/B sier en postnummer-tilnærming ingenting om bilen kommer frem til
+                // riktig dør. Vi undertrykker ingenting — vi nekter bare å AVGJØRE på grovt grunnlag.
+                const behovKrit = BEHOV_PAAVIRKER_ADRESSE && admin
+                    && (admin.behovKoder || []).some(k2 => BEHOV_ADR_KRITISK.includes(k2));
                 if (hav && hav.ratio < HAVERSINE_TERSKEL) {
-                    console.log(`[ADR] Haversine-skip RID=${k.reqId}: ratio=${(hav.ratio*100).toFixed(0)}% — filtrert`);
+                    if (behovKrit) {
+                        // Ingen ORS-beregning i denne grenen — vis som usikker, ikke som avgjort.
+                        console.log(`[ADR] Haversine-skip OVERSTYRT av behov (manuell) RID=${k.reqId} behov=${admin.behovKoder.join('/')}`);
+                        k.erTur = erTur;
+                        k.kmInfo = { folkKm: null, bestiltKm: null, usikker: true, usikreAdr: [], kilde: 'behov-grovt' };
+                        k.folkAdrTekst = folkAdr; k.fraAdrTekst = fraAdr; k.tilAdrTekst = tilAdr;
+                        funn.push(k);
+                        continue;
+                    }
+                    console.log(`[ADR] Haversine-skip RID=${k.reqId}: ratio=${(hav.ratio*100).toFixed(0)}% behov=${(admin && admin.behovKoder || []).join('/') || '-'} — filtrert`);
                     loggHaversineSkip(bestiltFraAdr, behandlingsAdr, hav.ratio, 'manual');
                     continue;
                 }
@@ -2602,6 +3058,7 @@
     const FILTER_LOGG_TERSKEL = 950;   // logg filtre fra dette radantallet (taket er 999)
     const _avkortLoggTid = {};         // filterId → sist logget (throttle FILTER_AVKORTET, 5 min)
     async function kjorSkann(sjekkType) {
+        tomAdminCache('ny skanning: ' + sjekkType);
         console.log(`[SKANN] Start: ${sjekkType}`);
         visLasteStatus('Henter reiser...');
 
@@ -2628,6 +3085,7 @@
         let mangler = (krevde[sjekkType] || []).filter(k => dispatchData.manglendeKolonner.has(k));
 
         if (mangler.length > 0) {
+            const viLaTil = [...mangler];   // kun disse ryddes bort etterpå
             console.log(`[SKANN] Mangler kolonner for ${sjekkType}: [${mangler.join(', ')}] -- aktiverer via showcol`);
 
             // Kall showcol for å aktivere kolonner for ALLE aktive filtre
@@ -2646,10 +3104,34 @@
                         await xhrRequest(u, { timeout: 10000 });
                     }
                 }
+                await gjenopprettNissyFilter('etter showcol');
                 // Re-hent alle filtre med kolonner aktivert
                 dispatchData = await hentDispatchData();
                 mangler = (krevde[sjekkType] || []).filter(k => dispatchData.manglendeKolonner.has(k));
                 console.log(`[SKANN] Etter showcol: mangler=[${mangler.join(', ')}], rader=${dispatchData.rader.length}`);
+
+                // v38.4.62 (Thomas 24.08): RYDD BORT KOLONNENE IGJEN.
+                // Vi trenger dem bare mens XML-en leses — etterpå står de og roter til
+                // planleggerens visning for operatøren. Fjerner KUN de vi selv aktiverte
+                // (`viLaTil`), aldri kolonner operatøren har lagt til selv.
+                if (RYDD_KOLONNER && viLaTil.length) {
+                    try {
+                        for (const filterId of [...aktiveFiltre]) {
+                            const base = `ajax-dispatch?did=all&rfilter=${filterId}`;
+                            for (const kol of viLaTil) {
+                                const cid = KOLONNE_CID[kol];
+                                if (!cid) continue;
+                                await xhrRequest(base + '&action=phidecol&cid=' + cid, { timeout: 10000 });
+                                await xhrRequest(base + '&action=vhidecol&cid=' + cid, { timeout: 10000 });
+                            }
+                        }
+                        console.log(`[SKANN] Ryddet bort kolonner: [${viLaTil.join(', ')}]`);
+                        // hidecol-kallene over satte sesjonen til siste filter — sett den tilbake.
+                        await gjenopprettNissyFilter('etter kolonnerydding');
+                    } catch (e) {
+                        console.warn('[SKANN] Kunne ikke rydde kolonner:', e.message);
+                    }
+                }
 
             } catch (e) {
                 console.warn('[SKANN] showcol-kall feilet:', e);
@@ -2777,7 +3259,9 @@
                 const antVanlige = funn.length - antKanskje - antVedtak;
                 deler.push(`<strong style="color:#dc2626;">&#9888;&#65039; ${antVanlige} avvik</strong>`);
                 if (antKanskje > 0) deler.push(`<strong style="color:#d97706;">&#127973; ${antKanskje} kanskje</strong>`);
-                if (VIS_VEDTAK_KOLONNE && antVedtak > 0) deler.push(`<strong style="color:#16a34a;">&#9989; ${antVedtak} vedtak</strong>`);
+                // Telleren står uavhengig av testkolonnen: operatøren bør se HVOR MANGE som
+                // ble filtrert bort på vedtak, selv om kortene ikke vises.
+                if (antVedtak > 0) deler.push(`<strong style="color:#16a34a;" title="Filtrert bort — godkjent via vedtak">&#9989; ${antVedtak} vedtak</strong>`);
             } else if (type === 'adresse') {
                 const antKanskje = funn.filter(f => f.kanskjePostnr).length;
                 const antVanlige = funn.length - antKanskje;
@@ -3081,6 +3565,46 @@
         }
     }
 
+    // ⚠️ esc() inne i renderKort escaper KUN ' og " — den er laget for JS-strengliteraler
+    // i onclick, ikke for HTML-innhold. Fritekst fra NISSY må gjennom escHtml.
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Badges for spesielle behov. Returnerer KUN badgene — kallstedet setter sin egen label.
+    // '' = ingenting å vise. Kallstedet MÅ selv håndtere «admin ikke hentet» (se adressekortet):
+    // et kort uten badge skal aldri kunne leses som «pasienten har ingen behov».
+    function behovBadgeHtml(admin) {
+        if (!admin) return '';
+        if (admin.spesielleBehov === null || admin.spesielleBehov === undefined) {
+            return '<span class="behov-ukjent" title="Feltet «Spesielle behov» ble ikke funnet i admin — sjekk i NISSY">Behov ?</span>';
+        }
+        const koder = admin.behovKoder || [], ukjent = admin.behovUkjent || [];
+        // v38.4.70 (Thomas 24.08): tomt felt ga tom streng → ingen linje på kortet, og da
+        // kunne «ingen behov» ikke skilles fra «ikke sjekket». Nå sies det eksplisitt.
+        if (!koder.length && !ukjent.length) {
+            return '<span style="color:#64748b; font-size:11px;">Ingen</span>';
+        }
+        const b = koder.map(k => `<span class="behov-badge" title="${escHtml(BEHOV_NAVN[k] || k)}">${escHtml(k)}</span>`);
+        ukjent.forEach(u => b.push(`<span class="behov-badge ukjent" title="Ukjent kode — vist som fritekst fra NISSY">${escHtml(u)}</span>`));
+        return `<span class="behov-rad">${b.join('')}</span>`;
+    }
+    // Ledsagere. Dempet, som behov-badgene — dette er kontekst, ikke varsel.
+    function ledsagerHtml(admin) {
+        if (!admin) return '';
+        const n = admin.ledsagere;
+        if (n === null || n === undefined) return '';          // vet ikke → si ingenting
+        if (n <= 0) return '<span style="color:#64748b; font-size:11px;" title="Reiser alene">Ingen ledsager</span>';
+        return `<span class="behov-badge" title="Reiser med ${n} ledsager${n > 1 ? 'e' : ''} — tar ekstra sete">&#128101; ${n} ledsager${n > 1 ? 'e' : ''}</span>`;
+    }
+
+    // Kun ekte koder til postMessage-payloads. Fritekst må ALDRI inn — esc() escaper
+    // hverken backslash eller linjeskift.
+    function behovKoderTrygg(admin) {
+        return ((admin && admin.behovKoder) || []).filter(k => /^[A-ZÆØÅ0-9]{1,4}$/.test(k)).join(', ');
+    }
+
     function renderKort(f) {
         const esc = (s) => (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
         const fraVis = formaterForVisning(f.fraHtml || '').replace(/\n/g, '<br>');
@@ -3169,6 +3693,29 @@
             const pasNavn = a.pnavn || (f.admin1 && f.admin1.pasientNavn) || '';
             const aMeld = f.admin1 ? [f.admin1.meldTransport, f.admin1.meldPasReise].filter(Boolean) : [];
             const bMeld = f.admin2 ? [f.admin2.meldTransport, f.admin2.meldPasReise].filter(Boolean) : [];
+            // ── SPESIELLE BEHOV: INFORMER, IKKE UNDERTRYKK ──────────────────
+            // Bannerne sier hva operatøren skal GJØRE, ikke bare hva som er ulikt.
+            const aLeds = ledsagerHtml(f.admin1), bLeds = ledsagerHtml(f.admin2);
+            const aBehov = behovBadgeHtml(f.admin1) + (aLeds ? ' <span style="color:#cbd5e1;">|</span> ' + aLeds : '');
+            const bBehov = behovBadgeHtml(f.admin2) + (bLeds ? ' <span style="color:#cbd5e1;">|</span> ' + bLeds : '');
+            const aKoder = (f.admin1 && f.admin1.behovKoder) || [];
+            const bKoder = (f.admin2 && f.admin2.behovKoder) || [];
+            const kjentBehov = f.admin1 && f.admin2
+                && f.admin1.spesielleBehov !== null && f.admin1.spesielleBehov !== undefined
+                && f.admin2.spesielleBehov !== null && f.admin2.spesielleBehov !== undefined;
+            const likeBehov = kjentBehov && aKoder.slice().sort().join(',') === bKoder.slice().sort().join(',');
+            const kostbarBehov = [...aKoder, ...bKoder].some(k => BEHOV_KOSTBAR.includes(k));
+            let behovBanner = '';
+            if (!kjentBehov) {
+                behovBanner = '<div style="margin-bottom:8px; font-size:11px; color:#94a3b8;">Spesielle behov: <em>ikke tilgjengelig for begge reisene</em> — sammenlign i NISSY.</div>';
+            } else if (!likeBehov) {
+                const bare1 = aKoder.filter(k => !bKoder.includes(k));
+                const bare2 = bKoder.filter(k => !aKoder.includes(k));
+                behovBanner = `<div style="margin-bottom:8px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e;">&#9888; <strong>Ulike spesielle behov</strong>${bare1.length ? ' &mdash; kun Reise 1: <strong>' + escHtml(bare1.join(', ')) + '</strong>' : ''}${bare2.length ? ' &mdash; kun Reise 2: <strong>' + escHtml(bare2.join(', ')) + '</strong>' : ''}. Typisk en ombestilling: finn ut hvilken som er riktig og kanseller den andre. <em>Ulike behov betyr ikke at dette er to lovlige bestillinger.</em></div>`;
+            } else if (aKoder.length) {
+                behovBanner = `<div style="margin-bottom:8px; padding:6px 10px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; font-size:12px; color:#1e40af;">Begge reisene har samme behov (<strong>${escHtml(aKoder.join(', '))}</strong>).${kostbarBehov ? ' <strong>To spesialbiler bundet opp</strong> — kostbar dublett.' : ''}</div>`;
+            }
+
             // AVVIK-payload: BEGGE reiser med, så operatøren kan VELGE hvilken avviket gjelder (Thomas v38.4.51).
             const ad1 = f.admin1 || {}, ad2 = f.admin2 || {};
             const avvFelt = {
@@ -3176,14 +3723,14 @@
                 rekvirent1: a.rekvirent || ad1.rekvirent || '', rekvirent2: b.rekvirent || ad2.rekvirent || '',
                 sist1: ad1.sistEndretBruker || '', sist2: ad2.sistEndretBruker || ''
             };
-            const avvPayload = `type:'AVVIK_DUBLETT', id:'${a.reqId}', resId1:'${a.resId || ''}', resId2:'${b.resId || ''}', turid1:'${a.turid || ''}', turid2:'${b.turid || ''}', start1:'${esc(a.start || '')}', start2:'${esc(b.start || '')}', rmate1:'${esc(a.rmate || '')}', rmate2:'${esc(b.rmate || '')}', rekNr1:'${esc(avvFelt.rekNr1)}', rekNr2:'${esc(avvFelt.rekNr2)}', rekvirent1:'${esc(avvFelt.rekvirent1)}', rekvirent2:'${esc(avvFelt.rekvirent2)}', sist1:'${esc(avvFelt.sist1)}', sist2:'${esc(avvFelt.sist2)}'`;
+            const avvPayload = `type:'AVVIK_DUBLETT', id:'${a.reqId}', resId1:'${a.resId || ''}', resId2:'${b.resId || ''}', turid1:'${a.turid || ''}', turid2:'${b.turid || ''}', start1:'${esc(a.start || '')}', start2:'${esc(b.start || '')}', rmate1:'${esc(a.rmate || '')}', rmate2:'${esc(b.rmate || '')}', rekNr1:'${esc(avvFelt.rekNr1)}', rekNr2:'${esc(avvFelt.rekNr2)}', rekvirent1:'${esc(avvFelt.rekvirent1)}', rekvirent2:'${esc(avvFelt.rekvirent2)}', sist1:'${esc(avvFelt.sist1)}', sist2:'${esc(avvFelt.sist2)}', behov1:'${esc(behovKoderTrygg(f.admin1))}', behov2:'${esc(behovKoderTrygg(f.admin2))}'`;
 
             return `<div class="card dublett" data-rid="${a.reqId}" data-rek="${a.rekNr || ""}">
                 <div class="card-header">
                     <span>&#9888; DOBBELTBESTILLING (${retning})</span>
                     <span style="color:#94a3b8; font-weight:normal;">${pasNavn ? pasNavn + ' &mdash; ' : ''}PNR: ${a.pnr || '(mangler)'} ${a.pnr ? '<span style="cursor:pointer; user-select:none;" title="Kopier PNR" onclick="navigator.clipboard.writeText(\'' + a.pnr + '\'); this.textContent=\'\\u2705\'; setTimeout(() => this.textContent=\'\\ud83d\\udccb\', 1500)">&#128203;</span>' : ''}</span>
                 </div>
-                <div class="card-body"><div class="dublett-grid">
+                <div class="card-body">${behovBanner}<div class="dublett-grid">
                     <div class="side">
                         <div class="side-header">REISE 1 -- Turid: ${a.turid || a.reqId}</div>
                         <span class="label">Start</span><span class="value" style="font-weight:600; font-size:14px;">${a.start || '---'}</span>
@@ -3192,6 +3739,7 @@
                         <span class="label">Reisemåte</span><span class="value">${a.rmate || '---'}</span>
                         <span class="label">Fra</span><span class="value">${aFra}</span>
                         <span class="label">Til</span><span class="value">${aTil}</span>
+                        ${aBehov ? '<span class="label">Behov</span><span class="value">' + aBehov + '</span>' : ''}
                         ${aMeld.length > 0 ? '<div style="margin-top:4px; padding:4px 8px; background:#eff6ff; border-radius:4px; font-size:11px; color:#1e40af;">' + aMeld.map(m => '<div>' + m + '</div>').join('') + '</div>' : ''}
                     </div>
                     <div class="side">
@@ -3202,6 +3750,7 @@
                         <span class="label">Reisemåte</span><span class="value">${b.rmate || '---'}</span>
                         <span class="label">Fra</span><span class="value">${bFra}</span>
                         <span class="label">Til</span><span class="value">${bTil}</span>
+                        ${bBehov ? '<span class="label">Behov</span><span class="value">' + bBehov + '</span>' : ''}
                         ${bMeld.length > 0 ? '<div style="margin-top:4px; padding:4px 8px; background:#eff6ff; border-radius:4px; font-size:11px; color:#1e40af;">' + bMeld.map(m => '<div>' + m + '</div>').join('') + '</div>' : ''}
                     </div>
                 </div></div>
@@ -3251,6 +3800,20 @@
                               : f.kmInfo && f.kmInfo.kilde === 'live'   ? '<span title="Ferskt ORS-kall (Geonorge+ORS)" style="opacity:0.7;">&#9889;</span> '
                               : '';
 
+            // ── SPESIELLE BEHOV ──────────────────────────────────────────────
+            // harAdmin er false for kanskjePostnr-kandidater (de hopper over admin-oppslaget).
+            // Da MÅ kortet si «ikke hentet» — ellers ser et kort uten badge ut som om
+            // pasienten ikke har behov, og det er den farligste feilen her.
+            const behovKoderKort = (harAdmin && f.adminData.behovKoder) ? f.adminData.behovKoder : [];
+            const behovBadges = harAdmin ? behovBadgeHtml(f.adminData) : '';
+            const behovTomt = behovKoderKort.length === 0 && !(harAdmin && (f.adminData.behovUkjent || []).length)
+                && harAdmin && f.adminData.spesielleBehov !== null && f.adminData.spesielleBehov !== undefined;
+            const behovLinje = behovBadges
+                ? `<div style="margin-bottom:8px; padding:5px 10px; background:${behovTomt ? '#f8fafc' : '#faf5ff'}; border:1px solid ${behovTomt ? '#e2e8f0' : '#e9d5ff'}; border-radius:6px; font-size:12px;"><span class="label" style="margin-right:6px;">Spesielle behov</span>${behovBadges}${ledsagerHtml(f.adminData) ? ' <span style="color:#cbd5e1; margin:0 4px;">|</span> ' + ledsagerHtml(f.adminData) : ''}</div>`
+                : (!harAdmin
+                    ? '<div style="margin-bottom:6px; font-size:11px; color:#94a3b8;">Spesielle behov: <em>ikke hentet</em> (admin ikke slått opp for denne saken)</div>'
+                    : '');
+
             let kmHtml = '';
             const kmUsikker = !!(f.kmInfo && f.kmInfo.usikker);
             const usikreAdrListe = (f.kmInfo && Array.isArray(f.kmInfo.usikreAdr)) ? f.kmInfo.usikreAdr : [];
@@ -3296,7 +3859,7 @@
 
             return `<div class="card ${adrKlasse}" data-rid="${f.reqId}" data-resid="${f.resId || ''}" data-rek="${rekNr || f.rekNr || ''}">
                 <div class="card-header">
-                    <span>${adrPrikk} ${adrKanskje ? 'ADRESSEAVVIK (' + retning + ') — Postnr' : 'ADRESSEAVVIK (' + retning + ')'}${reisemate ? ' — ' + reisemate : ''}${adminTag}</span>
+                    <span>${adrPrikk} ${adrKanskje ? 'ADRESSEAVVIK (' + retning + ') — Postnr' : 'ADRESSEAVVIK (' + retning + ')'}${reisemate ? ' — ' + reisemate : ''}${behovKoderKort.length ? ' ' + behovKoderKort.map(k => '<span class="behov-badge" title="' + escHtml(BEHOV_NAVN[k] || k) + '">' + escHtml(k) + '</span>').join('') : ''}${adminTag}</span>
                     <span style="color:#94a3b8; font-weight:normal;">
                         ${turid ? 'Turid: ' + turid + ' ' + copyBtn(turid, 'turid') : ''}
                         ${rekNr ? (turid ? '&nbsp;| ' : '') + 'Rek: ' + rekNr + ' ' + copyBtn(rekNr, 'rek.nr.') : '<span id="rekNr-' + f.reqId + '"></span>'}
@@ -3304,6 +3867,7 @@
                 </div>
                 <div class="card-body">
                     <div id="km-${f.reqId}">${kmHtml}</div>
+                    ${behovLinje}
                     <div style="display:flex; gap:16px; margin-bottom:8px; font-size:13px; color:#334155; flex-wrap:wrap;">
                         ${f.pnavn || (harAdmin && f.adminData.pasientNavn) ? '<div><span class="label">Pasient</span><span class="value" style="font-weight:600;">' + (f.pnavn || f.adminData.pasientNavn) + '</span></div>' : ''}
                         ${f.pnr ? '<div><span class="label">PNR</span><span class="value">' + f.pnr + '</span></div>' : ''}
@@ -3369,6 +3933,18 @@
             const kMeldTrans = kHarAdmin && f.adminData.meldTransport ? f.adminData.meldTransport : '';
             const kMeldPasReise = kHarAdmin && f.adminData.meldPasReise ? f.adminData.meldPasReise : '';
 
+            // Spesielle behov (v38.4.67). Kommunekortet ble glemt i 38.4.66 — Thomas så
+            // ingen behov fordi han sto i kommune-seksjonen, ikke adressesjekken.
+            const kBehovKoder = (kHarAdmin && f.adminData.behovKoder) ? f.adminData.behovKoder : [];
+            const kBehovBadges = kHarAdmin ? behovBadgeHtml(f.adminData) : '';
+            const kBehovTomt = kBehovKoder.length === 0 && !(kHarAdmin && (f.adminData.behovUkjent || []).length)
+                && kHarAdmin && f.adminData.spesielleBehov !== null && f.adminData.spesielleBehov !== undefined;
+            const kBehovLinje = kBehovBadges
+                ? `<div style="margin-top:6px; padding:5px 10px; background:${kBehovTomt ? '#f8fafc' : '#faf5ff'}; border:1px solid ${kBehovTomt ? '#e2e8f0' : '#e9d5ff'}; border-radius:6px; font-size:12px;"><span class="label" style="margin-right:6px;">Spesielle behov</span>${kBehovBadges}${ledsagerHtml(f.adminData) ? ' <span style="color:#cbd5e1; margin:0 4px;">|</span> ' + ledsagerHtml(f.adminData) : ''}</div>`
+                : (!kHarAdmin
+                    ? '<div style="margin-top:6px; font-size:11px; color:#94a3b8;">Spesielle behov: <em>ikke hentet</em></div>'
+                    : '');
+
             // Kommune — bruk API-verifiserte verdier fra runde 3 hvis tilgjengelig
             const kFolkKommune = hentKommune(hentPostnr((kFolkAdr || '').replace(/<br>/g, ' ')));
             const kHenteKommune = f.pasientKommune || hentKommune(hentPostnr((kFraAdr || fraVis).replace(/<br>/g, ' ')));
@@ -3382,7 +3958,7 @@
 
             return `<div class="card ${kKlasse}" data-rid="${f.reqId}" data-rek="${kRekNr || f.rekNr || ""}">
                 <div class="card-header">
-                    <span>${kLabel}${kAdminTag}</span>
+                    <span>${kLabel}${kBehovKoder.length ? ' ' + kBehovKoder.map(k => '<span class="behov-badge" title="' + escHtml(BEHOV_NAVN[k] || k) + '">' + escHtml(k) + '</span>').join('') : ''}${kAdminTag}</span>
                     <span style="color:#94a3b8; font-weight:normal;">
                         ${kTurid ? 'Turid: ' + kTurid + ' ' + kCopyBtn(kTurid, 'turid') : ''}
                         ${kRekNr ? (kTurid ? '&nbsp;| ' : '') + 'Rek: ' + kRekNr + ' ' + kCopyBtn(kRekNr, 'rek.nr.') : '<span id="rekNr-' + f.reqId + '"></span>'}
@@ -3405,6 +3981,7 @@
                     ${kHarAdmin ? '<div class="row" style="border:1px solid #cbd5e1; border-radius:6px; padding:10px; background:#f8fafc;"><div class="col"><span class="label">Hentested</span>' + (kFraNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kFraNavn + '</div>' : '') + '<div class="value">' + (kFraAdr || fraVis) + kKommuneSpan(kHenteKommune, f.fraKilde) + '</div>' + (f.adminData.fraKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.fraKommentar + '</div>' : '') + '</div><div style="display:flex; align-items:center; justify-content:center; min-width:40px; max-width:40px; padding:0 4px;"><span style="font-size:20px;">&#10145;&#65039;</span></div><div class="col"><span class="label">Leveringssted</span>' + (kTilNavn ? '<div class="value" style="font-weight:600; margin-bottom:0;">' + kTilNavn + '</div>' : '') + '<div class="value">' + (kTilAdr || tilVis) + kKommuneSpan(kLeverKommune, f.tilKilde) + '</div>' + (f.adminData.tilKommentar ? '<div style="margin-top:4px; font-size:11px; font-style:italic; color:#6b7280;">Kommentar: ' + f.adminData.tilKommentar + '</div>' : '') + '</div></div>' : (!kKanskje ? '<div style="margin-bottom:8px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:11px; color:#92400e;">&#9888; Admin ikke tilgjengelig — viser kun data fra tabell. <a href="' + NISSY_ORIGIN + '/administrasjon/" target="_blank" style="color:#1d4ed8; text-decoration:underline;">Logg inn i admin</a> og skann p\u00e5 nytt for full info.</div>' : '') + '<div class="row"><div class="col"><span class="label">Fra</span><span class="value">' + (f.start || '') + '<br>' + fraVis + kKommuneSpan(kHenteKommune, f.fraKilde) + '</span><span class="label">Til</span><span class="value">' + tilVis + kKommuneSpan(kLeverKommune, f.tilKilde) + '</span></div><div class="col"><span class="label">Rekvirent</span><span class="value">' + (f.rekvirent || '---') + '</span><span class="label">Status</span><span class="value">' + (f.status || '---') + '</span></div></div>'}
                     ${f.vedtakData ? '<div style="margin-top:6px; padding:6px 10px; background:#dcfce7; border:1px solid #16a34a; border-radius:6px; font-size:12px; color:#14532d; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">&#9989; <strong>Vedtak funnet:</strong>&nbsp;' + esc(f.vedtakData.saksnummer || f.vedtakData.kort_id || '') + (f.vedtakData.formaal ? ' &mdash; ' + esc(f.vedtakData.formaal) : '') + ' &nbsp;|&nbsp; Gyldig til <strong>' + esc(f.vedtakData.gyldig_tom || '') + '</strong>' + (f.vedtakData.kategori ? ' &nbsp;<span style="background:#bbf7d0; padding:1px 5px; border-radius:3px; font-size:11px;">' + esc(f.vedtakData.kategori) + '</span>' : '') + '</div>' : ''}
                     ${f.meldingAntyder ? '<div style="margin-top:6px; padding:6px 10px; background:#fef3c7; border:1px solid #f59e0b; border-radius:6px; font-size:12px; color:#92400e; display:flex; align-items:flex-start; gap:8px;">&#9888;&#65039; <span><strong>Melding antyder godkjenning \u2014 ikke funnet i vedtak-DB</strong><br><span style="font-size:11px; color:#78350f;">' + esc(f.meldingAntyder.substring(0, 120)) + (f.meldingAntyder.length > 120 ? '\u2026' : '') + '</span></span></div>' : ''}
+                    ${kBehovLinje}
                     ${kMeldTrans ? '<div style="margin-top:6px; padding:4px 8px; background:#eff6ff; border-radius:4px; font-size:11px; color:#1e40af;"><strong>Melding transport:</strong> ' + kMeldTrans + '</div>' : ''}
                     ${kMeldPasReise ? '<div style="margin-top:4px; padding:4px 8px; background:#f0fdf4; border-radius:4px; font-size:11px; color:#166534;"><strong>Melding pasientreise:</strong> ' + kMeldPasReise + '</div>' : ''}
                 </div>
@@ -4575,11 +5152,11 @@
                     ${data.ansvarligRekvirent ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;"><span style="font-weight:bold; color:#991b1b;">Ansvarlig rekvirent:</span><span>' + data.ansvarligRekvirent + '</span></div>' : ''}
                     ${data.sistEndretBruker ? '<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;"><span style="font-weight:bold; color:#991b1b;">Sist endret:</span><span>' + data.sistEndretBruker + '</span></div>' : '<div style="margin-bottom:6px;"></div>'}
                     <div style="margin-bottom:8px;">
-                        <input id="avvBliksund_${data.id}" type="text" inputmode="numeric" maxlength="5" placeholder="Bliksund-hendelse (5 siffer)" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,5); var fb=document.getElementById('avvFerdig_${data.id}'); var ok=/^\\d{5}$/.test(this.value); if(fb){fb.disabled=!ok; fb.style.opacity=ok?'1':'0.45'; fb.style.cursor=ok?'pointer':'not-allowed';}" style="padding:7px 10px; border:1.5px solid #fca5a5; border-radius:6px; font-size:13px; width:200px; outline:none;">
+                        <input id="avvBliksund_${data.id}" type="text" inputmode="numeric" maxlength="5" placeholder="Bliksund-hendelse (valgfritt)" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,5);" style="padding:7px 10px; border:1.5px solid #fca5a5; border-radius:6px; font-size:13px; width:200px; outline:none;">
                     </div>
                     <div style="display:flex; gap:8px;">
                         <button onclick="window._avvikCh.postMessage({type:'AVVIK_AVBRYT', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid || ''}'})" class="btn-nissy" style="background:#ef4444; color:white;">&#10060; Avbryt</button>
-                        <button id="avvFerdig_${data.id}" disabled onclick="var v=(document.getElementById('avvBliksund_${data.id}').value||'').trim(); if(!/^\\d{5}$/.test(v)){return;} window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid || ''}', rekNr:'${rekNr || ''}', bliksund:v})" class="btn-nissy" style="background:#10b981; color:white; opacity:0.45; cursor:not-allowed;">&#10004; Ferdig</button>
+                        <button id="avvFerdig_${data.id}" onclick="var v=(document.getElementById('avvBliksund_${data.id}').value||'').trim(); window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${data.id}', resId:'${data.resId || ''}', turid:'${data.turid || ''}', rekNr:'${rekNr || ''}', bliksund:v})" class="btn-nissy" style="background:#10b981; color:white;">&#10004; Ferdig</button>
                     </div>
                 </div>`;
         }
@@ -4600,14 +5177,16 @@
             const id = data.id;
             let avvikDiv = card.querySelector('.avvik-info');
             if (!avvikDiv) { avvikDiv = win.document.createElement('div'); avvikDiv.className = 'avvik-info'; card.appendChild(avvikDiv); }
-            // Aktiver «Ferdig» KUN når en reise er valgt OG bliksund er 5 siffer.
-            const sjekk = `var v=(document.getElementById('avvBliksund_${id}').value||'');var sel=document.querySelector('input[name=avvValg_${id}]:checked');var ok=/^\\d{5}$/.test(v)&&!!sel;var fb=document.getElementById('avvFerdig_${id}');if(fb){fb.disabled=!ok;fb.style.opacity=ok?'1':'0.45';fb.style.cursor=ok?'pointer':'not-allowed';}`;
+            // Aktiver «Ferdig» når en reise er valgt. (Bliksund-nummer ble fjernet 24.08 —
+            // operatørene meldte at det var tungvint å taste inn.)
+            const sjekk = `var sel=document.querySelector('input[name=avvValg_${id}]:checked');var ok=!!sel;var fb=document.getElementById('avvFerdig_${id}');if(fb){fb.disabled=!ok;fb.style.opacity=ok?'1':'0.45';fb.style.cursor=ok?'pointer':'not-allowed';}`;
             const valgRad = (n) => `<label class="avv-valg" style="display:flex;align-items:flex-start;gap:9px;padding:9px 10px;margin-bottom:7px;background:#fff5f5;border:1.5px solid #fecaca;border-radius:6px;cursor:pointer;">
                     <input type="radio" name="avvValg_${id}" value="${n}" onchange="${sjekk}" style="margin-top:3px;cursor:pointer;">
                     <div><div style="font-weight:bold;color:#991b1b;">Reise ${n}</div>
                     <div style="font-size:12px;">Rek.nr: <strong>${data['rekNr' + n] || '?'}</strong> &middot; Start: <strong>${data['start' + n] || '?'}</strong> &middot; ${data['rmate' + n] || '?'}</div>
                     ${data['rekvirent' + n] ? '<div style="font-size:11px;color:#64748b;">Rekvirent: ' + data['rekvirent' + n] + '</div>' : ''}
                     ${data['sist' + n] ? '<div style="font-size:11px;color:#64748b;">Sist endret: ' + data['sist' + n] + '</div>' : ''}
+                    ${data['behov' + n] ? '<div style="font-size:11px;color:#6d28d9;font-weight:600;">Behov: ' + data['behov' + n] + '</div>' : ''}
                     </div></label>`;
             avvikDiv.innerHTML = `
                 <div style="padding:12px 15px; background:#fef2f2; border-top:2px solid #ef4444;">
@@ -4615,11 +5194,11 @@
                     ${valgRad(1)}
                     ${valgRad(2)}
                     <div style="margin:6px 0 8px;">
-                        <input id="avvBliksund_${id}" type="text" inputmode="numeric" maxlength="5" placeholder="Bliksund-hendelse (5 siffer)" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,5);${sjekk}" style="padding:7px 10px; border:1.5px solid #fca5a5; border-radius:6px; font-size:13px; width:220px; outline:none;">
+                        <input id="avvBliksund_${id}" type="text" inputmode="numeric" maxlength="5" placeholder="Bliksund-hendelse (valgfritt)" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,5);" style="padding:7px 10px; border:1.5px solid #fca5a5; border-radius:6px; font-size:13px; width:220px; outline:none;">
                     </div>
                     <div style="display:flex; gap:8px;">
                         <button onclick="window._avvikCh.postMessage({type:'AVVIK_AVBRYT', id:'${id}', resId:'${data.resId1 || ''}', turid:'${data.turid1 || ''}'})" class="btn-nissy" style="background:#ef4444; color:white;">&#10060; Avbryt</button>
-                        <button id="avvFerdig_${id}" disabled onclick="var v=(document.getElementById('avvBliksund_${id}').value||'').trim();var sel=document.querySelector('input[name=avvValg_${id}]:checked');if(!/^\\d{5}$/.test(v)||!sel){return;}var r=sel.value;window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${id}', resId:(r==='1'?'${data.resId1 || ''}':'${data.resId2 || ''}'), turid:(r==='1'?'${data.turid1 || ''}':'${data.turid2 || ''}'), rekNr:(r==='1'?'${data.rekNr1 || ''}':'${data.rekNr2 || ''}'), ogsaGodkjennTurid:(r==='1'?'${data.turid2 || ''}':'${data.turid1 || ''}'), ogsaGodkjennRekNr:(r==='1'?'${data.rekNr2 || ''}':'${data.rekNr1 || ''}'), bliksund:v})" class="btn-nissy" style="background:#10b981; color:white; opacity:0.45; cursor:not-allowed;">&#10004; Skriv avvik på valgt reise</button>
+                        <button id="avvFerdig_${id}" disabled onclick="var sel=document.querySelector('input[name=avvValg_${id}]:checked');if(!sel){return;}var r=sel.value;var v=(document.getElementById('avvBliksund_${id}').value||'').trim();window._avvikCh.postMessage({type:'AVVIK_FERDIG', id:'${id}', resId:(r==='1'?'${data.resId1 || ''}':'${data.resId2 || ''}'), turid:(r==='1'?'${data.turid1 || ''}':'${data.turid2 || ''}'), rekNr:(r==='1'?'${data.rekNr1 || ''}':'${data.rekNr2 || ''}'), ogsaGodkjennTurid:(r==='1'?'${data.turid2 || ''}':'${data.turid1 || ''}'), ogsaGodkjennRekNr:(r==='1'?'${data.rekNr2 || ''}':'${data.rekNr1 || ''}'), bliksund:v})" class="btn-nissy" style="background:#10b981; color:white; opacity:0.45; cursor:not-allowed;">&#10004; Skriv avvik på valgt reise</button>
                     </div>
                 </div>`;
         }
@@ -4630,7 +5209,9 @@
             const infoDiv = win.document.getElementById(`adminInfo-${data.reqId}`);
             const adminBtn = win.document.getElementById(`btnAdmin-${data.reqId}`);
             try {
-                const admin = adminTilgjengelig ? await hentAdminData(data.reqId, data.resId || null) : null;
+                // tvingFersk: operatøren har som regel nettopp rettet noe i NISSY og trykker
+                // for å se resultatet — et cachet svar ville gjort verktøyet dårligere enn før.
+                const admin = adminTilgjengelig ? await hentAdminData(data.reqId, data.resId || null, true) : null;
                 const rekNr = admin && admin.rekNr ? admin.rekNr : await hentRekNr(data.reqId);
                 const turid = data.resId || data.reqId;
                 if (infoDiv) {
@@ -4675,17 +5256,22 @@
             if (data.turid || data.rekNr) { godkjennTur(data.turid, '', data.rekNr || ''); }
             // DUBLETT: godkjenn også den ANDRE reisen (den vi IKKE skriver avvik på) så paret ikke re-flagges.
             if (data.ogsaGodkjennTurid || data.ogsaGodkjennRekNr) { godkjennTur(data.ogsaGodkjennTurid || '', '', data.ogsaGodkjennRekNr || ''); }
-            // Bliksund-hendelse er påkrevd fra knappen → skriv standardisert merknad i NISSY
-            // Rek.nr foran så avvik på samkjøring kan skilles per tur
-            if (data.bliksund && data.resId) {
+            // Skriv standardisert merknad i NISSY. Rek.nr foran så avvik på samkjøring kan
+            // skilles per tur.
+            // v38.4.64 (Thomas 24.08): Bliksund-nummeret er ikke lenger PÅKREVD — operatørene
+            // meldte at tvungen utfylling var tungvint. Feltet står, og tas med når det fylles ut.
+            // ⚠️ Betingelsen var `if (data.bliksund && data.resId)`, så merknaden ville sluttet å
+            // bli skrevet i det hele tatt for alle som lot feltet stå tomt.
+            if (data.resId) {
                 const rekDel = data.rekNr ? `Rek ${data.rekNr}: ` : '';
-                skrivAvvikMerknadNissy(data.resId, `${rekDel}Ikke godkjent. Skrevet avvik: ${data.bliksund}. ${SIGNATUR}`);
+                const bDel = data.bliksund ? `: ${data.bliksund}` : '';
+                skrivAvvikMerknadNissy(data.resId, `${rekDel}Ikke godkjent. Skrevet avvik${bDel}. ${SIGNATUR}`);
             }
             loggHandling('AVVIK_FERDIG', {
                 rek_nr: data.rekNr || '',
                 tur_id: data.turid || '',
                 res_id: data.resId || '',
-                grunn: data.bliksund ? `Bliksund ${data.bliksund}` : '',
+                grunn: data.bliksund ? `Bliksund ${data.bliksund}` : 'Skrevet avvik',
                 detaljer: { bliksund: data.bliksund || '' }
             });
             fadeOgFjern(data.id);
@@ -5246,11 +5832,16 @@
             if (kmBtn) { kmBtn.disabled = true; kmBtn.textContent = '...'; }
 
             try {
-                const admin = adminTilgjengelig ? await hentAdminData(data.reqId, data.resId || null) : null;
+                // tvingFersk: operatøren har som regel nettopp rettet noe i NISSY og trykker
+                // for å se resultatet — et cachet svar ville gjort verktøyet dårligere enn før.
+                const admin = adminTilgjengelig ? await hentAdminData(data.reqId, data.resId || null, true) : null;
                 const folkAdr = admin && admin.folk ? admin.folk : '';
                 const fraAdr = admin && admin.fra ? admin.fra : '';
                 const tilAdr = admin && admin.til ? admin.til : '';
+                // NB: her antas TUR ved ukjent retning. Beholdt fordi operatøren står i dialogen og
+                // ser resultatet med én gang — men det logges, så feil retning kan gjenkjennes.
                 const erTur = admin && admin.erTur !== null ? admin.erTur : true;
+                if (!admin || admin.erTur === null) console.warn(`[KM-MANUELL] Ukjent retning RID=${data.reqId} — ANTAR tur til behandling`);
                 const behandlingsAdr = erTur ? tilAdr : fraAdr;
 
                 // Vis rek.nr. i kortheaderen

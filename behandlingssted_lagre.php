@@ -70,15 +70,19 @@ $normTlf = function ($raa) {
 };
 
 // Idempotent for baser som ble laget før kortnavn/alias kom til
-foreach (['kortnavn' => 'VARCHAR(60)', 'alias' => 'VARCHAR(120)'] as $kol => $type) {
+foreach (['kortnavn' => 'VARCHAR(60)', 'alias' => 'VARCHAR(120)', 'e_rek' => 'VARCHAR(4)'] as $kol => $type) {
     try {
         if (!$pdo->query("SHOW COLUMNS FROM ovr_behandlingssted LIKE '$kol'")->fetchAll())
             $pdo->exec("ALTER TABLE ovr_behandlingssted ADD COLUMN $kol $type DEFAULT NULL");
     } catch (Throwable $e) {}
 }
+// e_rek = «E.rekvirering: Ja/Nei». Dette er NISSYs eneste synlige aktiv-markør:
+// søkesiden viser bare enheter med Ja, mens treet også inneholder eldre
+// generasjoner av samme sted (Harbitzalleen Legesenter fantes i 6 utgaver).
+// Uten den måtte operatøren gjette hvilke av 14 «underavdelinger» som er ekte.
 $st = $pdo->prepare("REPLACE INTO ovr_behandlingssted
-    (id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, kortnavn, alias, parent_id, utm_n, utm_o, oppdatert, av)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?)");
+    (id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, kortnavn, alias, e_rek, parent_id, utm_n, utm_o, oppdatert, av)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?)");
 $slettTlf = $pdo->prepare("DELETE FROM ovr_behandlingssted_tlf WHERE bhs_id = ?");
 $settTlf  = $pdo->prepare("INSERT IGNORE INTO ovr_behandlingssted_tlf (tlf_norm, bhs_id) VALUES (?,?)");
 
@@ -111,6 +115,13 @@ foreach ($steder as $s) {
         substr(preg_replace('/\D/', '', (string)($s['her_id'] ?? '')), 0, 20) ?: null,
         substr(trim((string)($s['kortnavn'] ?? '')), 0, 60) ?: null,
         substr(trim((string)($s['alias'] ?? '')), 0, 120) ?: null,
+        // Normaliseres til Ja/Nei — plakaten skriver den med stor forbokstav,
+        // men vi vil ikke være prisgitt at det aldri endrer seg.
+        (function ($v) {
+            $v = strtolower(trim((string)$v));
+            if ($v === '') return null;
+            return str_starts_with($v, 'j') ? 'Ja' : (str_starts_with($v, 'n') ? 'Nei' : null);
+        })($s['e_rekvirering'] ?? ''),
         isset($s['parent_id']) && is_numeric($s['parent_id']) ? (int)$s['parent_id'] : null,
         $utmN, $utmO,
         $av,

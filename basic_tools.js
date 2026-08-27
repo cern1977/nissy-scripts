@@ -48,6 +48,13 @@
 //             regiontillegget (hentetid + reisetid + tillegg = oppmøte → frist = oppmøte − 25 min).
 //             ruter.php beholdes som fallback når adressen ikke lar seg strukturere (institusjon uten
 //             gateadresse) eller NISSY-kallet feiler.
+// v1.127-dev: UTSENDELSESVARSEL regnet med NISSYs `tidstilleggRegionalt` (Thomas 21.08: «Treff
+//             fra 20 min. Det er margin for å rekke time. Den skal vi ikke legge på»). Tillegget er
+//             margin for at pasienten skal rekke timen — ikke transporttid — så både frist og
+//             ventetid lå 20 min for romslig, og tooltipen sa «reisetid 1 t 35 min» der
+//             rekvisisjonsboksen sa 1 t 15 min. Nå brukes KUN j.reisetid.
+//             NB: nissyDelta() (annen adresse) beholder reisetid+tillegg — der REPRODUSERER vi
+//             NISSYs hentetid, og da hører tillegget med. Samme tall, to ulike formål.
 // === BASIC TOOLS v1.98-dev ===
 // v1.98-dev: UTSENDELSESVARSEL — checkbox «🔔 Utsendelsesvarsel» i footeren. Blinker ventende V-rader
 //            amber når «send ut»-frist passert: nå ≥ hentetid + maks(reisetid,60min) − 25min. reisetid
@@ -353,7 +360,7 @@
     //             → «07:09»), så turer en ANNEN dag ble evaluert som i dag → falsk blink. Beholder nå
     //             tidRaw m/ dato-prefiks; utvOppdater hopper over turer med dato ≠ i dag.
     // v1.92-dev: fix popup-frysing under geokoding — geo()-timeout + parallell geocodeAlle.
-    const VERSJON = '1.126';
+    const VERSJON = '1.128';
     const GMAPS_KEY = 'AIzaSyApih8RVgu4Wa4x2bEWga5eDqwTgVFRagQ';
     const ER_DEV = /\bbasic_tools_dev\b/.test((document.currentScript && document.currentScript.src) || '');
     const NAVN = ER_DEV ? 'BASIC TOOLS DEV' : 'BASIC TOOLS';
@@ -2984,7 +2991,11 @@
     // TTL 24 t (v1.122, Thomas). v1.121: FEILEDE oppslag (null)
     // persisteres OGSÅ, men med kort TTL (30 min) — uten dette ble alle ugekodbare institusjons-
     // adresser re-fetchet ved hver F5 («veldig mange ruter.php-kall»-funnet 03.07).
-    const UTV_RT_LS = 'vkt_utv_rtcache', UTV_RT_TTL = 24 * 3600 * 1000, UTV_RT_TTL_FEIL = 30 * 60 * 1000, UTV_RT_MAKS = 600;
+    // v1.127: NY NØKKEL. De cachede verdiene fra før inkluderte tidstilleggRegionalt, og
+    // med 24 t levetid ville de servert gamle tall lenge etter at beregningen ble rettet —
+    // fiksen ville sett ut til å virke tilfeldig. Ny nøkkel forkaster dem umiddelbart.
+    const UTV_RT_LS = 'vkt_utv_rtcache2', UTV_RT_TTL = 24 * 3600 * 1000, UTV_RT_TTL_FEIL = 30 * 60 * 1000, UTV_RT_MAKS = 600;
+    try { localStorage.removeItem('vkt_utv_rtcache'); } catch (_) {}
     const _utvReisetid = {};  // "fra|til" → minutter (minne-cache; speiles til localStorage)
     try {
         const c = JSON.parse(localStorage.getItem(UTV_RT_LS) || '{}');
@@ -3064,7 +3075,11 @@
             const p2 = n => String(n).padStart(2, '0');
             const behDato = p2(dn.getDate()) + '.' + p2(dn.getMonth() + 1) + '.' + String(dn.getFullYear()).slice(-2);
             const j = await beregnReisetidNissy(fraObj, tilObj, behDato, p2(dn.getHours()) + ':' + p2(dn.getMinutes()));
-            if (j) { utvLagreCache(key, j.reisetid + (j.tidstilleggRegionalt || 0)); return _utvReisetid[key]; }
+            // v1.127 (Thomas 21.08): KUN j.reisetid. `tidstilleggRegionalt` er NISSYs
+            // margin for at pasienten skal rekke timen sin — ikke transporttid. Den hørte
+            // aldri hjemme i utsendelsesfristen eller ventetiden, og gjorde begge 20 min
+            // for romslige: tooltipen sa «reisetid 1 t 35 min» der kjøretiden var 1 t 15.
+            if (j) { utvLagreCache(key, j.reisetid); return _utvReisetid[key]; }
         }
         try {
             const j = await fetch('https://thomaswestby.no/skript/ruter.php?fra=' + encodeURIComponent(utvRenskAdr(ruterFra)) + '&til=' + encodeURIComponent(utvRenskAdr(ruterTil))).then(r => r.json());

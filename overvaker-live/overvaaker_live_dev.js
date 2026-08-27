@@ -17,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.28-dev';
+    const VERSJON_FULL = '6.2.30-dev';
     // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
     //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
     //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
@@ -330,17 +330,38 @@ function kjorOvrvaker() {
                     return;
                 }
                 try {
+                    const reSig = hentSignatur();
                     await fetch(sesjonUrl, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
                             handling: 'heartbeat', id: sesjonId,
                             versjon: VERSJON_FULL,
+                            // Re-detekter identitet hver heartbeat: cookies/header dukker ofte opp
+                            // FØRST etter at brukeren har begynt å jobbe. Backend fyller kun tomt.
+                            nissy_id: hentNissyBrukernavn() || '',
+                            signatur: (reSig && reSig !== 'Ukjent') ? reSig : '',
                             kjorekontor: hentKjorekontorFraTittel()
                         })
                     });
                 } catch(e) {}
             }, 60000);
+
+            // Tidlig re-deteksjon (~8s): retter «Ukjent» raskt uten å vente på første heartbeat.
+            if (!nissy_id || SIGNATUR === 'Ukjent') {
+                setTimeout(() => {
+                    const reSig = hentSignatur();
+                    fetch(sesjonUrl, {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            handling: 'heartbeat', id: sesjonId, versjon: VERSJON_FULL,
+                            nissy_id: hentNissyBrukernavn() || '',
+                            signatur: (reSig && reSig !== 'Ukjent') ? reSig : '',
+                            kjorekontor: hentKjorekontorFraTittel()
+                        })
+                    }).catch(() => {});
+                }, 8000);
+            }
 
             // sendBeacon ved fane-lukking (overlever bedre enn fetch)
             const avsluttSesjon = () => {
@@ -2482,8 +2503,10 @@ function kjorOvrvaker() {
             const seneste = sutiStatus.sendtMs ? Math.max(fraTidMs, sutiStatus.sendtMs) : fraTidMs;
             etterlyseTidspunkt = seneste + etterlysTerskel * 60000;
         } else if (sutiStatus.sendtMs && fraTidMs) {
-            const tildeltPluss = sutiStatus.sendtMs + etterlysTerskel * 60000;
-            etterlyseTidspunkt = tildeltPluss >= fraTidMs ? tildeltPluss : fraTidMs + etterlysTerskel * 60000;
+            // TUR regnet fra «tildelt + terskel», så turer tildelt KORT FØR klar-tid ble
+            // etterlyst for tidlig (Thomas 19.08, tur 72052820: klar 10:30, tildelt ~10:23
+            // → varsel 10:38 i stedet for 10:45). Nå samme regel som RETUR alltid har hatt.
+            etterlyseTidspunkt = Math.max(fraTidMs, sutiStatus.sendtMs) + etterlysTerskel * 60000;
         } else {
             etterlyseTidspunkt = fraTidMs ? fraTidMs + etterlysTerskel * 60000 : 0;
         }
@@ -3676,15 +3699,16 @@ function kjorOvrvaker() {
                     // ║  Basert p\u00e5 EPT/IFS fra avviksloggen                       ║
                     // ╚══════════════════════════════════════════════════════════╝
                     let etterlysTerskel = getEtterlysTerskel(erTur, erSpot);
-                    // TUR: tildelt + terskel (men klar + terskel hvis tildelt utløpt)
-                    // RETUR: max(klar, tildelt) + terskel
+                    // TUR og RETUR: max(klar, tildelt) + terskel
                     let etterlyseTidspunkt = 0;
                     if (!erTur && fraTidMs) {
                         const seneste = sutiStatus.sendtMs ? Math.max(fraTidMs, sutiStatus.sendtMs) : fraTidMs;
                         etterlyseTidspunkt = seneste + etterlysTerskel * 60000;
                     } else if (sutiStatus.sendtMs && fraTidMs) {
-                        const tildeltPluss = sutiStatus.sendtMs + etterlysTerskel * 60000;
-                        etterlyseTidspunkt = tildeltPluss >= fraTidMs ? tildeltPluss : fraTidMs + etterlysTerskel * 60000;
+                        // TUR regnet fra «tildelt + terskel», så turer tildelt KORT FØR klar-tid ble
+                        // etterlyst for tidlig (Thomas 19.08, tur 72052820: klar 10:30, tildelt ~10:23
+                        // → varsel 10:38 i stedet for 10:45). Nå samme regel som RETUR alltid har hatt.
+                        etterlyseTidspunkt = Math.max(fraTidMs, sutiStatus.sendtMs) + etterlysTerskel * 60000;
                     } else {
                         etterlyseTidspunkt = fraTidMs ? fraTidMs + etterlysTerskel * 60000 : 0;
                     }
@@ -4608,7 +4632,7 @@ function kjorOvrvaker() {
             }
             
             // Forsinkelse: vis minutter OVER responstid
-            // TUR: tildelt + terskel. RETUR: alltid klar + terskel
+            // TUR og RETUR: max(klar, tildelt) + terskel
             const tildeltMsVis = k.sutiStatus ? k.sutiStatus.sendtMs : null;
             const responstidMin = getEtterlysTerskel(k.erTur, k.erSpot);
             let forsinkelseFraMs;
@@ -4616,8 +4640,9 @@ function kjorOvrvaker() {
                 const senesteVis = tildeltMsVis ? Math.max(k.fraTidMs, tildeltMsVis) : k.fraTidMs;
                 forsinkelseFraMs = senesteVis + responstidMin * 60000;
             } else if (tildeltMsVis && k.fraTidMs) {
-                const tildeltPlussVis = tildeltMsVis + responstidMin * 60000;
-                forsinkelseFraMs = tildeltPlussVis >= k.fraTidMs ? tildeltPlussVis : k.fraTidMs + responstidMin * 60000;
+                // Må regne likt som beslutningen, ellers viser kortet én forsinkelse mens
+                // varselet går på en annen.
+                forsinkelseFraMs = Math.max(k.fraTidMs, tildeltMsVis) + responstidMin * 60000;
             } else {
                 forsinkelseFraMs = k.fraTidMs ? k.fraTidMs + responstidMin * 60000 : 0;
             }
@@ -4636,24 +4661,14 @@ function kjorOvrvaker() {
             const fmtMs = (ms) => { if (!ms) return '?'; const d = new Date(ms); return d.toLocaleTimeString('no-NO',{hour:'2-digit',minute:'2-digit'}); };
             const tildeltTipMs = tildeltMsVis;
             const klarTipMs = k.fraTidMs;
-            const tildeltPlussTip = tildeltTipMs ? tildeltTipMs + responstidMin * 60000 : null;
             let forsinkelseTip = `${k.erTur ? (k.erSpot ? 'TUR SPOT' : 'TUR') : 'RETUR'} — Terskel: ${responstidMin} min\n`;
             forsinkelseTip += `Tildelt: ${fmtMs(tildeltTipMs)}\n`;
             forsinkelseTip += `Klar: ${fmtMs(klarTipMs)}\n`;
-            if (!k.erTur) {
+            {
                 const senesteTip = tildeltTipMs ? Math.max(klarTipMs || 0, tildeltTipMs) : klarTipMs;
-                forsinkelseTip += `RETUR: max(klar, tildelt) + ${responstidMin}min\n`;
+                forsinkelseTip += `max(klar, tildelt) + ${responstidMin}min\n`;
                 forsinkelseTip += `Seneste: ${fmtMs(senesteTip)}\n`;
                 forsinkelseTip += `Etterlyse: ${fmtMs(senesteTip)}+${responstidMin}min = ${fmtMs(senesteTip + responstidMin * 60000)}`;
-            } else {
-                const tildeltPlussTip2 = tildeltTipMs ? tildeltTipMs + responstidMin * 60000 : null;
-                const brukteKlar = tildeltPlussTip2 && klarTipMs && tildeltPlussTip2 < klarTipMs;
-                if (brukteKlar) {
-                    forsinkelseTip += `Tildelt+${responstidMin}=${fmtMs(tildeltPlussTip2)} < Klar\n`;
-                    forsinkelseTip += `Etterlyse: ${fmtMs(klarTipMs)}+${responstidMin}min = ${fmtMs(klarTipMs + responstidMin * 60000)}`;
-                } else {
-                    forsinkelseTip += `Etterlyse: ${fmtMs(tildeltTipMs)}+${responstidMin}min = ${fmtMs(tildeltPlussTip2)}`;
-                }
             }
             forsinkelseTip += `\nForsinkelse: +${visForsinkelse} min`;
             
@@ -6538,14 +6553,16 @@ function kjorOvrvaker() {
                 // Etterlysning-beregning (v6, identisk med auto)
                 const effektivForsinkelsSok = fraTidMs ? Math.floor((nowMsSok - fraTidMs) / 60000) : smsForsinkelse;
                 let etterlysTerskel = getEtterlysTerskel(erTur, erSpot);
-                // TUR: tildelt + terskel. RETUR: max(klar, tildelt) + terskel
+                // TUR og RETUR: max(klar, tildelt) + terskel
                 let etterlyseTidspunkt = 0;
                 if (!erTur && fraTidMs) {
                     const seneste = sutiStatus.sendtMs ? Math.max(fraTidMs, sutiStatus.sendtMs) : fraTidMs;
                     etterlyseTidspunkt = seneste + etterlysTerskel * 60000;
                 } else if (sutiStatus.sendtMs && fraTidMs) {
-                    const tildeltPluss = sutiStatus.sendtMs + etterlysTerskel * 60000;
-                    etterlyseTidspunkt = tildeltPluss >= fraTidMs ? tildeltPluss : fraTidMs + etterlysTerskel * 60000;
+                    // TUR regnet fra «tildelt + terskel», så turer tildelt KORT FØR klar-tid ble
+                    // etterlyst for tidlig (Thomas 19.08, tur 72052820: klar 10:30, tildelt ~10:23
+                    // → varsel 10:38 i stedet for 10:45). Nå samme regel som RETUR alltid har hatt.
+                    etterlyseTidspunkt = Math.max(fraTidMs, sutiStatus.sendtMs) + etterlysTerskel * 60000;
                 } else {
                     etterlyseTidspunkt = fraTidMs ? fraTidMs + etterlysTerskel * 60000 : 0;
                 }

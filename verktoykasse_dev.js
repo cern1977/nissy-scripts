@@ -435,7 +435,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.160-dev';
+    const VERSJON = '2.211-dev';   // ULIK KNAPPEHØYDE I FOOTEREN (Thomas 27.08: «størrelsesforskjell på høyden enda»). Knappene bygges i TO filer og hadde drevet fra hverandre — 3px/12px uten line-height i verktoykasse, 3px/10px med line-height:1 i basic_tools. Uten line-height er det skriften og EMOJIENE som bestemmer linjeboksen, og de er ikke like høye: 🔧 og 🕘 og ⚙️ gir hver sin. Alle seks har nå samme låste boks (inline-flex, height:22px, line-height:1), så innholdet ikke kan dytte høyden  // FOOTER-PYNT (Thomas 27.08): verktøy-ikonet 🧰 → 🔧, og søkelogg-telleren fra opphøyd tall til «(3)». vertical-align:super løfter tallet over grunnlinja og linjeboksen vokser med det, så Logg-knappen sto et par piksler høyere enn naboene i rekka. Parentesene ligger utenfor tallspennet, slik at begge stedene som oppdaterer telleren fortsatt kan skrive ren textContent  // PASSERTE REKVISISJONER TELLES IKKE (Thomas 26.08: «den har vært»). Badgen sa «3 rekv» mens lista viste 2 — differansen var en retur fra 14.08 som fortsatt sto «Ny». Tallet var riktig, men svarte på et annet spørsmål enn operatøren stiller. Samme målestokk som pnr-vakten; passerte flyttes til tooltipen, ikke bort   // attest-prikken sto grå selv om agenten meldte seg: fargen hvilte på `.closed` mot et KRYSS-ORIGIN vindu, inne i en try med tom catch — feilet det, ble prikken grå uten et pip. Måler nå tid siden siste heartbeat (10 s vindu), som også fanger en fane som henger uten å være lukket   // «attest-agent klar» ble logget hvert 3. sekund — meldingen er en HEARTBEAT, ikke en hendelse. Logger nå kun tilstandsendring (grå → grønn) og ny versjon   // attest-prikken ble grønn først ved neste status-poll: vkt_attest_klar satte flaggene, men fargen settes i tegnAdminStatus. Males nå med én gang agenten melder seg   // kryss-opprinnelse er en FORVENTET tilstand i attest-flyten (pastrans → attest-ui), ikke en feil. Ga SecurityError hvert 300. ms og fylte konsollen med «feil» mens alt virket. Logges nå én gang per fane, og timeout-varselet er stille når årsaken er kjent   // Rekvisisjon/Admin/Attest som EGNE footer-knapper med hver sin statusprikk (Thomas 26.08) — slipper å åpne menyen for et nytt rekvisisjonsbilde. Delt konfig VKT_SNARVEIER brukes av både menyen og footeren, så de kan ikke divergere. Fast rekkefølge via insertBefore søkelogg-cellen   // footer-prikkene sto grå: tegnAdminStatus() maler alle [data-status-for], men hadde kjørt før knappen fantes og kjører først igjen ved statusENDRING. Kaller den nå når knappen bygges   // påloggingsstatus (admin/rekvisisjon/attest) som prikker på «🧰 Verktøy»-knappen, med skille foran. Kobler seg gratis på eksisterende oppdatering — den treffer [data-status-for] hvor som helst, så prikkene kan aldri komme i utakt med menyens   // tlf-toasten vokser nedover etter at den er plassert (innholdet fylles asynkront), så treff falt ut av vinduet når operatøren hadde dratt den ned. ResizeObserver holder den innenfor viewporten — når nedre kant treffer bunnen, flyttes top opp, altså bygger den oppover. Rører den ikke så lenge den får plass   // NISSY admin-KAPABILITETER (Thomas 26.08: «ikke alle har like mye tilgang»). «admin=true» var bare en sesjonssjekk og sa ingenting om hvilke menypunkter brukeren når — et oppslag mot noe man mangler gir innloggingsside, tom parse og «fant ingen data» i stedet for «du mangler tilgang». Leser nå admin-menyen én gang → window.__vkt_nissyAdmin.har()/mangler()   // «🧰 Verktøy»-knapp i footeren åpner samme meny som skjoldet, og skjoldet kan skjules (vkt_vis_skjold, default PÅ) fra Innstillinger. Menyen forankres nedenfra mot knappen; stopPropagation er påkrevd, ellers lukker skjoldets egen document-lytter menyen i samme klikk
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -521,10 +521,61 @@
     const ADMIN_URL   = NISSY_ORIGIN + '/administrasjon/';
     const REK_URL     = NISSY_ORIGIN + '/rekvisisjon/requisition';
 
+    // ── SNARVEIER: ADMIN / REKVISISJON / ATTEST ────────────────────────────────────────
+    // Én kilde, to visninger: menyen i skjoldet OG knappene i footeren (Thomas 26.08 —
+    // «da slipper vi å gå inn på menyen for å åpne nytt rekvisisjonsbilde»).
+    // Hver snarvei åpner en NAVNGITT fane og injiserer sin agent (mutual keeper-mønster), så
+    // gjenbruk av fanen og re-injisering etter navigasjon virker likt uansett hvor man klikket.
+    const VKT_SNARVEIER = {
+        rek: {
+            tekst: 'Rekvisisjon', url: REK_URL, statusKey: 'rek',
+            tittel: 'Åpne rekvisisjonsbildet i egen fane',
+            agent: {
+                tabName: ER_DEV ? 'nissy-rekvisisjon-dev' : 'nissy-rekvisisjon',
+                fil: ER_DEV ? 'verktoykasse_rekvisisjon_dev.js' : 'verktoykasse_rekvisisjon.js',
+                flag: ER_DEV ? '__vkt_rekvisisjon_dev_agent' : '__vkt_rekvisisjon_agent',
+                pathPrefix: '/rekvisisjon/',
+            },
+        },
+        admin: {
+            tekst: 'Admin', url: ADMIN_URL, statusKey: 'admin',
+            tittel: 'Åpne NISSY administrasjon i egen fane',
+            agent: {
+                tabName: ER_DEV ? 'nissy-admin-dev' : 'nissy-admin',
+                fil: ER_DEV ? 'verktoykasse_admin_dev.js' : 'verktoykasse_admin.js',
+                flag: ER_DEV ? '__vkt_admin_dev_agent' : '__vkt_admin_agent',
+                pathPrefix: '/administrasjon/',
+            },
+        },
+        attest: {
+            // ⚠️ Går via NISSYs egen startAttest på SAMME origin, ikke rett til attest-ui
+            //    (cross-origin). Da beholder vi håndtaket til vinduet, og keeperen re-injiserer
+            //    rekvisisjons-agenten når flyten KOMMER TILBAKE til en /rekvisisjon/-side.
+            tekst: 'Attest', url: NISSY_ORIGIN + '/rekvisisjon/requisition/startAttest', statusKey: 'attest',
+            tittel: 'Åpne Attest via startAttest (samme origin) — agenten injiseres når flyten lander på rekvisisjon',
+            agent: {
+                tabName: ER_DEV ? 'nissy-attest-dev' : 'nissy-attest',
+                fil: ER_DEV ? 'verktoykasse_rekvisisjon_dev.js' : 'verktoykasse_rekvisisjon.js',
+                flag: ER_DEV ? '__vkt_rekvisisjon_dev_agent' : '__vkt_rekvisisjon_agent',
+                pathPrefix: '/rekvisisjon/',
+            },
+        },
+    };
+
+    function apneSnarvei(key) {
+        const sn = VKT_SNARVEIER[key];
+        if (!sn) return;
+        const w = window.open(sn.url, sn.agent.tabName);
+        if (!w) { alert('Popup blokkert'); return; }
+        try { w.focus(); } catch (_) {}
+        injiserAgentNårKlar(w, sn.agent.fil, sn.agent.flag, sn.agent.pathPrefix);
+        holdTabLevende(w, sn.agent.tabName, sn.url, sn.agent.fil, sn.agent.flag, sn.agent.pathPrefix);
+    }
+
     const ADMIN_PING_MS = 180000;   // 3 min keep-alive (admin + rekvisisjon)
     const TURID_POLL_MS = 15000;    // 15 sek ventende-sjekk
 
-    let knappRef = null;             // referanse til 🧰-knappen
+    let knappRef = null;             // referanse til 🔧-knappen
     let adminStatus = 'ukjent';      // 'ok' | 'utlogget' | 'feil' | 'ukjent'
     let rekStatus   = 'ukjent';      // samme verdier — rekvisisjons-modul
 
@@ -796,30 +847,12 @@
         };
         const snarveier = document.createElement('div');
         snarveier.style.cssText = 'display:flex;gap:4px;padding:0 4px 4px;';
-        snarveier.appendChild(lagSnarvei('Admin', ADMIN_URL, 'admin', {
-            tabName: ER_DEV ? 'nissy-admin-dev' : 'nissy-admin',
-            fil: ER_DEV ? 'verktoykasse_admin_dev.js' : 'verktoykasse_admin.js',
-            flag: ER_DEV ? '__vkt_admin_dev_agent' : '__vkt_admin_agent',
-            pathPrefix: '/administrasjon/'
-        }));
-        snarveier.appendChild(lagSnarvei('Rekvisisjon', REK_URL, 'rek', {
-            tabName: ER_DEV ? 'nissy-rekvisisjon-dev' : 'nissy-rekvisisjon',
-            fil: ER_DEV ? 'verktoykasse_rekvisisjon_dev.js' : 'verktoykasse_rekvisisjon.js',
-            flag: ER_DEV ? '__vkt_rekvisisjon_dev_agent' : '__vkt_rekvisisjon_agent',
-            pathPrefix: '/rekvisisjon/'
-        }));
-        // Attest-snarvei: åpne via NISSYs egen startAttest på SAMME origin (pastrans) i stedet for
-        // å hoppe rett til attest-ui (cross-origin). Da beholder vi handamtaket til vinduet — og keeperen
-        // re-injiserer rekvisisjons-agenten når flyten KOMMER TILBAKE til en /rekvisisjon/-side, selv
-        // etter en cross-origin-omvei via attest-ui. (Var: window.open mot attest-ui → vinduet mistet.)
-        const attestSnarvei = lagSnarvei('Attest', NISSY_ORIGIN + '/rekvisisjon/requisition/startAttest', 'attest', {
-            tabName: ER_DEV ? 'nissy-attest-dev' : 'nissy-attest',
-            fil: ER_DEV ? 'verktoykasse_rekvisisjon_dev.js' : 'verktoykasse_rekvisisjon.js',
-            flag: ER_DEV ? '__vkt_rekvisisjon_dev_agent' : '__vkt_rekvisisjon_agent',
-            pathPrefix: '/rekvisisjon/'
+        ['rek', 'admin', 'attest'].forEach(k => {
+            const sn = VKT_SNARVEIER[k];
+            const el = lagSnarvei(sn.tekst, sn.url, sn.statusKey, sn.agent);
+            el.title = sn.tittel;
+            snarveier.appendChild(el);
         });
-        attestSnarvei.title = 'Åpne Attest via startAttest (samme origin) — agenten injiseres når flyten lander på rekvisisjon';
-        snarveier.appendChild(attestSnarvei);
         meny.appendChild(snarveier);
 
         // "Hold aktiv etter F5" — åpner keeper-popup som re-injiserer verktøykassen
@@ -1056,6 +1089,37 @@
             if (!meny.contains(e.target) && !knapp.contains(e.target)) meny.style.display = 'none';
         });
 
+        // ── SKJOLDET KAN SKJULES, MENYEN NÅS UANSETT (Thomas 25.08) ────────────────────
+        // Skjoldet er verktøykassens ansikt, men det ligger og flyter over NISSY hele dagen.
+        // Den som vil ha skjermen ren skal kunne skru det av — uten å miste menyen, som nå
+        // også har en knapp i footeren. Default PÅ: ingen mister noe ved en oppgradering.
+        const SKJOLD_LS = 'vkt_vis_skjold';
+        const skjoldSynlig = () => localStorage.getItem(SKJOLD_LS) !== '0';
+        function skjoldVis(paa) {
+            localStorage.setItem(SKJOLD_LS, paa ? '1' : '0');
+            knapp.style.display = paa ? '' : 'none';
+            if (!paa) meny.style.display = 'none';
+        }
+        if (!skjoldSynlig()) knapp.style.display = 'none';
+
+        // Menyen kan åpnes fra footer-knappen også. Den forankres da NEDENFRA, mot knappen,
+        // i stedet for øverst til høyre der skjoldet ligger.
+        window.__vkt_meny = {
+            toggle(anker) {
+                if (meny.style.display === 'block') { meny.style.display = 'none'; return; }
+                // Innstillinger-panelet ligger samme sted og er like bredt — lukk det først.
+                try { if (window.__basicTools && window.__basicTools.kpLukk) window.__basicTools.kpLukk(); } catch (_) {}
+                const r = anker.getBoundingClientRect();
+                meny.style.top = 'auto';
+                meny.style.right = 'auto';
+                meny.style.left = Math.round(r.left) + 'px';
+                meny.style.bottom = Math.round(window.innerHeight - r.top + 6) + 'px';
+                meny.style.display = 'block';
+            },
+            skjul() { meny.style.display = 'none'; },
+            skjoldVis, skjoldSynlig,
+        };
+
         (document.documentElement || document.body).appendChild(knapp);
         (document.documentElement || document.body).appendChild(meny);
         knappRef = knapp;
@@ -1125,11 +1189,17 @@
         document.querySelectorAll('[data-status-for="admin"]').forEach(el => el.style.background = farge(adminStatus));
         document.querySelectorAll('[data-status-for="rek"]').forEach(el => el.style.background = farge(rekStatus));
         // Attest: grønn når attest-agenten er tilkoblet (vkt_attest_klar mottatt + fana lever), ellers grå.
+        // ⚠️ IKKE SPØR ET KRYSS-ORIGIN VINDU OM `.closed` (Thomas 26.08: prikken sto grå selv om
+        //    agenten meldte seg hvert 3. sekund). Oppslaget lå i en try med tom catch — slo det
+        //    feil, ble prikken grå UTEN et pip, og det er umulig å skille fra «ikke tilkoblet».
+        //    Vi har et ærligere mål: agenten BANKER hvert 3. sekund. Da måler vi hvor lenge siden
+        //    vi hørte fra den, i stedet for å spørre om en egenskap vi kanskje ikke får lese.
+        //    Bonus: dette fanger også en fane som henger uten å være lukket — `.closed` ville sagt
+        //    at alt er i orden.
+        const ATTEST_FERSK_MS = 10000;      // 3 s-heartbeat → 10 s gir rom for et tapt slag
         let attestFarge = '#64748b';
-        try {
-            if (attestTabRef && attestTabRef.closed) attestTabReady = false;
-            if (attestTabReady && attestTabRef && !attestTabRef.closed) attestFarge = '#10b981';
-        } catch (_) {}
+        if (attestSistSett && (Date.now() - attestSistSett) < ATTEST_FERSK_MS) attestFarge = '#10b981';
+        else attestTabReady = false;
         document.querySelectorAll('[data-status-for="attest"]').forEach(el => el.style.background = attestFarge);
 
         // Utlogget-toast fjernet — tilgang/status finnes i menyen (statusprikker + snarveier).
@@ -1215,8 +1285,19 @@
     // ben (tur/retur) ut fra rad-id-en (V-<resId>). Samme detalj-parsing som turid-flyten.
     async function hentTurDetaljerViaRekvnr(rekvnr) {
         try {
-            console.log(`[VERKTØYKASSE] searchStatus: nr=${rekvnr}`);
-            const searchRes = await fetch(`${ADMIN_BASE}/searchStatus?nr=${encodeURIComponent(rekvnr)}`, { credentials: 'same-origin' });
+            // v2.187 (Thomas 21.08): dette var en naken `GET ?nr=` som ALDRI ga treff —
+            // den manglet både submit_action og alle feltene NISSY krever. Overvåker Live
+            // har hatt riktig form hele tiden (overvaaker_live.js ~L5947), så vi speiler
+            // den: submit_action=reqSearch med feltet `requisitionNumber`.
+            // (Feltnavnet er fella: `requisitionNr` gir 0 treff, `requisitionNumber` virker.)
+            const searchBody = `submit_action=reqSearch&requisitionNumber=${encodeURIComponent(rekvnr)}`
+                + `&council=-999999&chosenDispatchCenter.id=560&_attentionUnresolvedOnly=on&dbSelect=1`;
+            console.log(`[VERKTØYKASSE] searchStatus: reqSearch=${rekvnr}`);
+            const searchRes = await fetch(`${ADMIN_BASE}/searchStatus`, {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: searchBody
+            });
             if (!searchRes.ok) return { feil: `searchStatus HTTP ${searchRes.status}`, rekvnr };
             const searchHtml = await searchRes.text();
             const idRegex = /getRequisitionDetails\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/g;
@@ -1246,6 +1327,51 @@
         if (html.length < 500) return null;
 
         const data = { reqId: +reqId, db: +db, tripid: +tripid };
+
+        // === SUTI-hendelser (v2.167, Thomas 21.08) ===
+        // searchStatus' Status-kolonne er grov. De EKTE hendelsene med klokkeslett ligger
+        // i SUTI-tabellen — og vi henter den allerede, siden kallet over har
+        // showSutiXml=true&full=true. Ingen ekstra runde til admin; vi kastet den bare før.
+        // Kodene er Overvåker Lives fasit (overvaaker_live.js ~L3238):
+        //   1709 = bil fremme, venter på pasient   1701 = passasjer hentet
+        //   1702 = passasjer levert                1703 = bomtur (nullstiller alt)
+        try {
+            const sutiIdx = html.indexOf('Suti kode');
+            if (sutiIdx > -1) {
+                let omr = html.substring(sutiIdx);
+                // Alt etter <hr> er GAMLE ressurser — hører til en tidligere bil.
+                const hr = omr.indexOf('<hr');
+                if (hr > -1) omr = omr.substring(0, hr);
+                const rader = [];
+                const radRe = /<tr[^>]*>\s*([\s\S]*?)<\/tr>/gi;
+                let m;
+                while ((m = radRe.exec(omr)) !== null) {
+                    const rad = m[1];
+                    const t = rad.match(/<nobr>(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})<\/nobr>/);
+                    if (!t) continue;
+                    rader.push({
+                        rad,
+                        ms: new Date(+t[3], +t[2] - 1, +t[1], +t[4], +t[5], +t[6]).getTime(),
+                        kl: `${t[4]}:${t[5]}`
+                    });
+                }
+                rader.sort((a, b) => a.ms - b.ms);
+                const suti = { bilFremme: '', hentet: '', levert: '', bomtur: false };
+                for (const { rad, kl } of rader) {
+                    // Bomtur nullstiller: bilen kom aldri, og en ny bil starter på nytt.
+                    if (/>\s*1703\b/.test(rad) || /Bomtur/.test(rad)) {
+                        suti.bomtur = true; suti.bilFremme = ''; suti.hentet = ''; suti.levert = '';
+                        continue;
+                    }
+                    // Kun BEKREFTEDE hendelser teller — samme vakt som Live har.
+                    if (!/Bekreftet/.test(rad)) continue;
+                    if (/>\s*1709\b/.test(rad)) { suti.bilFremme = kl; suti.bomtur = false; }
+                    if (/>\s*1701\b/.test(rad)) { suti.hentet = kl; suti.bomtur = false; }
+                    if (/>\s*1702\b/.test(rad)) { suti.levert = kl; }
+                }
+                if (suti.bilFremme || suti.hentet || suti.levert || suti.bomtur) data.suti = suti;
+            }
+        } catch (_) { /* SUTI er tilleggsinfo — oppslaget skal virke uten */ }
 
         const henteIdx = html.indexOf('Hentested');
         const leverIdx = html.indexOf('Leveringssted');
@@ -2024,8 +2150,232 @@
         } catch (_) { return null; }
     }
 
+    // === VAKTLISTE (v2.178, Thomas 21.08) ===
+    // Keeper-popupen sto og viste «Aktiv» og ingenting annet. Nå kan den holde øye med
+    // konkrete saker: lim inn et nummer, så følger den statusen og sier fra når den
+    // ENDRER seg — slik at operatøren kan love en pasient å følge opp, og gå videre
+    // til neste samtale.
+    //
+    // Arbeidsdelingen: planleggeren eier NISSY-sesjonen og gjør alle oppslag, popupen
+    // er ren visning som leser window.opener.__vkt_vakt. Popupen har ingen egen tilgang.
+    // Lagres på MASKINEN (localStorage), ikke på server — vaktlista er operatørens egen
+    // arbeidsliste, og den skal overleve F5 i planleggeren (Thomas 21.08).
+    //
+    // ⚠ jsonStringifyTrygt, ALDRI rå JSON.stringify: rico definerer Array.prototype.toJSON,
+    // som dobbel-encoder arrays til strenger. Det tømte søkeloggen i juni og ville rammet
+    // denne lista på nøyaktig samme måte. Lesingen er selvhelbredende av samme grunn.
+    const VAKT_KEY = 'vkt_vaktliste';
+    const vaktDato = () => new Date().toISOString().slice(0, 10);
+    function vaktLes() {
+        try {
+            const r = JSON.parse(localStorage.getItem(VAKT_KEY) || 'null');
+            if (r && typeof r.saker === 'string') { try { r.saker = JSON.parse(r.saker); } catch (_) {} }
+            // Ny dag = ny arbeidsliste. En vakt på gårsdagens tur hjelper ingen.
+            if (r && r.dato === vaktDato() && Array.isArray(r.saker)) return r.saker;
+        } catch (_) {}
+        return [];
+    }
+    function vaktLagre() {
+        try { localStorage.setItem(VAKT_KEY, jsonStringifyTrygt({ dato: vaktDato(), saker: window.__vkt_vakt || [] })); }
+        catch (_) { /* full disk / privat modus — lista lever videre i minnet */ }
+    }
+    window.__vkt_vakt = window.__vkt_vakt || vaktLes();
+
+    // Lengden avgjør hva nummeret ER — samme regel som smart-søk i planleggeren:
+    // 12 = rekvisisjon, 8 = turnummer, 11/6 = personnummer.
+    function vaktType(raa) {
+        const n = String(raa || '').replace(/\D/g, '');
+        if (n.length === 12) return { type: 'rek', nokkel: n };
+        if (n.length === 8)  return { type: 'tur', nokkel: n };
+        if (n.length === 11 || n.length === 6) return { type: 'pnr', nokkel: n };
+        return null;
+    }
+
+    // Én linje som beskriver tilstanden. Samme kilder som toasten: Status-kolonnen er
+    // fasit, SUTI gir klokkeslettet.
+    function vaktTilstand(r) {
+        if (!r) return { tekst: 'ukjent', farge: '#64748b' };
+        const st = String(r.status || '').toLowerCase();
+        const su = r.suti || null;
+        if (su && su.bomtur)        return { tekst: '⚠ bomtur',  farge: '#f87171' };
+        if (/^ferdig/.test(st))     return { tekst: 'ferdig' + (su && su.levert ? ' ' + su.levert : ''), farge: '#64748b' };
+        if (/^startet/.test(st))    return { tekst: 'i bilen' + (su && su.hentet ? ' fra ' + su.hentet : ''), farge: '#4ade80' };
+        if (su && su.bilFremme)     return { tekst: 'bil fremme ' + su.bilFremme, farge: '#fbbf24' };
+        if (/^ny\b/.test(st))       return { tekst: '⚠ ikke bestilt', farge: '#f59e0b' };
+        return { tekst: r.status || 'venter', farge: '#94a3b8' };
+    }
+
+    // Tidspunkt for en tur, i ms. NISSY skriver «19.08.2026 11:35».
+    function vaktTidMs(t) {
+        const m = String((t && (t.oppmote_tid || t.klar_fra)) || '')
+            .match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+        if (!m) return 0;
+        const aar = m[3].length === 2 ? 2000 + (+m[3]) : +m[3];
+        return new Date(aar, +m[2] - 1, +m[1], m[4] ? +m[4] : 0, m[5] ? +m[5] : 0).getTime();
+    }
+    function vaktKlokke(t) {
+        const ms = vaktTidMs(t);
+        if (!ms) return '';
+        const d = new Date(ms), idag = new Date(); idag.setHours(0, 0, 0, 0);
+        const diff = Math.round((new Date(ms).setHours(0, 0, 0, 0) - idag) / 864e5);
+        const kl = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        return (diff === 0 ? 'i dag' : diff === 1 ? 'i morgen' : diff === -1 ? 'i går'
+                : String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0')) + ' ' + kl;
+    }
+
+    async function vaktHent(v) {
+        try {
+            if (v.type === 'pnr') {
+                const res = await sokPnrINissy(v.nokkel);
+                if (res && res.feil) return { feil: res.feil };
+                const turer = (res && res.turer || []).filter(t => t && t.har_tur && !t.er_attest);
+                // v2.184 (Thomas 21.08): en pnr-vakt følger PASIENTEN, ikke én tur.
+                // Vis alt som er AKTIVT: ikke ferdig, og ikke fra en tidligere dato.
+                // (Regelen er Thomas' foreløpige — han har ikke kartlagt den helt ennå.)
+                const idag = new Date(); idag.setHours(0, 0, 0, 0);
+                const aktive = turer
+                    .filter(t => !/^ferdig/i.test(t.status || ''))
+                    .filter(t => { const ms = vaktTidMs(t); return !ms || ms >= idag.getTime(); })
+                    .map(t => ({ t, ms: vaktTidMs(t) }))
+                    .sort((a, b) => a.ms - b.ms);
+                if (aktive.length) {
+                    return {
+                        navn: aktive[0].t.pasient_navn || '',
+                        turer: aktive.map(x => {
+                            const ti = vaktTilstand(x.t);
+                            return {
+                                id: (x.t.reqId || '') + '_' + (x.t.tripid || ''),
+                                naar: vaktKlokke(x.t),
+                                rute: [x.t.fra_navn || (x.t.fra_adresse || '').split(',')[0],
+                                       x.t.til_navn || (x.t.til_adresse || '').split(',')[0]].filter(Boolean).join(' → '),
+                                tilstand: ti.tekst, farge: ti.farge,
+                                hent: (String(x.t.klar_fra || '').match(/(\d{1,2}:\d{2})/) || [])[1] || ''
+                            };
+                        })
+                    };
+                }
+                // Ingen aktive: si det rett ut i stedet for å vise en gammel, ferdig tur.
+                return { tom: true, navn: (turer[0] || {}).pasient_navn || '',
+                         tomTekst: turer.length ? 'ingen aktive turer' : 'ingen turer' };
+                // v2.182 (Thomas 21.08): pnr-vakt ga vilkårlig resultat fordi vi tok
+                // «første ikke-ferdige» i den rekkefølgen NISSY tilfeldigvis returnerte.
+                // En pasient kan ha mange turer. Nå velges den TIDSMESSIG nærmeste som
+                // ikke er ferdig — det er den hen venter på. Er alt ferdig, vises den
+                // siste fullførte, så lista ikke ser tom ut.
+            }
+            const d = v.type === 'rek' ? await hentTurDetaljerViaRekvnr(v.nokkel)
+                                       : await hentTurDetaljer(v.nokkel);
+            if (d && d.feil) return { feil: d.feil };
+            const rekv = (d && d.rekvisisjoner || []).filter(Boolean);
+            if (!rekv.length) return { tom: true, tomTekst: 'ingen treff' };
+            // v2.188 (Thomas 21.08): REKVISISJONSNUMMER ER PER RETNING — tur og retur har
+            // hvert sitt (…711 og …721, retur merket «R»), de deler bare grunntallet.
+            // reqSearch returnerer begge fordi de hører til samme sak, men operatøren
+            // spurte om ÉN retning, og det er den som er relevant. Turnummer-søk viser
+            // fortsatt alle ben, for der ER turen én enhet.
+            let treff = rekv;
+            if (v.type === 'rek') {
+                const sokt = String(v.nokkel).replace(/\D/g, '');
+                const eksakt = rekv.filter(t => String(t.rek_nr || '').replace(/\D/g, '') === sokt);
+                // Faller tilbake til alle hvis rek_nr ikke lot seg lese — bedre å vise
+                // for mye enn å vise ingenting.
+                if (eksakt.length) treff = eksakt;
+            }
+            if (!treff.length) return { tom: true, tomTekst: 'ingen treff' };
+            // v2.185 (Thomas 21.08): også tur-/rekvisisjonsvakt viser ALLE ben. Et
+            // turnummer med tur og retur viste bare det ene — da så halve saken usynlig ut.
+            const sortert = treff.map(t => ({ t, ms: vaktTidMs(t) })).sort((a, b) => a.ms - b.ms);
+            return {
+                navn: (sortert[0].t.pasient_navn || ''),
+                turer: sortert.map(x => {
+                    const ti = vaktTilstand(x.t);
+                    return {
+                        id: (x.t.reqId || '') + '_' + (x.t.tripid || ''),
+                        naar: vaktKlokke(x.t),
+                        rute: [x.t.fra_navn || (x.t.fra_adresse || '').split(',')[0],
+                               x.t.til_navn || (x.t.til_adresse || '').split(',')[0]].filter(Boolean).join(' → '),
+                        tilstand: ti.tekst, farge: ti.farge,
+                        hent: (String(x.t.klar_fra || '').match(/(\d{1,2}:\d{2})/) || [])[1] || ''
+                    };
+                })
+            };
+        } catch (e) { return { feil: e.message }; }
+    }
+
+    function vaktVarsle(v, fra, til) {
+        try {
+            if (!('Notification' in window) || Notification.permission !== 'granted') return;
+            const n = new Notification('👁 ' + (v.navn || v.nokkel), {
+                body: (fra ? fra + '  →  ' : '') + til,
+                tag: 'vakt-' + v.nokkel,
+                requireInteraction: true
+            });
+            n.onclick = () => { try { window.focus(); n.close(); } catch (_) {} };
+        } catch (_) {}
+    }
+
+    async function oppdaterVaktliste() {
+        if (!erAktivEier()) return;                 // én instans poller, som de andre
+        const liste = window.__vkt_vakt;
+        if (!liste || !liste.length) return;
+        for (const v of liste) {
+            const r = await vaktHent(v);
+            if (r.feil) { v.tilstand = 'feil: ' + r.feil; v.farge = '#f87171'; continue; }
+            if (r.navn) v.navn = r.navn;
+            if (r.tom)  { v.turer = []; v.tilstand = r.tomTekst || 'ingen tur funnet'; v.farge = '#64748b'; continue; }
+            // pnr-vakt: en LISTE av aktive turer. Varsle per tur, ellers ville et skifte
+            // på tur 2 sett ut som om tur 1 endret seg.
+            if (r.turer) {
+                const forrige = {};
+                (v.turer || []).forEach(t => { forrige[t.id] = t.tilstand; });
+                r.turer.forEach(t => {
+                    if (forrige[t.id] && forrige[t.id] !== t.tilstand) {
+                        vaktVarsle({ navn: (v.navn || v.nokkel) + ' · ' + t.naar, nokkel: v.nokkel + t.id },
+                                   forrige[t.id], t.tilstand);
+                    }
+                });
+                v.turer = r.turer;
+                v.tilstand = ''; v.rute = ''; v.hent = ''; v.naar = '';
+                v.sett = new Date().toTimeString().slice(0, 5);
+                continue;
+            }
+            v.naar = r.naar || '';
+            v.flere = r.flere || 0;
+            const t = vaktTilstand(r.rad);
+            const forrige = v.tilstand;
+            v.tilstand = t.tekst;
+            v.farge = t.farge;
+            v.rute = [r.rad.fra_navn || (r.rad.fra_adresse || '').split(',')[0],
+                      r.rad.til_navn || (r.rad.til_adresse || '').split(',')[0]]
+                     .filter(Boolean).join(' → ');
+            v.hent = (String(r.rad.klar_fra || '').match(/(\d{1,2}:\d{2})/) || [])[1] || '';
+            // Varsle KUN ved endring — ellers ville hver runde gitt et nytt varsel.
+            if (forrige && forrige !== v.tilstand) vaktVarsle(v, forrige, v.tilstand);
+            v.sett = new Date().toTimeString().slice(0, 5);
+        }
+        vaktLagre();
+    }
+
+    // Legg en sak på vaktlista. Eksponert som __vkt_overvaak(nummer) — popupen kaller den.
+    window.__vkt_overvaak = function (raa) {
+        const t = vaktType(raa);
+        if (!t) { console.warn('[VAKT] forstår ikke «' + raa + '» — venter 8 (turnr), 11/6 (pnr) eller 12 siffer (rekvisisjon)'); return false; }
+        if (window.__vkt_vakt.some(v => v.nokkel === t.nokkel)) return true;   // alt på lista
+        window.__vkt_vakt.push({ ...t, navn: '', tilstand: 'henter …', farge: '#94a3b8', lagt: Date.now() });
+        try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (_) {}
+        vaktLagre();
+        oppdaterVaktliste();
+        return true;
+    };
+    window.__vkt_avslutt_vakt = function (nokkel) {
+        window.__vkt_vakt = window.__vkt_vakt.filter(v => v.nokkel !== String(nokkel));
+        vaktLagre();
+    };
+    setInterval(oppdaterVaktliste, 60000);
+
     // === TLF-OPPSLAG — findPatient i admin, returnerer pasienter med matchende telefon ===
-    async function sokTlfINissy(tlf) {
+    async function sokTlfINissy(tlf, opts) {
+        opts = opts || {};
         // AbortController-timeout: uten den henger et tregt/stallet findPatient-kall
         // for alltid → «Søker...»-knappen blir disabled permanent → nummeret «låser seg»
         // (Jan-Tore: bare F5 frigjorde det). Nå feiler det etter 15 s med tydelig melding
@@ -2069,7 +2419,23 @@
             // parsingen skulle svikte igjen. (fd.has → ingen dublett når løkka traff.)
             if (!fd.has('Ssn')) { fd.append('Ssn', ''); blanket.push('Ssn (sikkerhetsnett)'); }
             if (ER_DEV) console.log('[VERKTØYKASSE] sokTlfINissy: blanket felt →', blanket.join(', ') || 'INGEN (!)');
-            fd.append('Phone', tlf);
+            // v2.176 (Thomas 21.08): SEND ALLTID +47 PÅ 8-SIFREDE NUMRE.
+            // NISSY leser de to første sifrene i et rått nummer som landskode. For
+            // 47-serien betyr det at «47954440» blir søkt som «954440» — seks siffer,
+            // som treffer bredt (8 falske treff). Med «+4747954440» blir det ETT treff.
+            //
+            // Målt på tre numre: +47 gir identisk resultat som rått for 95783334 (1) og
+            // 45470646 (2), og RETTER 47954440 (8 falske → 1 ekte). Altså aldri dårligere,
+            // og eneste som virker for 47-serien.
+            //
+            // (Min tidligere test konkluderte motsatt — den kjørte på 47905352, et nummer
+            // som IKKE finnes, der alle skrivemåter gir 0 og forskjellen er usynlig.)
+            const rentNr = String(tlf || '').replace(/\D/g, '');
+            // opts.raaFormat: send NØYAKTIG det som ble oppgitt. Kun for formattesten —
+            // uten dette ville alle variantene dens blitt normalisert til +47, og testen
+            // målte sin egen fiks i stedet for NISSYs oppførsel (Thomas 21.08).
+            const sokeNr = (!opts.raaFormat && rentNr.length === 8) ? '+47' + rentNr : tlf;
+            fd.append('Phone', sokeNr);
             fd.append('submitButton', 'Søk pasient');
             const r = await fetch(`${ADMIN_BASE}/findPatient`, {
                 method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal
@@ -2093,6 +2459,16 @@
             // «Ingen pasienter funnet». Sjekkes kun ved 0 treff: ekte 0-treff-side har
             // fortsatt søkeskjemaet (input Phone); login-siden har det ikke. I tillegg
             // samme login-heuristikk som sjekkAdminLogin().
+            // Belte og seler: gir +47-formen 0 treff, prøv rått én gang. Koster kun et
+            // ekstra kall i de tilfellene der vi uansett ikke fant noe.
+            if (!pasienter.length && sokeNr !== tlf && !opts.utenFallback) {
+                const raatt = await sokTlfINissy(tlf, { ...opts, utenFallback: true, _raa: true });
+                if (raatt && !raatt.feil && raatt.pasienter && raatt.pasienter.length) {
+                    console.log(`[VERKTØYKASSE] tlf ${tlf}: +47-søk ga 0, rått søk ga ${raatt.pasienter.length}`);
+                    clearTimeout(timer);
+                    return raatt;
+                }
+            }
             if (!pasienter.length) {
                 const harSokeskjema = !!doc.querySelector('input[name="Phone"], form[action*="findPatient"]');
                 const serUtSomLogin = html.includes('Logg inn') || html.includes('ikke tilgang') ||
@@ -2104,21 +2480,53 @@
                     return { feil: 'ikke innlogget i admin', utlogget: true };
                 }
             }
+            // Formattesten vil bare vite HVOR MANGE rader NISSY gir per skrivemåte.
+            // Verifiseringen under koster ett sideoppslag per treff — med 31 treff er
+            // det nettopp kostnaden vi undersøker, så den hoppes over her.
+            if (opts.utenVerifisering) {
+                return { tlf, hentet: new Date().toISOString(), pasienter, forkastet: 0, uverifisert: true };
+            }
             // Verifiser treffene mot pasientsiden (se pasientHarNummer) — forkast
-            // treff der søkenummeret ikke står på pasienten (sesjons-smitte).
+            // treff der søkenummeret ikke står på pasienten.
+            //
+            // v2.163 (Thomas 18.08): kjøres PARALLELT, 6 om gangen. Før ventet hver
+            // sjekk på den forrige. findPatient gjør PREFIKS-søk — målt 18.08: «905352»
+            // (6 siffer) ga 36 treff, og «47905352» ga 31-32 fordi NISSY leser de to
+            // første sifrene som landskode og søker på resten. 31 treff ble da 31
+            // rundturer på rad, fort 6-8 sekunder. Telefonen er hos operatøren i bare
+            // 20-40 sekunder, så det spiste en vesentlig del av
+            // vinduet — og svaret var som regel at ALLE skulle forkastes.
+            //
+            // Rekkefølgen må bevares (pasientlista vises i den), så svarene skrives på
+            // sin egen indeks i stedet for å pushes når de tilfeldigvis lander.
+            const SAMTIDIG = 6;
+            const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+            const utfall = new Array(pasienter.length);
+            let neste = 0;
+            const arbeider = async () => {
+                while (true) {
+                    const i = neste++;
+                    if (i >= pasienter.length) return;
+                    utfall[i] = await pasientHarNummer(pasienter[i].rediger_url, tlf);
+                }
+            };
+            await Promise.all(Array.from(
+                { length: Math.min(SAMTIDIG, pasienter.length) }, arbeider
+            ));
             const verifiserte = [];
             let forkastet = 0;
             for (let i = 0; i < pasienter.length; i++) {
                 const p = pasienter[i];
-                const ok = await pasientHarNummer(p.rediger_url, tlf);
-                if (ok === false) {
+                if (utfall[i] === false) {
                     forkastet++;
                     console.warn(`[VERKTØYKASSE] tlf ${tlf}: forkastet «${p.navn}» — nummeret står ikke på pasientsiden (åpen pasient i admin-sesjonen?)`);
                     continue;
                 }
                 verifiserte.push(p);  // true eller null (kunne ikke sjekke) → behold
             }
-            console.log(`[VERKTØYKASSE] tlf ${tlf}: ${verifiserte.length} pasient(er) funnet` + (forkastet ? ` (${forkastet} forkastet)` : ''));
+            const brukt = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
+            console.log(`[VERKTØYKASSE] tlf ${tlf}: ${verifiserte.length} pasient(er) funnet` + (forkastet ? ` (${forkastet} forkastet)` : '')
+                + ` · verifisering ${brukt} ms for ${pasienter.length} treff (${SAMTIDIG} samtidig)`);
             return { tlf, hentet: new Date().toISOString(), pasienter: verifiserte, forkastet };
         } catch(e) {
             const melding = (e.name === 'AbortError') ? 'tidsavbrudd – NISSY svarte ikke (prøv igjen)' : e.message;
@@ -2136,18 +2544,35 @@
     // (samme origin som API'et) og kommuniserer via postMessage.
     let attestTabReady = false;
     let attestTabRef = null;
+    let attestSistVersjon = null;   // så heartbeaten ikke logges som en ny hendelse hvert 3. sek
+    let attestSistSett = 0;         // tidspunkt for siste heartbeat — fasit for om koblingen lever
     const attestVentende = new Map();  // requestId → {resolve, reject, timer}
 
     window.addEventListener('message', (e) => {
         const data = e.data || {};
         if (!data.type) return;
         if (data.type === 'vkt_attest_klar') {
+            // ⚠️ DETTE ER EN HEARTBEAT, IKKE EN HENDELSE. Attest-agenten re-melder «klar» hvert
+            //    3. sekund så koblingen overlever F5 i planleggeren — men da må vi ikke logge
+            //    hver eneste gang. Vi logger TILSTANDSENDRING: grå → grønn, og ny versjon.
+            const var_klar = attestTabReady && attestTabRef === e.source;
+            const nyVersjon = attestSistVersjon !== (data.versjon || '?');
             attestTabReady = true;
             attestTabRef = e.source;
-            console.log('[VERKTØYKASSE] attest-agent klar, versjon=' + (data.versjon || '?'));
+            attestSistSett = Date.now();
+            if (!var_klar || nyVersjon) {
+                attestSistVersjon = data.versjon || '?';
+                console.log('[VERKTØYKASSE] attest-agent tilkoblet, versjon=' + attestSistVersjon);
+            }
             // Fortell agenten hvilken NISSY-host operatøren jobber på, så den kan rewrite
             // nissy6-rekvisisjonslenker til samme origin som planleggeren (→ auto-injisering).
             try { e.source.postMessage({ type: 'vkt_planlegger_origin', origin: NISSY_ORIGIN }, '*'); } catch (_) {}
+            // ⚠️ Mal prikkene MED ÉN GANG. Flaggene settes her, men fargen settes i
+            //    tegnAdminStatus() — som kjører på status-pollen. Uten dette kallet sto
+            //    attest-prikken grå helt til neste runde, selv om agenten var klar i samme
+            //    sekund. Samme feilmodus som footer-prikkene hadde i morges: tilstanden var
+            //    riktig, visningen hang etter.
+            try { tegnAdminStatus(); } catch (_) {}
             return;
         }
         if (data.type === 'vkt_attest_result' || data.type === 'vkt_attest_person_result') {
@@ -2367,6 +2792,36 @@
         `;
         document.body.appendChild(t);
 
+        // ⚠️ TOASTEN VOKSER NEDOVER ETTER AT DEN ER PLASSERT (Thomas 26.08). Den er forankret med
+        //    `top`, og innholdet fylles ETTERPÅ — først tittel, så treff, så behandlinger. Står
+        //    den nede på skjermen (der operatøren gjerne har dratt den), skyves de nederste
+        //    treffene rett ut av vinduet, og det finnes ingen scrollbar å redde dem med.
+        //    Vi holder den derfor innenfor viewporten hver gang høyden endrer seg: når nedre kant
+        //    treffer bunnen, flyttes `top` opp tilsvarende — altså BYGGER DEN OPPOVER.
+        //    Vi rører den ikke ellers; operatørens dragne posisjon er fasit så lenge den får plass.
+        function tlfHoldInnenfor() {
+            try {
+                const r = t.getBoundingClientRect();
+                const M = 8;
+                let topp = r.top;
+                if (r.height + 2 * M >= window.innerHeight) topp = M;      // høyere enn skjermen
+                else if (r.bottom > window.innerHeight - M) topp = window.innerHeight - M - r.height;
+                if (topp < M) topp = M;
+                if (Math.abs(topp - r.top) > 1) t.style.top = Math.round(topp) + 'px';
+
+                let venstre = r.left;
+                if (r.right > window.innerWidth - M) venstre = window.innerWidth - M - r.width;
+                if (venstre < M) venstre = M;
+                if (Math.abs(venstre - r.left) > 1) t.style.left = Math.round(venstre) + 'px';
+            } catch (_) {}
+        }
+        if (window.ResizeObserver) {
+            const ro = new ResizeObserver(tlfHoldInnenfor);
+            ro.observe(t);
+        }
+        window.addEventListener('resize', tlfHoldInnenfor);
+        tlfHoldInnenfor();
+
         const kortEl     = t.querySelector('[data-vkt-kort]');
         const knapperEl  = t.querySelector('[data-vkt-knapper]');
         const resultatEl = t.querySelector('[data-vkt-resultat]');
@@ -2433,6 +2888,23 @@
         // vi søker opp automatisk — også når vi ikke har kort. Speiler zisson.php sin
         // egen kø-klassifisering (pasient|innringer|privat).
         const erPasientlinje = /pasient|innringer|privat/i.test(koNavn);
+        // v2.161 (Thomas 17.08): telefonregisteret er blitt godt nok til at skillet
+        // Pasient/Behandler ikke lenger er verdt et klikk. Telefonen er hos operatøren
+        // i 20–40 sekunder — hvert klikk spiser av det budsjettet, og på køer som
+        // «Oslo Fly» sto toasten og ventet på et klikk vi nesten alltid ville gjort.
+        // Så vi søker på ALLE køer, ikke bare pasientlinjene.
+        //
+        // Knappene blir stående: de klassifiserer anropet (statistikk via tlf_svar) og
+        // Behandler/Avvis lukker toasten som før. Auto-søket erstatter altså klikket,
+        // ikke valget. Er nummeret ikke en pasient, gir søket null treff og toasten
+        // ser ut som i dag.
+        //
+        // Sjåførlinja er unntatt uten egen sjekk — den grenen når aldri hit (egen
+        // løyve-flyt). Sett til false for å falle tilbake til kun pasientlinjer.
+        const AUTO_SOK_ALLE_KOER = true;
+        const autoSok = (grunn) => {
+            if (AUTO_SOK_ALLE_KOER || erPasientlinje) autoKlikkPasient(grunn);
+        };
         // Sjåførlinje: anroperen er en SJÅFØR — finn løyvet (tlf→løyve-register, selvlærende)
         // og turen(e) hans i pågående-tabellen. Marker + scroll + vis turinfo i toasten.
         const erSjaforlinje = /sjåfør|sjafør|sjafor|transportør|transportor|drosje|taxi|løyve|loyve/i.test(koNavn);
@@ -2637,7 +3109,7 @@
                     kortEl.textContent = '(oppslag feilet)';
                     kortEl.style.color = '#fbbf24';
                 }
-                if (erPasientlinje) autoKlikkPasient('pasientlinje (uten kort)');
+                autoSok(erPasientlinje ? 'pasientlinje (uten kort)' : `alle køer: ${koNavn} (uten kort)`);
                 return;
             }
             const k = d.kort;
@@ -2752,11 +3224,12 @@
             // hvem pasienten er, og søket dekker både anroper og pasient.
             if (erSelv || harPasientPnr || harPasientTlf || harForbTlf) autoKlikkPasient('kort: pasient kjent');
             else if (erPasientlinje)     autoKlikkPasient('pasientlinje');
+            else                         autoSok(`alle køer: ${koNavn}${k.navn ? ` (kort: ${k.navn})` : ''}`);
         }).catch(e => {
             // Dempet melding — kortoppslaget er tilleggsinfo; NISSY-søket går sin gang uansett.
             kortEl.innerHTML = `<span title="Kort-oppslaget nådde ikke serveren (${e.message}) — prøvd 2 ganger" style="cursor:help;">(kort-info utilgjengelig)</span>`;
             kortEl.style.color = '#94a3b8';
-            if (erPasientlinje) autoKlikkPasient('pasientlinje (oppslag-feil)');
+            autoSok(erPasientlinje ? 'pasientlinje (oppslag-feil)' : `alle køer: ${koNavn} (oppslag-feil)`);
         });
         }  // slutt else (ikke sjåførlinje)
 
@@ -2805,7 +3278,7 @@
                         // Utlogget ≠ søkefeil: si tydelig at operatøren må logge inn i admin
                         // (før v2.125 endte dette som misvisende «Ingen pasienter funnet»).
                         resultatEl.innerHTML = feilet.utlogget
-                            ? `<div style="color:#fbbf24;font-size:12px;">⚠ Du er ikke logget inn i admin.<br>Åpne <b>Admin</b> fra 🧰-menyen, logg inn og prøv igjen.</div>`
+                            ? `<div style="color:#fbbf24;font-size:12px;">⚠ Du er ikke logget inn i admin.<br>Åpne <b>Admin</b> fra 🔧-menyen, logg inn og prøv igjen.</div>`
                             : `<div style="color:#ef4444;font-size:12px;">Søk feilet: ${feilet.feil}</div>`;
                         btn.disabled = false; btn.textContent = '👤 Pasient';
                         return;
@@ -2829,7 +3302,20 @@
                     let nForkastet = 0;
                     for (let i = 0; i < resultater.length; i++) nForkastet += (resultater[i].forkastet || 0);
                     if (!pasienter.length && nForkastet) {
-                        resultatEl.innerHTML += `<div style="color:#f87171;font-size:11px;margin-top:4px;">⚠ ${nForkastet} NISSY-treff forkastet — nummeret står ikke på pasienten. En åpen pasient i admin kan «smitte» søket.</div>`;
+                        // v2.175 (Thomas 21.08): meldingen ga FEIL forklaring for numre i
+                        // 47-serien. NISSY leser de to første sifrene som landskode og søker
+                        // på resten — «47954440» blir til «954440», seks siffer, som treffer
+                        // bredt (målt: 8-36 treff). Det er ikke sesjons-smitte, og operatøren
+                        // skulle ikke lete etter en åpen pasient i admin.
+                        // Se reference_nissy_findpatient_tlfformat: INGEN skrivemåte løser
+                        // dette — verifiseringen er forsvaret, og den gjorde jobben sin.
+                        // `resultater` bærer nummeret som ble søkt på (sokTlfINissy returnerer
+                        // {tlf, ...}); `oppgaver` er promisene og har det ikke.
+                        const numre47 = [...new Set((resultater || []).map(r => String(r && r.tlf || '').replace(/\D/g, '')))]
+                            .filter(t => t.length === 8 && t.startsWith('47'));
+                        resultatEl.innerHTML += numre47.length
+                            ? `<div style="color:#94a3b8;font-size:11px;margin-top:4px;">⚠ ${nForkastet} treff forkastet — <strong style="color:#cbd5e1;">${escHtml(numre47[0])}</strong> begynner på 47, som NISSY leser som landskode. Den søkte derfor på <strong style="color:#cbd5e1;">${escHtml(numre47[0].slice(2))}</strong> og traff bredt. Ingen av dem har nummeret — det er trolig ikke registrert.</div>`
+                            : `<div style="color:#f87171;font-size:11px;margin-top:4px;">⚠ ${nForkastet} NISSY-treff forkastet — nummeret står ikke på pasienten. En åpen pasient i admin kan «smitte» søket.</div>`;
                     }
                     knapperEl.style.display = 'none';
                     await svarTlfJobb(id, 'pasient', { antall: pasienter.length, kilder: oppgaver.length, forkastet: nForkastet });
@@ -2996,10 +3482,20 @@
             for (const tr of doc.querySelectorAll('tr')) {
                 const radio = tr.querySelector('input[name="default"]');
                 if (!radio) continue;
-                const tds = tr.querySelectorAll('td');
+                // NISSY bygger sidene med NESTEDE tabeller. En YTRE rad inneholder da
+                // både radioen og resten av siden, og `tds[1].textContent` ble hele
+                // pasientsiden — inkludert JavaScript-koden — presentert som adresse
+                // (Thomas 18.08, Haraldsson). Bare den innerste raden er en adresserad.
+                if (tr.querySelector('tr')) continue;
+                // Og bare cellene som er DIREKTE barn, ellers drar vi med oss tekst
+                // fra tabeller nestet inni cellen.
+                const tds = tr.querySelectorAll(':scope > td');
                 if (tds.length < 2) continue;
                 const adr = (tds[1].textContent || '').replace(/\s+/g, ' ').trim();
                 if (!adr || !/\d{4}/.test(adr)) continue;
+                // Sikkerhetsnett: en adresse er kort og inneholder ikke kode. Skulle
+                // markupen endre seg igjen, vil vi heller vise ingen adresse enn rot.
+                if (adr.length > 120 || /[{}]|\$\(|function\s|=>/i.test(adr)) continue;
                 const kilde = (tds[2] ? tds[2].textContent : '').replace(/\s+/g, ' ').trim();
                 rader.push({ adr, kilde, val: radio.value });
             }
@@ -3098,8 +3594,29 @@
                 // v2.138: hold styr på hvilke ben som er REKVIRERT MEN IKKE BESTILT (status «Ny»).
                 // Grupperingen slår tur+retur sammen til én linje, så uten dette blir en ubestilt
                 // retur usynlig — nettopp det Thomas fanget 04.08 (KOSAR: retur «Ny» m/ Bestill-lenke).
-                if (erRetur) { g.harRetur = true; if (t.ikke_bestilt) g.uRetur = true; }
-                else if (t.ikke_bestilt) g.uTur = true;
+                if (erRetur) {
+                    g.harRetur = true;
+                    if (!g.returFra) g.returFra = t.fra_navn || '';
+                    if (!g.returTil) g.returTil = t.til_navn || '';
+                    if (!g.returFraAdr) g.returFraAdr = t.fra_adresse || '';
+                    if (!g.returTilAdr) g.returTilAdr = t.til_adresse || '';
+                    if (t.ikke_bestilt) g.uRetur = true;
+                    if (!g.returStatus && t.status) g.returStatus = t.status;
+                    if (t.suti) g.returSuti = t.suti;
+                    // v2.165: ta vare på retur-benets EGEN klar-tid. Den vises bare hvis den
+                    // skiller seg fra turens — se kommentaren under om v2.136.
+                    const rh = kl(t.klar_fra);
+                    if (rh && !g.returHent) g.returHent = rh;
+                }
+                else {
+                    if (!g.turFra) g.turFra = t.fra_navn || '';
+                    if (!g.turTil) g.turTil = t.til_navn || '';
+                    if (!g.turFraAdr) g.turFraAdr = t.fra_adresse || '';
+                    if (!g.turTilAdr) g.turTilAdr = t.til_adresse || '';
+                    if (t.ikke_bestilt) g.uTur = true;
+                    if (!g.turStatus && t.status) g.turStatus = t.status;
+                    if (t.suti) g.turSuti = t.suti;
+                }
                 // v2.136: RETUR-tiden er fjernet (Thomas 04.08). Detaljsiden gir samme
                 // «Pasient klar fra» for begge ben, så «↩ 14:10» var bare hentetiden om
                 // igjen — ikke en reell returtid. Vi viser hentetid + oppmøte, som er det
@@ -3142,6 +3659,31 @@
             // v2.136: kolonne 1 = dag + OPPMØTE, kolonne 3 = HENTETID (ordet «hent» er tilbake —
             // det ble kuttet i v2.134 for å spare plass, og da sto to nakne klokkeslett igjen
             // uten at det gikk fram hva de var). Tooltip forklarer begge.
+            // v2.171 (Thomas 21.08): vis FRA → TIL, ikke bare behandlingsstedet. «↩ retur»
+            // sa retningen, men ikke hvor pasienten skulle hentes — og det er nettopp det
+            // operatøren trenger når noen ringer om en tur som ikke er kommet.
+            // Navnene bærer retningen selv, så retur-etiketten er overflødig.
+            // v2.173 (Thomas 21.08): «?» sto der pasientens PRIVATADRESSE skulle vært —
+            // et hjem har ingen stedsnavn, bare adresse. Og et stedsnavn alene («Poliklinikk
+            // 2 Nord/Bygg L») sier lite uten sykehuset, så gateadressen tas med dempet.
+            // Postnr/poststed kuttes: de gjør linja bred uten å hjelpe operatøren.
+            const kortAdr = (a) => String(a || '').split(',')[0].trim();
+            const stedTekst = (navn, adr) => navn || kortAdr(adr) || '';
+            const stedHtml = (navn, adr) => {
+                const n = (navn || '').trim(), a = kortAdr(adr);
+                if (!n) return escHtml(a || '(ukjent sted)');
+                return escHtml(n) + (a ? ` <span style="color:#64748b;font-size:10px;">${escHtml(a)}</span>` : '');
+            };
+            const ruteHtml = (fra, til, fraAdr, tilAdr, fallback) => {
+                if (!fra && !til && !fraAdr && !tilAdr) return escHtml(fallback || '(ukjent sted)');
+                return stedHtml(fra, fraAdr) + '<span style="color:#64748b;"> → </span>' + stedHtml(til, tilAdr);
+            };
+            // Lange navn kuttes med ellipsis — hele ruta med adresser ligger i tooltipen.
+            const ruteTip = (fra, til, fraAdr, tilAdr) => {
+                const a = [fra, fraAdr].filter(Boolean).join(', ');
+                const b = [til, tilAdr].filter(Boolean).join(', ');
+                return (a || b) ? ` title="${escHtml((a || '?') + '  →  ' + (b || '?'))}"` : '';
+            };
             const celler = valgt.map(b => {
                 const dempet = b.passert;
                 const tipTekst = (b.tid ? 'Oppmøte ' + b.tid : '') + (b.hent ? (b.tid ? ' · ' : '') + 'Hentes ' + b.hent : '')
@@ -3149,16 +3691,72 @@
                 const tip = tipTekst ? ` title="${escHtml(tipTekst)}"` : '';
                 const dim = dempet ? 'opacity:0.5;' : '';
                 // v2.138: gult merke når et ben er rekvirert, men ikke bestilt hos transportør.
-                let merke = '';
-                if (b.uTur && b.uRetur) merke = 'ikke bestilt';
-                else if (b.uRetur) merke = 'retur ikke bestilt';
-                else if (b.uTur) merke = 'tur ikke bestilt';
-                const merkeHtml = merke
-                    ? ` <span title="Status «Ny» i NISSY — rekvirert, men ikke bestilt hos transportør" style="background:#f59e0b;color:#1e293b;padding:0 5px;border-radius:3px;font-size:9px;font-weight:700;white-space:nowrap;">⚠ ${escHtml(merke)}</span>`
-                    : '';
-                return `<span${tip} style="${dim}color:${dempet ? '#94a3b8' : '#38bdf8'};font-weight:600;white-space:nowrap;">${escHtml(fmtDag(b.dato))}${b.tid ? ' ' + escHtml(b.tid) : ''}</span>`
-                     + `<span${tip} style="${dim}color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(b.sted || '(ukjent sted)')}${merkeHtml}</span>`
-                     + `<span${tip} style="${dim}color:#94a3b8;white-space:nowrap;">${b.hent ? '🚕 hent ' + escHtml(b.hent) : ''}</span>`;
+                // v2.165 (Thomas 21.08): RETUREN FÅR EGEN LINJE. Grupperingen slo tur og retur
+                // sammen til én rad, så en pasient som ringte fordi hen ventet på RETUREN så
+                // bare turen sin i toasten — og operatøren hadde ingenting å etterlyse ut fra.
+                // Returen legges som en tynn underlinje i SAMME grid, så den står i flukt og
+                // ikke spiser en av de fem plassene.
+                // v2.166 (Thomas 21.08): NISSY-statusen lå allerede i dataene (searchStatus'
+                // Status-kolonne, fanget i sokPnrINissy) — vi brukte den bare til å utlede
+                // «ikke bestilt» og kastet resten. Nå vises den, så operatøren ser om returen
+                // bare er BESTILT eller om en bil faktisk har AKSEPTERT den. «Ny» utelates:
+                // den har allerede sitt eget gule merke, og skal ikke stå to ganger.
+                const erIDag = fmtDag(b.dato) === 'i dag';
+                // v2.168 (Thomas 21.08): når pasienten SITTER I BILEN på returen, er turen
+                // dit historie. Begge sto like sterkt før, og operatøren måtte lese seg fram
+                // til hvilket ben som var aktuelt. Nå dempes det som er unnagjort, så det
+                // pågående benet er det øyet lander på.
+                //   aktivt = hentet, men ikke levert  →  pasienten er underveis nå
+                // v2.170 (Thomas 21.08): STATUS-kolonnen er fasit for tilstand. Den sier
+                // «Ferdig» for turen og «Startet» for returen — rett ut. Jeg utledet det først
+                // fra SUTI og bommet, fordi tur-benet sjelden får 1702 (levert) fra
+                // transportøren, så turen sto som «i bilen» lenge etter levering.
+                // SUTI brukes nå kun til KLOKKESLETT, som Status-kolonnen ikke har.
+                const erFerdig  = (st) => /^ferdig/i.test(st || '');
+                const erStartet = (st) => /^startet/i.test(st || '');
+                const returAktiv = erStartet(b.returStatus);
+                // Turen dempes når den er ferdig, ELLER når returen har tatt over.
+                const demTur   = dempet || erFerdig(b.turStatus) || returAktiv;
+                const demRetur = dempet || erFerdig(b.returStatus);
+                const dimTur   = demTur   ? 'opacity:0.45;' : '';
+                const dimRetur = demRetur ? 'opacity:0.45;' : '';
+                // v2.167: SUTI-hendelsene er mye mer presise enn Status-kolonnen — de sier
+                // NÅR bilen var fremme og NÅR pasienten ble hentet. De vises kun for DAGENS
+                // turer (Thomas 21.08); for framtidige finnes de ikke, og for gamle er de
+                // uinteressante. Faller tilbake til Status-kolonnen når SUTI mangler.
+                // `avsluttet` = vi VET at benet er over, selv om SUTI mangler «levert».
+                // Tur-benet får sjelden 1702 fra transportøren, så uten dette sto turen som
+                // «i bilen fra 08:48» lenge etter at pasienten var levert — mens hun i
+                // virkeligheten satt i returbilen (Thomas 21.08). Har returen startet, kan
+                // turen per definisjon ikke være pågående.
+                const statusHtml = (st, uBestilt, suti) => {
+                    const dmp = (t) => ` <span style="color:#64748b;">· ${t}</span>`;
+                    if (suti && suti.bomtur) return ` <span style="color:#f87171;font-weight:600;">· ⚠ bomtur</span>`;
+                    // v2.174 (Thomas 21.08): «ikke bestilt» lå i rute-kolonnen, men den har
+                    // ellipsis for å holde toasten smal — merket ble klippet til en gul flekk
+                    // uten tekst. Statuskolonnen har max-content og nowrap, så her får den stå.
+                    if (uBestilt || /^ny\b/i.test(st || ''))
+                        return ` <span title="Status «Ny» i NISSY — rekvirert, men ikke bestilt hos transportør" style="background:#f59e0b;color:#1e293b;padding:0 5px;border-radius:3px;font-size:9px;font-weight:700;white-space:nowrap;">⚠ ikke bestilt</span>`;
+                    if (erFerdig(st))  return dmp('ferdig' + (suti && suti.levert ? ' ' + escHtml(suti.levert) : ''));
+                    if (erStartet(st)) return ` <span style="color:#4ade80;font-weight:600;">· i bilen${suti && suti.hentet ? ' fra ' + escHtml(suti.hentet) : ''}</span>`;
+                    // Ikke startet ennå, men bilen står og venter — det haster for operatøren.
+                    if (erIDag && suti && suti.bilFremme && !suti.hentet)
+                        return ` <span style="color:#fbbf24;font-weight:600;">· bil fremme ${escHtml(suti.bilFremme)}</span>`;
+                    return st ? dmp(escHtml(st)) : '';
+                };
+                const turRad =
+                       `<span${tip} style="${dimTur}color:${demTur ? '#94a3b8' : '#38bdf8'};font-weight:600;white-space:nowrap;">${escHtml(fmtDag(b.dato))}${b.tid ? ' ' + escHtml(b.tid) : ''}</span>`
+                     + `<span${ruteTip(b.turFra, b.turTil, b.turFraAdr, b.turTilAdr)} style="${dimTur}color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ruteHtml(b.turFra, b.turTil, b.turFraAdr, b.turTilAdr, b.sted)}</span>`
+                     + `<span${tip} style="${dimTur}color:#94a3b8;white-space:nowrap;">${b.hent ? '🚕 hent ' + escHtml(b.hent) : ''}${statusHtml(b.turStatus, b.uTur, b.turSuti)}</span>`;
+                if (!b.harRetur) return turRad;
+                // v2.136-lærdommen står: detaljsiden gir ofte SAMME «Pasient klar fra» for
+                // begge ben. Er tiden lik turens, er den ikke en returtid — da viser vi at
+                // returen finnes, uten å pynte på en tid vi ikke har.
+                const returTid = (b.returHent && b.returHent !== b.hent) ? b.returHent : '';
+                return turRad
+                     + `<span></span>`
+                     + `<span${ruteTip(b.returFra, b.returTil, b.returFraAdr, b.returTilAdr)} style="${dimRetur}color:${returAktiv ? '#f8fafc' : '#cbd5e1'};font-weight:${returAktiv ? '600' : '400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ruteHtml(b.returFra, b.returTil, b.returFraAdr, b.returTilAdr, '')}</span>`
+                     + `<span style="${dimRetur}color:#94a3b8;white-space:nowrap;">${returTid ? '🚕 hent ' + escHtml(returTid) : '<span style=\"color:#64748b;\">tid ikke oppgitt</span>'}${statusHtml(b.returStatus, b.uRetur, b.returSuti)}</span>`;
             }).join('');
             el.innerHTML = `<div style="margin-top:5px;padding-left:7px;border-left:2px solid #334155;">
                 <div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:0.3px;margin-bottom:2px;">NÆRMESTE BEHANDLINGER</div>
@@ -3190,6 +3788,8 @@
                                 ${pas._kildeTlf ? `<span title="Nummeret som ga treff i NISSY" style="color:#64748b;font-size:10px;">☎ ${formaterTlf(pas._kildeTlf)}</span>` : ''}
                                 <span data-vkt-kopier="${pnr}" title="Kopier personnummer" style="cursor:pointer;color:#64748b;line-height:1;padding:1px 4px;border-radius:3px;user-select:none;display:inline-flex;align-items:center;">${KOPI_IKON}</span>
                                 <span data-vkt-rekv="${i}" style="font-size:11px;color:#64748b;font-style:italic;">⏳ rekv...</span>
+                                <button type="button" data-vkt-frisk="${i}" title="Hent status og behandlinger på nytt fra NISSY"
+                                    style="background:none;border:none;color:#64748b;cursor:pointer;font-size:12px;padding:0 2px;line-height:1;">↻</button>
                             </div>
                             <div data-vkt-adr="${i}" style="font-size:11px;color:#f8fafc;margin-top:3px;"></div>
                         </div>
@@ -3208,11 +3808,14 @@
             ${rader}
         `;
 
-        // Parallelt rekvisisjons-oppslag for hver pasient (bruker eksisterende sokPnrINissy)
-        pasienter.forEach((pas, i) => {
+        // Parallelt rekvisisjons-oppslag for hver pasient (bruker eksisterende sokPnrINissy).
+        // v2.172 (Thomas 21.08): trukket ut som egen funksjon så ↻-knappen kan kjøre den
+        // om igjen. Statusene er ferskvare — «bil fremme» blir «i bilen» mens samtalen
+        // pågår — og før måtte operatøren tilbake til zisson-siden og laste den på nytt.
+        const oppdaterPasient = (pas, i) => {
             if (!pas.pnr) return;
             const el = resultatEl.querySelector(`[data-vkt-rekv="${i}"]`);
-            sokPnrINissy(pas.pnr).then(async res => {
+            return sokPnrINissy(pas.pnr).then(async res => {
                 if (!el) return;
                 if (res.feil) {
                     el.textContent = '⚠ rekv-feil';
@@ -3220,17 +3823,44 @@
                     el.title = res.feil;
                     return;
                 }
-                const antall = typeof res.antall === 'number' ? res.antall
-                    : (Array.isArray(res.turer) ? res.turer.length : 0);
                 // En ATTEST (stående rettighet uten reise) dukker opp i admin-søket, men
                 // er IKKE en planlagt tur — rekvisisjon-modulen viser «ingen rekvisisjoner».
                 // Skill den fra ekte rekvisisjoner så operatøren ikke tror det finnes en tur.
-                const nAttest = (res.turer || []).filter(t => t && t.er_attest).length;
-                const nRekv = antall - nAttest;
+                //
+                // ⚠️ PASSERTE REKVISISJONER TELLES IKKE (Thomas 26.08: «den har vært»).
+                //    Badgen sa «3 rekv» mens lista under viste 2 — forskjellen var en retur fra
+                //    14.08 som fortsatt sto som «Ny», tolv dager etter. Tallet var teknisk riktig
+                //    (admin kjenner den), men svarte på et annet spørsmål enn det operatøren
+                //    stiller når telefonen ringer: hva har denne personen FRAMOVER?
+                //    Vi bruker samme målestokk som pnr-vakten: alt fra og med i dag teller.
+                //    Ukjent dato teller også — da skal vi ikke skjule noe vi ikke forstår.
+                //    De passerte forsvinner ikke; de flyttes til tooltipen.
+                const alleTurer = Array.isArray(res.turer) ? res.turer : [];
+                const _idag = new Date(); _idag.setHours(0, 0, 0, 0);
+                const erPassert = (t) => { const ms = vaktTidMs(t); return ms > 0 && ms < _idag.getTime(); };
+                const nAttest = alleTurer.filter(t => t && t.er_attest).length;
+                const nRekv = alleTurer.filter(t => t && !t.er_attest && !erPassert(t)).length;
+                const passerte = alleTurer.filter(t => t && !t.er_attest && erPassert(t));
+                const antall = alleTurer.length
+                    || (typeof res.antall === 'number' ? res.antall : 0);
+                // Tooltip-hale som forklarer hva som er holdt utenfor — ellers ville et tall som
+                // ikke stemmer med admin vært umulig å ettergå.
+                const passertTekst = passerte.length
+                    ? '\n' + passerte.length + ' passert' + (passerte.length > 1 ? 'e' : '')
+                      + ' rekvisisjon' + (passerte.length > 1 ? 'er' : '') + ' holdt utenfor: '
+                      + passerte.map(t => (vaktKlokke(t) || 'ukjent dato')
+                          + (t.status ? ' (' + t.status + ')' : '')).join(', ')
+                    : '';
                 if (antall === 0) {
                     el.textContent = '· ingen rekv';
                     el.style.color = '#64748b';
                     el.style.fontStyle = '';
+                } else if (nRekv === 0 && nAttest === 0) {
+                    // Alt som finnes er passert — si det, ikke «ingen rekv».
+                    el.textContent = '· ingen kommende';
+                    el.style.color = '#64748b';
+                    el.style.fontStyle = '';
+                    el.title = 'Ingen kommende rekvisisjoner.' + passertTekst;
                 } else if (nRekv === 0) {
                     // Kun attest(er) — ingen reell tur.
                     el.textContent = `📄 ${nAttest} attest`;
@@ -3245,7 +3875,9 @@
                     el.style.color = '#10b981';
                     el.style.fontStyle = '';
                     el.style.fontWeight = '600';
-                    if (nAttest > 0) el.title = `${nRekv} rekvisisjon(er) + ${nAttest} stående attest`;
+                    el.title = (nAttest > 0
+                        ? `${nRekv} kommende rekvisisjon(er) + ${nAttest} stående attest`
+                        : `${nRekv} kommende rekvisisjon(er)`) + passertTekst;
                 }
                 // ATTEST-REGISTER (autoritativt): rekv-søket fanger IKKE alltid stående attester (eks RAZIJA
                 // MESANOVIC: 5 rekv, men aktiv attest i registeret). Når attest-agenten er tilkoblet (grønn prikk),
@@ -3260,7 +3892,7 @@
                                 : `<span style="color:#fbbf24;">📄 ${att.aktive} attest</span>`;
                             el.style.color = nRekv > 0 ? '#10b981' : '#fbbf24';
                             el.style.fontWeight = '600';
-                            el.title = `${nRekv} rekvisisjon(er) + ${att.aktive} aktiv attest (fra attest-registeret)`;
+                            el.title = `${nRekv} kommende rekvisisjon(er) + ${att.aktive} aktiv attest (fra attest-registeret)` + passertTekst;
                         }
                     } catch (_) {}
                 }
@@ -3305,6 +3937,28 @@
             // [Attest]-knappen for manuell oppslag (kopierer pnr + åpner attest-UI).
             // Power-users kan fortsatt aktivere attest-keeper-bookmarklet og kalle
             // sjekkAttest() fra konsollen.
+        };
+        pasienter.forEach((pas, i) => oppdaterPasient(pas, i));
+
+        // ↻ Oppdater — henter alt på nytt uten å gå veien om zisson-siden.
+        resultatEl.querySelectorAll('button[data-vkt-frisk]').forEach(btn => {
+            btn.onclick = async () => {
+                const i = parseInt(btn.dataset.vktFrisk, 10);
+                const pas = pasienter[i];
+                if (!pas || !pas.pnr || btn.disabled) return;
+                const gammel = btn.innerHTML;
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btn.innerHTML = '⏳';
+                // Pasientside-cachen ville servert gamle SUTI-tider — tøm den for dette
+                // nummeret, ellers ser «oppdater» ut til å virke uten å hente noe nytt.
+                try { _pasSideCache.clear(); } catch (_) {}
+                try { await oppdaterPasient(pas, i); }
+                catch (e) { console.warn('[VERKTØYKASSE] oppdater feilet:', e.message); }
+                btn.innerHTML = gammel;
+                btn.disabled = false;
+                btn.style.opacity = '';
+            };
         });
         resultatEl.querySelectorAll('button[data-vkt-pas]').forEach(btn => {
             btn.onclick = () => {
@@ -3376,7 +4030,11 @@
         const filNavn   = ER_DEV ? 'verktoykasse_dev.js' : 'verktoykasse.js';
         const flagNavn  = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
         const tittel    = ER_DEV ? 'Verktøykasse DEV keeper' : 'Verktøykasse keeper';
+        // v2.190 (Thomas 21.08): tilbake til opprinnelig størrelse. Kolonneformatet ble
+        // prøvd og forkastet — nettleseren husker uansett den størrelsen operatøren selv
+        // drar den til, så vi skal ikke overstyre den ved hver åpning.
         const w = window.open('about:blank', popupName, 'width=340,height=270');
+        window.__vkt_keeperWin = w;
         if (!w) {
             // Auto-åpning: ikke forstyrr med alert hvis nettleseren blokkerer.
             if (opts.auto) console.warn('[VERKTØYKASSE] keeper-popup blokkert (auto) — bruk menyknappen.');
@@ -3390,10 +4048,12 @@
             if (w.__vkt_keeper_initialized) return;
         } catch (_) {}
         const html = `<!doctype html><html><head><meta charset="utf-8"><title>${tittel}</title>
-<style>html,body{height:100%;margin:0}body{display:flex;flex-direction:column;font-family:-apple-system,sans-serif;background:#1e293b;color:#e2e8f0}#top{flex:1;display:flex;align-items:center;justify-content:center;gap:14px}#i{width:42px;height:42px;display:flex;align-items:center;justify-content:center}#i svg{width:100%;height:100%;fill:currentColor}#s{font-size:32px;font-weight:700;letter-spacing:1px}${ER_DEV ? '#dev{margin-left:8px;background:#fbbf24;color:#451a03;font-weight:700;font-size:11px;letter-spacing:1px;padding:2px 8px;border-radius:4px}' : ''}#bar{display:flex;gap:6px;padding:8px;border-top:1px solid #334155}#bar button{flex:1;padding:8px 4px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer;font-size:11px;font-family:inherit;transition:background .1s}#bar button:hover{background:#334155}</style>
+<style>html,body{height:100%;margin:0}body{display:flex;flex-direction:column;font-family:-apple-system,sans-serif;background:#1e293b;color:#e2e8f0}#top{flex:1;display:flex;align-items:center;justify-content:center;gap:14px;transition:all .15s}#i{width:42px;height:42px;display:flex;align-items:center;justify-content:center;transition:all .15s}#i svg{width:100%;height:100%;fill:currentColor}#s{font-size:32px;font-weight:700;letter-spacing:1px;transition:font-size .15s}body.vakt #top{flex:0 0 auto;justify-content:flex-start;gap:7px;padding:7px 10px 5px;border-bottom:1px solid #334155}body.vakt #i{width:16px;height:16px}body.vakt #s{font-size:13px;letter-spacing:.5px}body.vakt #dev{font-size:9px;padding:1px 5px}#vakt{display:none;flex:1;overflow-y:auto;padding:6px 8px}body.vakt #vakt{display:block}.v{padding:6px 7px;margin-bottom:5px;background:#0f172a;border:1px solid #334155;border-radius:6px;position:relative}.v .n{font-size:12px;font-weight:600;color:#f8fafc;padding-right:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.v .nr{font-size:10px;color:#64748b;font-family:ui-monospace,Menlo,Consolas,monospace;margin-top:1px;cursor:pointer;display:inline-block}.v .nr:hover{color:#93c5fd}.v .r{font-size:10px;color:#94a3b8;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.v .t{font-size:11px;font-weight:600;margin-top:3px}.v .tur{margin-top:5px;padding-left:6px;border-left:2px solid #334155}.v .tur .k{font-size:10px;color:#38bdf8;font-weight:600}.v .tur .rr{font-size:10px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.v .tur .s{font-size:11px;font-weight:600;margin-top:1px}.v .x{position:absolute;top:4px;right:5px;color:#475569;cursor:pointer;font-size:13px;line-height:1;background:none;border:none;padding:0}.v .x:hover{color:#f87171}#add{width:100%;padding:5px;margin-top:2px;background:#0f172a;color:#94a3b8;border:1px dashed #334155;border-radius:6px;cursor:pointer;font-size:11px;font-family:inherit}#add:hover{color:#e2e8f0;border-color:#475569}${ER_DEV ? '#dev{margin-left:8px;background:#fbbf24;color:#451a03;font-weight:700;font-size:11px;letter-spacing:1px;padding:2px 8px;border-radius:4px}' : ''}#inn{display:flex;padding:7px 8px 0}#inn input{width:100%;box-sizing:border-box;padding:6px 8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;font-size:11px;font-family:inherit;outline:none;transition:border-color .12s}#inn input:focus{border-color:#3b82f6}#inn input.feil{border-color:#f87171}#inn input::placeholder{color:#64748b}#bar{display:flex;gap:6px;padding:8px;border-top:1px solid #334155}#bar button{flex:1;padding:8px 4px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;cursor:pointer;font-size:11px;font-family:inherit;transition:background .1s}#bar button:hover{background:#334155}</style>
 </head><body>
 <div id="top"><div id="i"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg></div>
 <div id="s">…</div>${ER_DEV ? '<div id="dev">DEV</div>' : ''}</div>
+<div id="vakt"></div>
+<div id="inn"><input id="nytt" type="text" autocomplete="off" placeholder="👁 Overvåk — rekvisisjonsnr, turnr eller personnr"></div>
 <div id="bar"><button data-m="admin">⚙️ Admin</button><button data-m="rekvisisjon">📝 Rekvisisjon</button><button data-m="attest">📋 Attest</button></div>
 <script>
 Array.prototype.forEach.call(document.querySelectorAll('#bar button'),function(b){b.onclick=function(){try{if(window.opener&&!window.opener.closed&&window.opener.__vkt_launch)window.opener.__vkt_launch(b.getAttribute('data-m'));}catch(e){}};});
@@ -3423,11 +4083,98 @@ function inj(){try{if(!status())return;if(window.opener[FLAG])return;var e=windo
 var hooked=false;
 function hookOpener(){if(hooked)return;try{if(!window.opener||window.opener.closed)return;window.opener.addEventListener("pageshow",inj);window.opener.addEventListener("focus",inj);hooked=true;}catch(e){}}
 function hjerteslag(){try{if(window.opener&&!window.opener.closed)window.opener.__vkt_keeper_alive=Date.now();}catch(e){}}
-setInterval(function(){hookOpener();inj();status();hjerteslag();},500);
+// v2.178: popupen viser vaktlista. Den gjør INGEN oppslag selv — planleggeren eier
+// NISSY-sesjonen og fyller window.opener.__vkt_vakt; her tegnes den bare.
+var vaktEl = document.getElementById('vakt');
+function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+// pnr-vakt viser ALLE aktive turer (ikke ferdig, ikke fra en tidligere dato).
+function turerHtml(v){
+  if(!v.turer || !v.turer.length) return '';
+  var ut = '';
+  for(var q=0;q<v.turer.length;q++){
+    var t = v.turer[q];
+    ut += '<div class="tur">'
+        + '<div class="k">'+esc(t.naar||'')+'</div>'
+        + (t.rute ? '<div class="rr">'+esc(t.rute)+'</div>' : '')
+        + '<div class="s" style="color:'+esc(t.farge||'#94a3b8')+'">'+esc(t.tilstand||'…')
+        + (t.hent ? ' <span style="color:#64748b;font-weight:400;">· hent '+esc(t.hent)+'</span>' : '')
+        + '</div></div>';
+  }
+  return ut;
+}
+function tegnVakt(){
+  if(!vaktEl){ vaktEl = document.getElementById('vakt'); if(!vaktEl) return; }
+  var liste = [];
+  try { liste = (window.opener && !window.opener.closed && window.opener.__vkt_vakt) || []; } catch(e){ liste = []; }
+  if(document.body) document.body.classList.toggle('vakt', liste.length > 0);
+  if(!liste.length){ vaktEl.innerHTML=''; return; }
+  var h = '';
+  for(var k=0;k<liste.length;k++){
+    var v = liste[k];
+    var merke = v.type==='rek' ? 'Rekv' : (v.type==='tur' ? 'Tur' : 'Pnr');
+    h += '<div class="v"><button class="x" data-x="'+esc(v.nokkel)+'" title="Slutt å overvåke">×</button>'
+       + '<div class="n">'+esc(v.navn || (merke+' '+v.nokkel))
+       + (v.turer && v.turer.length ? ' <span style="color:#64748b;font-weight:400;font-size:10px;">'+v.turer.length+' aktive</span>' : '')
+       + '</div>'
+       + '<div class="nr" data-kopi="'+esc(v.nokkel)+'" title="Klikk for å kopiere — bruk den i admin">'+esc(merke)+' '+esc(v.nokkel)+'</div>'
+       + ((v.naar || v.rute) ? '<div class="r">'+(v.naar ? '<span style="color:#38bdf8;">'+esc(v.naar)+'</span>' : '')
+           + (v.naar && v.rute ? ' · ' : '') + esc(v.rute||'')+'</div>' : '')
+       + turerHtml(v)
+       + (v.tilstand ? '<div class="t" style="color:'+esc(v.farge||'#94a3b8')+'">'+esc(v.tilstand)
+          + (v.hent ? ' <span style="color:#64748b;font-weight:400;">· hent '+esc(v.hent)+'</span>' : '')
+          + '</div>' : '')
+       + '</div>';
+  }
+  vaktEl.innerHTML = h;
+}
+function knyttVaktKnapper(e){
+  var x = e.target.getAttribute && e.target.getAttribute('data-x');
+  if(x){ try{ window.opener.__vkt_avslutt_vakt(x); }catch(err){} tegnVakt(); return; }
+  var kop = e.target.getAttribute && e.target.getAttribute('data-kopi');
+  if(kop){
+    var vis = e.target;
+    var org = vis.textContent;
+    try {
+      navigator.clipboard.writeText(kop).then(function(){
+        vis.textContent = '✓ kopiert'; setTimeout(function(){ vis.textContent = org; }, 1200);
+      });
+    } catch(err){}
+    return;
+  }
+
+}
+// Inline felt i stedet for prompt(): en modal dialog fryser ALT JS i popupen mens
+// den står åpen — inkludert keeper-pulsen hvert 0,5 sek (Thomas 21.08).
+var nyttEl = document.getElementById('nytt');
+function blink(ok, tekst){
+  if(!nyttEl) return;
+  nyttEl.classList.toggle('feil', !ok);
+  if(tekst){ nyttEl.placeholder = tekst; setTimeout(function(){ nyttEl.placeholder='👁 Overvåk — rekvisisjonsnr, turnr eller personnr'; nyttEl.classList.remove('feil'); }, 2500); }
+}
+function leggTilVakt(){
+  if(!nyttEl) return;
+  var n = (nyttEl.value||'').trim();
+  if(!n) return;
+  try {
+    if(!window.opener || window.opener.closed || !window.opener.__vkt_overvaak){ blink(false,'Planleggeren er ikke tilgjengelig'); return; }
+    if(window.opener.__vkt_overvaak(n) === false){ blink(false,'Forstår ikke «'+n+'» — 8, 11 eller 12 siffer'); return; }
+    nyttEl.value=''; blink(true);
+  } catch(err){ blink(false,'Nådde ikke planleggeren'); }
+  tegnVakt();
+}
+if(nyttEl){ nyttEl.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); leggTilVakt(); } }); }
+// Keeperen er kritisk (holder verktøykassen i live). Vaktlista er et TILLEGG og må
+// aldri kunne ta den ned — derfor status/inj først, og alt vakt-relatert i try/catch.
 hjerteslag();
 inj();
 hookOpener();
 status();
+setInterval(function(){hookOpener();inj();status();hjerteslag();},500);
+try {
+  document.addEventListener('click', knyttVaktKnapper);
+  setInterval(function(){ try{ tegnVakt(); }catch(e){} }, 2000);
+  tegnVakt();
+} catch(e) { try{ console.warn('[keeper] vaktliste feilet:', e && e.message); }catch(_){} }
 window.addEventListener("focus",inj);
 document.addEventListener("visibilitychange",inj);
 </script>
@@ -3454,6 +4201,9 @@ document.addEventListener("visibilitychange",inj);
     // Injiser et agent-skript i et åpent (same-origin) vindu.
     // KRITISK: vent til pathname matcher pathPrefix — ellers injiserer vi i about:blank
     // før navigeringen er ferdig, og agenten kjører med null-origin → CORS-feil.
+    // Husker hvilke agenter vi allerede har meldt «annen origin» for, så meldingen kommer én
+    // gang og ikke ved hvert 300 ms-forsøk. Nullstilles når injiseringen faktisk lykkes.
+    const _kryssMeldt = new Set();
     function injiserAgent(w, filnavn, flagName, pathPrefix) {
         if (!w || w.closed) return false;
         try {
@@ -3465,8 +4215,24 @@ document.addEventListener("visibilitychange",inj);
             s.src = 'https://thomaswestby.no/skript/skript.php?fil=' + filnavn + '&_=' + Date.now();
             w.document.head.appendChild(s);
             console.log(`[VERKTØYKASSE] injiserte ${filnavn} i ${path}`);
+            _kryssMeldt.delete(filnavn);      // fanen er tilbake hos oss — meld på nytt neste gang
             return true;
         } catch (e) {
+            // ⚠️ KRYSS-OPPRINNELSE ER EN FORVENTET TILSTAND, IKKE EN FEIL (Thomas 26.08).
+            //    Attest-flyten starter på pastrans og navigerer videre til attest-ui, som er en
+            //    annen origin. Da kaster ethvert oppslag mot w[flag] en SecurityError — hver
+            //    eneste runde, hvert 300. ms, i alle overvåkede faner. Konsollen fylles med
+            //    «feil» mens alt virker som det skal (attest-agenten meldte seg klar i samme logg).
+            //    Vi venter bare til fanen kommer TILBAKE til vår origin; det er hele poenget med
+            //    å gå via startAttest. Logges én gang per fane, ikke per forsøk.
+            const kryss = (e && (e.name === 'SecurityError' || /cross-origin/i.test(e.message || '')));
+            if (kryss) {
+                if (!_kryssMeldt.has(filnavn)) {
+                    _kryssMeldt.add(filnavn);
+                    console.log(`[VERKTØYKASSE] ${filnavn}: fanen er på en annen origin — venter på retur`);
+                }
+                return false;
+            }
             console.warn(`[VERKTØYKASSE] kunne ikke injisere ${filnavn}:`, e.message);
             return false;
         }
@@ -3480,6 +4246,9 @@ document.addEventListener("visibilitychange",inj);
             if (injiserAgent(w, filnavn, flagName, pathPrefix)) return true;
             await new Promise(r => setTimeout(r, 300));
         }
+        // Står fanen på en annen origin, er «timeout» forventet — attest-flyten kan bli der
+        // lenge. Da er det ikke noe å varsle om; keeperen fortsetter å følge med.
+        if (_kryssMeldt.has(filnavn)) return false;
         console.warn(`[VERKTØYKASSE] injiserAgent timeout for ${filnavn}`);
         return false;
     }
@@ -3839,6 +4608,171 @@ document.addEventListener("visibilitychange",inj);
         hentTurDetaljer,
         hentTurDetaljerViaRekvnr,
         hentRekvisisjon,
+        // Dumper søkeskjemaene i admin searchStatus: hvilke felt finnes, og hvilke
+        // submit_action-verdier tilbyr NISSY? Gjetting på feltnavn ga 0 treff på alle
+        // seks former (Thomas 21.08) — da må vi lese fasit i stedet.
+        //   __verktoykasseDev.visSokeskjema()
+        visSokeskjema: async () => {
+            const r = await fetch(`${ADMIN_BASE}/searchStatus`, { credentials: 'same-origin' });
+            const html = await r.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            console.log(`[skjema] searchStatus HTTP ${r.status}, ${html.length} tegn`);
+            const skjemaer = doc.querySelectorAll('form');
+            console.log(`[skjema] ${skjemaer.length} form-element(er)`);
+            skjemaer.forEach((f, i) => {
+                console.log(`  FORM ${i}: action=${f.getAttribute('action') || '(ingen)'} method=${f.getAttribute('method') || 'GET'}`);
+            });
+            // NISSY legger ofte felt UTENFOR form-elementet (ugyldig markup, se v2.132)
+            const felt = [];
+            doc.querySelectorAll('input, select, textarea').forEach(el => {
+                const navn = el.getAttribute('name');
+                if (!navn) return;
+                felt.push({ navn, type: (el.getAttribute('type') || el.tagName).toLowerCase(), verdi: (el.getAttribute('value') || '').slice(0, 30) });
+            });
+            console.log('[skjema] felt med name:');
+            console.table(felt);
+            // submit_action-verdier avslører hvilke søk siden faktisk støtter
+            const akt = [...new Set([...html.matchAll(/submit_action['"]?\s*[=:]\s*['"]?([A-Za-z_]+)/g)].map(m => m[1]))];
+            console.log('[skjema] submit_action-verdier i sidekilden:', akt.join(', ') || '(ingen)');
+            const knapper = [...new Set([...html.matchAll(/name=["']submit_action["'][^>]*value=["']([^"']+)["']/gi)].map(m => m[1]))];
+            if (knapper.length) console.log('[skjema] submit_action fra knapper:', knapper.join(', '));
+            return { felt, akt, knapper };
+        },
+        // Hvilken searchStatus-form finner en REKVISISJON? Turnummer bruker POST med
+        // submit_action=tripSearch; rekvisisjonsvarianten vår bruker GET ?nr= og fant
+        // ingenting (Thomas 21.08). Måler i stedet for å gjette på feltnavnet.
+        //   __verktoykasseDev.testRekvSok('261035249391')
+        testRekvSok: async (rekvnr) => {
+            const nr = String(rekvnr || '').replace(/\D/g, '');
+            const tell = (html) => {
+                const re = /getRequisitionDetails\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/g;
+                const sett = new Set(); let m;
+                while ((m = re.exec(html)) !== null) sett.add(m[1] + '_' + m[3]);
+                return sett.size;
+            };
+            const felles = 'council=-999999&chosenDispatchCenter.id=560&_attentionUnresolvedOnly=on&dbSelect=1';
+            const varianter = [
+                // Fasit fra Overvåker Live (overvaaker_live.js ~L5947) — feltet heter
+                // requisitionNumber, ikke requisitionNr. Det var hele forskjellen.
+                ['POST reqSearch (Live)',    'POST', `${ADMIN_BASE}/searchStatus`, `submit_action=reqSearch&requisitionNumber=${nr}&${felles}`],
+                ['GET ?nr= (gammel)',        'GET',  `${ADMIN_BASE}/searchStatus?nr=${encodeURIComponent(nr)}`, null],
+                ['POST reqSearch m/ Nr',     'POST', `${ADMIN_BASE}/searchStatus`, `submit_action=reqSearch&requisitionNr=${nr}&${felles}`],
+            ];
+            console.log(`[rekvtest] ${nr} — teller treff per søkeform …`);
+            const rader = [];
+            for (const [navn, metode, url, body] of varianter) {
+                try {
+                    const r = metode === 'GET'
+                        ? await fetch(url, { credentials: 'same-origin' })
+                        : await fetch(url, { method: 'POST', credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+                    const html = r.ok ? await r.text() : '';
+                    const n = r.ok ? tell(html) : null;
+                    rader.push({ form: navn, http: r.status, treff: n });
+                    console.log(`  ${navn.padEnd(26)} HTTP ${r.status} → ${n === null ? '—' : n + ' treff'}`);
+                } catch (e) {
+                    rader.push({ form: navn, http: 'feil', treff: e.message });
+                    console.log(`  ${navn.padEnd(26)} FEIL: ${e.message}`);
+                }
+            }
+            console.table(rader);
+            console.log('[rekvtest] Den formen som gir treff er den vi skal bruke.');
+            return rader;
+        },
+        // NISSYs EGEN DISTANSE (Thomas fanget kallet 21.08): planleggerens ajax-dispatch
+        // med action=showcostshort og rid=<resId>. Det er popupen «Rekvisisjon … (korteste
+        // vei) — Forventet distanse: 96.25 km». Ikke i ajax_reqdetails, ikke i beregnReisetid.
+        // Samme endepunkt som setResourceDeviation bruker.
+        //   __verktoykasseDev.nissyDistanse('81632305')
+        nissyDistanse: async (resId) => {
+            const url = `${NISSY_ORIGIN}/planlegging/ajax-dispatch?update=false&action=showcostshort&rid=${encodeURIComponent(resId)}`;
+            const r = await fetch(url, { credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/javascript, text/html, application/xml, text/xml, */*' } });
+            if (!r.ok) { console.warn('[NISSY-KM] HTTP ' + r.status); return null; }
+            const txt = await r.text();
+            console.log('[NISSY-KM] svar (%d tegn):', txt.length);
+            console.log(txt.slice(0, 900));
+            const km  = txt.match(/([\d]+[.,][\d]+|\d+)\s*km/i);
+            const tid = txt.match(/(\d+\s*time[rn]?\s*\d*\s*min|\d+\s*min)/i);
+            if (km)  console.log('[NISSY-KM] ✓ DISTANSE: %s km', km[1]);
+            if (tid) console.log('[NISSY-KM] ✓ KJØRETID: %s', tid[1]);
+            if (!km) console.log('[NISSY-KM] fant ikke km-tall — se rå-svaret over');
+            return { km: km ? parseFloat(km[1].replace(',', '.')) : null, tid: tid ? tid[1] : null, rå: txt };
+        },
+        // NISSYs egen distanse ligger i ajax_reqdetails — samme svar vi allerede henter
+        // (Thomas fanget kallet i Network 21.08). «Forventet distanse: 96.25 km» vises i
+        // rekvisisjons-popupen, men vi parser den ikke. Denne viser markupen rundt.
+        //   __verktoykasseDev.visDistanse(81633291)
+        visDistanse: async (reqId, db, tripid) => {
+            // Tar imot BÅDE intern reqId (8 siffer) og rekvisisjonsnummer (12 siffer).
+            // Rekvisisjonsnummeret er det operatøren ser i popupen, så det er det man
+            // naturlig taster — slå det opp først.
+            const rent = String(reqId).replace(/\D/g, '');
+            if (rent.length >= 11) {
+                console.log('[DISTANSE] %s ser ut som et rekvisisjonsnummer — slår opp …', rent);
+                const d = await hentTurDetaljerViaRekvnr(rent);
+                const f = (d && d.rekvisisjoner || [])[0];
+                if (!f) { console.warn('[DISTANSE] fant ingen rekvisisjon med nr ' + rent); return null; }
+                reqId = f.reqId; db = f.db || 1; tripid = f.tripid || f.reqId;
+                console.log('[DISTANSE] → reqId=%s db=%s tripid=%s', reqId, db, tripid);
+            }
+            db = db || 1; tripid = tripid || reqId;
+            const url = `${ADMIN_BASE}/ajax_reqdetails?id=${reqId}&db=${db}&tripid=${tripid}&showSutiXml=true&hideEvents=&full=true&highlightTripNr=`;
+            const r = await fetch(url, { credentials: 'same-origin' });
+            if (!r.ok) { console.warn('[DISTANSE] HTTP ' + r.status); return null; }
+            const html = await r.text();
+            console.log('[DISTANSE] svar: %d tegn', html.length);
+            // NISSY-sider er ofte iso-8859-1, så «kjøretid» kan komme mojibake. Søk bredt:
+            // km-tall, «avstand», engelske varianter — og vis hvilke rader tabellen har.
+            const treff = [];
+            const re = /[\s\S]{0,120}(distan|kj[\wø]{1,3}retid|korteste|avstand|\d[\d.,]*\s*km\b|length|meter)[\s\S]{0,160}/gi;
+            let m, n = 0;
+            while ((m = re.exec(html)) !== null && n++ < 12) treff.push(m[0].replace(/\s+/g, ' ').trim());
+            if (!treff.length) {
+                console.log('[DISTANSE] ingen treff. Radetiketter i svaret:');
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const et = [...doc.querySelectorAll('td,th')].map(e => (e.textContent||'').trim())
+                    .filter(t => t && t.length < 40 && /[:：]$|^[A-ZÆØÅ]/.test(t));
+                console.log('   ', [...new Set(et)].slice(0, 40).join(' | '));
+                return html;
+            }
+            treff.forEach((t, i) => console.log('  [%d] %s', i, t.slice(0, 280)));
+            // Prøv å plukke tallet med noen vanlige mønstre
+            for (const p of [/Forventet\s+distanse[^0-9]{0,60}([\d.,]+)\s*km/i,
+                             /distanse[^0-9]{0,60}([\d.,]+)\s*km/i,
+                             /([\d.,]+)\s*km[^<]{0,20}<\/td>/i]) {
+                const t = html.match(p);
+                if (t) { console.log('[DISTANSE] ✓ TALL FUNNET: %s km  (mønster: %s)', t[1], p); break; }
+            }
+            return html;
+        },
+        // Formattest (Thomas 18.08): 47905352 ga 31 treff fordi de to første sifrene
+        // leses som landskode 47. Prøver samme nummer i ulike skrivemåter og teller RÅ
+        // treff — da ser vi hvilken form NISSY faktisk vil ha, i stedet for å gjette.
+        //   __verktoykasseDev.testTlfFormater('47905352')
+        testTlfFormater: async (tlf) => {
+            const rent = String(tlf || '').replace(/\D/g, '');
+            if (!rent) { console.warn('[formattest] tomt nummer'); return []; }
+            const varianter = [
+                ['rått (som i dag)', rent],
+                ['+47 foran',        '+47' + rent],
+                ['0047 foran',       '0047' + rent],
+                ['47 foran',         '47' + rent],
+                ['med mellomrom',    rent.replace(/^(\d{3})(\d{2})(\d{3})$/, '$1 $2 $3')],
+            ];
+            console.log('[formattest] ' + rent + ' — teller rå treff per skrivemåte (ingen verifisering) …');
+            const rader = [];
+            for (let i = 0; i < varianter.length; i++) {
+                const navn = varianter[i][0], verdi = varianter[i][1];
+                const r = await sokTlfINissy(verdi, { utenVerifisering: true, raaFormat: true, utenFallback: true });
+                const treff = r && r.feil ? ('FEIL: ' + r.feil) : (r && r.pasienter ? r.pasienter.length : null);
+                rader.push({ skrivemate: navn, sendt: verdi, treff });
+                console.log('  ' + navn.padEnd(18) + ' «' + verdi + '» → ' + treff + (typeof treff === 'number' ? ' treff' : ''));
+            }
+            console.table(rader);
+            console.log('[formattest] Færrest treff = den skrivemåten NISSY forstår. 1 treff er fasit.');
+            return rader;
+        },
         // Test-helper: oppretter en falsk tlf-jobb i nissy_oppslag og lar pollTlfVentende
         // plukke den opp + vise toast. Bruk fra konsoll: __verktoykasseDev.testTlf('12345678', {kort_id:1, ko_navn:'Test'})
         testTlf: async (tlf, parametre) => {
@@ -3855,6 +4789,100 @@ document.addEventListener("visibilitychange",inj);
             return d;
         }
     };
+
+    // Fremmestatus: SUTI-seksjonen i NISSYs ressurs-popup (sendt / på vei 3003 / fremme 1709).
+    // Splittet ut av basic_tools 25.08.2026 — se fremmestatus_dev.js. Passiv dekorator uten UI av
+    // eget, så den har ingen meny-oppføring: en launcher åpner et vindu, og denne har ingenting å
+    // åpne. Skal den styres per kjørekontor senere, er det en gate her, ikke i tilgangsmenyen.
+    // ══ NISSY ADMIN-KAPABILITETER ══════════════════════════════════════════════════════
+    // ⚠️ «admin=true» i skriptene våre er bare en SESJONSSJEKK: kom det en side, og var den ikke
+    //    innloggingssiden? Den sier ingenting om hvilke av admin-menyens punkter brukeren faktisk
+    //    når (Thomas 26.08: «ikke alle har like mye tilgang»).
+    //    Konsekvensen er den verste feilmodusen vi har: et oppslag mot noe brukeren ikke har
+    //    tilgang til gir en innloggingsside, parseren finner ingenting, og verktøyet melder
+    //    «fant ingen data» i stedet for «du mangler tilgang». Brukeren tror systemet er tomt.
+    //
+    // Vi leser derfor admin-forsidens meny ÉN gang og eksponerer hva som faktisk finnes.
+    // href-ene er stabile endepunkter; menyteksten er det ikke (den kan lokaliseres/endres).
+    const NISSY_ADMIN_SEKSJONER = {
+        brukere:              'getUser',
+        person:               'findPatient',
+        pasientreisekontorer: 'getDispatchCenter',
+        behandlingssteder:    'adminTCForm',
+        avtaler:              'findContract',
+        avtalefiltere:        'getContractAreaFilter',
+        transportorer:        'getTransporter',
+        rekvisisjoner:        'searchStatus',
+        infoskjerm:           'findInfoScreen',
+        helligdager:          'holidays',
+        filtere:              'getDispatchFilter',
+        filtergrupper:        'filtergroups',
+    };
+
+    function initNissyAdmin() {
+        const api = {
+            klar: null,
+            seksjoner: null,        // null = ikke undersøkt ennå
+            nissyVersjon: null,     // fra admin-headeren, f.eks. «6.10.4»
+            nissyBruker: null,
+            har(navn) { return !api.seksjoner ? null : api.seksjoner.indexOf(navn) >= 0; },
+            // Menneskelig melding et verktøy kan vise i stedet for et tomt resultat.
+            mangler(navn) {
+                if (api.seksjoner === null) return null;          // vet ikke — ikke påstå noe
+                if (api.har(navn)) return null;
+                return 'Du har ikke tilgang til «' + navn + '» i NISSY admin. '
+                     + 'Denne funksjonen kan derfor ikke hente data — det er ikke en feil i verktøyet.';
+            },
+        };
+        api.klar = (async () => {
+            try {
+                const r = await fetch('/administrasjon/admin/', { credentials: 'same-origin' });
+                if (!r.ok) return api.seksjoner;
+                const h = await r.text();
+                // Innloggingsside → ikke admin i det hele tatt. La seksjoner være null, ikke [],
+                // så «vet ikke» ikke forveksles med «har ingenting».
+                if (/name=["']?(j_)?password/i.test(h)) return api.seksjoner;
+                const d = new DOMParser().parseFromString(h, 'text/html');
+                const href = [...d.querySelectorAll('a')].map(a => a.getAttribute('href') || '');
+                api.seksjoner = Object.keys(NISSY_ADMIN_SEKSJONER)
+                    .filter(k => href.some(u => u.indexOf(NISSY_ADMIN_SEKSJONER[k]) >= 0));
+                console.log('[VERKTØYKASSE] NISSY admin-tilgang: '
+                    + (api.seksjoner.length ? api.seksjoner.join(', ') : '(ingen seksjoner)'));
+
+                // ⚠️ NISSY OPPGIR SIN EGEN VERSJON i admin-headeren: «Versjon: 6.10.4».
+                //    Det er verdifullt for verktøy som leser andres HTML: en oppgradering hos NHN
+                //    er nøyaktig når parserne våre brekker — og i dag ville vi merket det ved at
+                //    noe ble STILLE TOMT, uten å ane hvorfor. Nå får vi varsel samme dag.
+                const vm = h.match(/Versjon:\s*([\d.]+)/);
+                if (vm) {
+                    api.nissyVersjon = vm[1];
+                    const sist = localStorage.getItem('vkt_nissy_versjon');
+                    if (sist && sist !== vm[1]) {
+                        console.warn('[VERKTØYKASSE] ⚠ NISSY er oppgradert: ' + sist + ' → ' + vm[1]
+                            + '. Verktøyene leser NISSYs HTML direkte — kontroller at oppslag,'
+                            + ' parsere og kolonner fortsatt treffer.');
+                    }
+                    try { localStorage.setItem('vkt_nissy_versjon', vm[1]); } catch (_) {}
+                    console.log('[VERKTØYKASSE] NISSY-versjon ' + vm[1]);
+                }
+                const bm = h.match(/Innlogget bruker:<\/span>[\s\S]{0,200}?fieldvalue["'][^>]*>\s*([^<\s]+)/);
+                if (bm) api.nissyBruker = bm[1];
+            } catch (e) {
+                console.warn('[VERKTØYKASSE] kunne ikke lese admin-meny:', e && e.message);
+            }
+            return api.seksjoner;
+        })();
+        window.__vkt_nissyAdmin = api;
+    }
+
+    function lastFremmestatus() {
+        const fil = ER_DEV ? 'fremmestatus_dev.js' : 'fremmestatus.js';
+        const s = document.createElement('script');
+        s.src = `https://thomaswestby.no/skript/skript.php?fil=${fil}&_=${Date.now()}`;
+        s.onerror = () => console.warn(`[VERKTØYKASSE] kunne ikke laste ${fil}`);
+        document.head.appendChild(s);
+        console.log(`[VERKTØYKASSE] laster ${fil}`);
+    }
 
     function lastBasicTools(tilgang) {
         // Eksponerer brukernavn så basic_tools.js kan bruke det som userid mot rekvisisjons-API
@@ -4108,24 +5136,109 @@ document.addEventListener("visibilitychange",inj);
         while (celle && celle.tagName !== 'TD') celle = celle.parentNode;
         if (!celle || !celle.parentNode) return;  // footer ikke klar ennå — intervallet prøver igjen
         const td = document.createElement('td');
-        td.setAttribute('valign', 'top');
+        // ⚠️ IKKE valign="top". basic_tools' celler står med vertical-align:middle, og med
+        //    ulik justering satt knappene på ulik høyde i samme rekke — det ser ut som
+        //    størrelsesforskjell selv når boksene er like store.
+        td.style.verticalAlign = 'middle';
         td.style.paddingLeft = '12px';
         const b = document.createElement('button');
         b.id = 'vkt-sokelogg-btn';
         b.type = 'button';
         b.title = 'Dagens søk — klikk for å se hva du har søkt på i dag';
-        b.innerHTML = `🕘 Logg<span id="vkt-sokelogg-teller" style="font-size:9px;vertical-align:super;margin-left:2px;">${lesSokelogg().length}</span>`;
-        b.style.cssText = 'padding:3px 12px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:8px;cursor:pointer;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+        // ⚠️ TELLEREN GJORDE KNAPPEN HØYERE ENN NABOENE (Thomas 27.08). vertical-align:super
+        //    løfter tallet over grunnlinja, og linjeboksen vokser med det — så én knapp i
+        //    footer-rekka sto et par piksler høyere enn resten. Parentesene ligger UTENFOR
+        //    spennet, så de to stedene som skriver telleren (nytt søk, og «tøm») kan fortsatt
+        //    sette ren textContent uten å miste dem.
+        b.innerHTML = `🕘 Logg <span style="opacity:.75;">(<span id="vkt-sokelogg-teller">${lesSokelogg().length}</span>)</span>`;
+        // Oransje som resten av footer-familien (Thomas 25.08) — se basic_tools 1.187-dev.
+        // ⚠️ ÉN FELLES BOKS FOR ALLE FOOTER-KNAPPENE (Thomas 27.08: «størrelsesforskjell på
+        //    høyden enda»). Knappene bygges i TO filer og hadde drevet fra hverandre:
+        //    3px/12px uten line-height her, 3px/10px med line-height:1 i basic_tools. Uten
+        //    line-height bestemmer skriften og EMOJIENE linjeboksen, og de er ikke like høye
+        //    — derfor varierte høyden per knapp. Nå er høyden LÅST (inline-flex + height +
+        //    line-height:1), så innholdet ikke lenger kan dytte boksen.
+        b.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:22px;padding:0 11px;line-height:1;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer;white-space:nowrap;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f59e0b;color:#1e293b;border:1px solid #d97706;';
         b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); visSokeloggPanel(b); };
         td.appendChild(b);
         celle.parentNode.appendChild(td);  // ny celle sist i footer-raden, etter «Dynamiske plakater»
     }
+    // ── FOOTER: Verktøy + snarveier ────────────────────────────────────────────────────
+    // Rekkefølge (Thomas 26.08): Verktøy | Rekvisisjon | Admin | Attest | … resten.
+    // ⚠️ Alle fire i ÉN <td>, satt inn FØR søkelogg-cellen. Cellene våre føyes ellers på i den
+    //    rekkefølgen skriptene tilfeldigvis rekker å kjøre, og da ville rekkefølgen variert
+    //    mellom innlastinger. insertBefore gir et fast anker.
+    function sikreMenyKnapp() {
+        if (document.getElementById('vkt-meny-td')) return;
+        let celle = document.getElementById('dynamic_poster') || document.getElementById('buttonPing');
+        while (celle && celle.tagName !== 'TD') celle = celle.parentNode;
+        if (!celle || !celle.parentNode) return;
+
+        const td = document.createElement('td');
+        td.id = 'vkt-meny-td';
+        // ⚠️ IKKE valign="top". basic_tools' celler står med vertical-align:middle, og med
+        //    ulik justering satt knappene på ulik høyde i samme rekke — det ser ut som
+        //    størrelsesforskjell selv når boksene er like store.
+        td.style.verticalAlign = 'middle';
+        td.style.paddingLeft = '12px';
+        td.style.whiteSpace = 'nowrap';
+
+        // Samme boks som Logg-knappen — se kommentaren der.
+        const stil = 'display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:22px;padding:0 11px;line-height:1;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer;white-space:nowrap;font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f59e0b;color:#1e293b;border:1px solid #d97706;';
+
+        const b = document.createElement('button');
+        b.id = 'vkt-meny-btn';
+        b.type = 'button';
+        b.title = 'Verktøykassens meny — samme som skjoldet';
+        b.textContent = '🔧 Verktøy';
+        b.style.cssText = stil;
+        // ⚠️ stopPropagation er PÅKREVD: skjoldets egen document-lytter lukker menyen når et
+        //    klikk lander utenfor meny+skjold. Uten dette ville vårt eget klikk åpnet menyen og
+        //    umiddelbart lukket den igjen når eventet boblet videre.
+        b.onclick = (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (window.__vkt_meny) window.__vkt_meny.toggle(b);
+        };
+        td.appendChild(b);
+
+        // Snarveiene som egne knapper — slipper å åpne menyen for å få et nytt rekvisisjonsbilde.
+        // Statusprikken sitter på sin egen knapp; tegnAdminStatus maler alle [data-status-for].
+        ['rek', 'admin', 'attest'].forEach(k => {
+            const sn = VKT_SNARVEIER[k];
+            const kn = document.createElement('button');
+            kn.type = 'button';
+            kn.title = sn.tittel;
+            kn.style.cssText = stil + 'margin-left:6px;';
+            const prikk = document.createElement('span');
+            prikk.dataset.statusFor = sn.statusKey;
+            prikk.style.cssText = 'display:inline-block;width:7px;height:7px;border-radius:50%;'
+                + 'background:#64748b;margin-right:6px;vertical-align:1px;'
+                + 'box-shadow:0 0 0 1px rgba(30,41,59,0.35);';
+            kn.appendChild(prikk);
+            kn.appendChild(document.createTextNode(sn.tekst));
+            kn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); apneSnarvei(k); };
+            td.appendChild(kn);
+        });
+
+        const logg = document.getElementById('vkt-sokelogg-btn');
+        const loggTd = logg ? logg.closest('td') : null;
+        if (loggTd && loggTd.parentNode === celle.parentNode) celle.parentNode.insertBefore(td, loggTd);
+        else celle.parentNode.appendChild(td);
+
+        // ⚠️ Prikkene fødes GRÅ. tegnAdminStatus() maler alle [data-status-for] i dokumentet, men
+        //    den kjørte lenge før denne knappen fantes — og kjører først igjen når statusen
+        //    ENDRER seg. Uten dette kallet ville footer-prikkene stått grå til neste
+        //    inn-/utlogging, mens menyens sto grønne. To visninger, samme sannhet, ulik farge.
+        try { tegnAdminStatus(); } catch (_) {}
+    }
+
     function initSokelogg() {
         // Fang søk uansett hvordan de trigges (knapp eller Enter) — capture-fase, før NISSY håndterer.
         document.addEventListener('click', (e) => { if (e.target && e.target.id === 'buttonSearch') loggSok(); }, true);
         document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target && e.target.id === 'searchPhrase') loggSok(); }, true);
         sikreSokeloggKnapp();
-        setInterval(sikreSokeloggKnapp, 3000);  // re-påfør hvis NISSY re-rendrer søkelinja (billig early-return)
+        sikreMenyKnapp();
+        setInterval(() => { sikreSokeloggKnapp(); sikreMenyKnapp(); }, 3000);  // re-påfør hvis NISSY re-rendrer søkelinja (billig early-return)
     }
 
     // === DRIFTSMELDING (per kjørekontor) ===
@@ -4140,7 +5253,10 @@ document.addEventListener("visibilitychange",inj);
         if (!celle || !celle.parentNode) return;  // footer ikke klar — intervallet prøver igjen
         const td = document.createElement('td');
         td.id = 'vkt-melding-td';
-        td.setAttribute('valign', 'top');
+        // ⚠️ IKKE valign="top". basic_tools' celler står med vertical-align:middle, og med
+        //    ulik justering satt knappene på ulik høyde i samme rekke — det ser ut som
+        //    størrelsesforskjell selv når boksene er like store.
+        td.style.verticalAlign = 'middle';
         td.style.paddingLeft = '12px';
         td.style.display = 'none';  // vises først når en aktiv melding finnes
         td.innerHTML = '<span style="display:inline-flex;align-items:flex-start;gap:6px;max-width:680px;'
@@ -4193,7 +5309,9 @@ document.addEventListener("visibilitychange",inj);
         tegnAdminStatus();                 // Vis "sjekker"-status umiddelbart
         await oppdaterAdminStatus();       // Første admin-sjekk
         await oppdaterRekvisisjonStatus(); // Første rekvisisjon-sjekk
+        initNissyAdmin();                  // hvilke admin-seksjoner har DENNE brukeren?
         lastBasicTools(t);                 // Last inline-handlinger (endre tid, etc)
+        lastFremmestatus();                // SUTI-seksjon i ressurs-popupen (egen fil, passiv)
         startSesjon(nissy);                // Meld inn til ovr_sesjoner
         initSokelogg();                    // Søkelogg: 🕘-knapp + fang søk (lokal, tømmes ved dagsskifte)
         initMeldingsfelt();                // Driftsmelding-felt (per kontor, fra admin.php)
