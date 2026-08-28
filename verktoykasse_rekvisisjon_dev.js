@@ -1,4 +1,78 @@
 // === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT (DEV) v1.39-dev ===
+// v1.58-dev: BETA-merke i kommunevarselet (Thomas 28.08). Sjekken er ny og hviler på et register
+//            vi høster selv — operatøren skal vite at den kan ta feil, og at hun skal si fra.
+// v1.57-dev: STÅENDE VARSEL OM FEIL STED (Thomas 28.08: byttet leveringssted til Ahus —
+//            Helseforetak — men varselet om fastlegen hang igjen til han trykket OK). Den nye
+//            adressen er ikke GAB-validert ennå (councilNr = 0), så sjekken hoppet ut uten å røre
+//            det lagrede svaret. «Ikke slett når data mangler» fra 1.50 beskytter listevisningen,
+//            men skal ikke beskytte en påstand om FEIL sted. Id-en er påstandens identitet: er
+//            skjemaet der og toOrganizationId en annen enn den varselet gjelder, forkastes svaret
+//            straks — uavhengig av om vi klarer å regne ut et nytt.
+// v1.56-dev: «reiser TIL/FRA» følger reiseretningen (Thomas 28.08). Til behandling reiser
+//            pasienten FRA sin egen kommune, hjem igjen reiser hun TIL den. Retningen kjenner vi
+//            bare på skjemaet — sammendraget sier den ikke — så den bæres med det lagrede svaret.
+// v1.55-dev: ordlyd (Thomas 28.08: «dette kommer til å forvirre operatørene»). «Kommunen utledet
+//            av postnummeret — NISSY hadde den ikke» forklarte VÅRT oppslag, ikke pasientens
+//            reise. Nå: «Pasienten reiser fra Oslo kommune, basert på postnummeret» — samme
+//            forbehold, på hennes språk. + kommunenavn fra NISSY/Geonorge er STORE BOKSTAVER og
+//            leses som roping i en setning; pentNavn() gjør «OSLO» til «Oslo» og beholder stor
+//            forbokstav i begge ledd av bindestreksnavn (Nord-Aurdal).
+// v1.54-dev: kjørekontor og kommunesjekk SKILT (Thomas 28.08: «har ikke noe med dette å gjøre,
+//            det ser ut som de henger sammen»). Varselet har nå sin egen røde boks under den gule.
+//            + Kjørekontoret skjules når det er VÅRT eget — normaltilfellet er støy, operatøren
+//            trenger bare beskjed når turen hører hjemme et annet sted. Sammenligningen går på
+//            dispatch_center_id, ikke navn: kjorekontor.php svarer med NISSY-høstede navn
+//            («Pasientreiser Oslo og Akershus») mens backend kjenner korte kontornavn — de ville
+//            aldri matchet som tekst. Tilgangen leses fra opener (samme origin); er den
+//            utilgjengelig VISES kontoret, heller en linje for mye enn å skjule noe som haster.
+//            Er den gule boksen tom, skjules den helt.
+// v1.53-dev: to feil loggen avslørte da sjekken endelig virket:
+//            (1) «fant ikke sted 37668 i registeret» var USANT. Cachen la inn null som
+//            plassholder mens oppslaget pågikk, og et parallelt kall leste plassholderen som et
+//            svar. Nå caches LØFTET — alle deler samme forespørsel — og en feil sletter
+//            oppføringen, så neste forsøk prøver på nytt i stedet for å arve nullen for alltid.
+//            (2) Sjekken kjørte fire ganger i sekundet, hver gang med nytt kall til Geonorge og
+//            registeret, fordi observeren fyrer og jeg ikke hadde sperre mot å regne det samme
+//            om igjen. Nøkkel på postnr|pasientNr|stedNr|stedId, og postnummeroppslaget caches.
+// v1.52-dev: NISSY FYLLER IKKE ALLTID councilNr. Målt på editTrip: pasientens councilNr står
+//            som «0» fordi adressen ikke er GAB-validert i den skjermbildetilstanden, mens
+//            behandlingsstedets er komplett (3222/37668). Da utledes pasientens kommune fra
+//            POSTNUMMERET via geokod_sok.php, som nå også svarer med kommunenummer (flertallet
+//            av inntil 200 adresser, med andel — et postnummer kan krysse kommunegrensen).
+//            ⚠️ Kun når NISSY selv mangler tallet, aldri i stedet for. Sammenligningen er på
+//            NUMMER, ikke navn: Geonorge skriver «0301», NISSY «301». Varselet sier fra når
+//            kommunen er utledet, så operatøren vet hvor tallet kom fra.
+// v1.51-dev: kommunesjekken sier nå HVORFOR den eventuelt gir opp (hvilke av pasientNr/stedNr/
+//            stedId som mangler, retning, og om skjemaet i det hele tatt er der). «Ingenting
+//            skjedde» er den dyreste feilmeldingen som finnes — vi brukte flere runder på å lete
+//            etter en tegnefeil som i virkeligheten var manglende data.
+// v1.50-dev: FIX varselet uteble når man kom tilbake til steg 3 (Thomas 28.08: «to forskjellige
+//            state»). To feil i 1.49:
+//            (1) Steg 3 har TO visninger — redigeringsskjemaet med de skjulte feltene, og
+//            listevisningen som bare er en tabellrad. Jeg slettet det lagrede svaret hver gang
+//            feltene manglet, altså også i lista. Fravær av skjema er ikke bevis for fravær av
+//            varsel; nå slettes det kun når skjemaet ER der og selv sier grunnlaget er borte.
+//            (2) Sektoroppslaget er asynkront, så boksen ble tegnet før svaret forelå — og uten
+//            en ny DOM-endring aldri på nytt. Tegningen bes om eksplisitt når svaret endrer seg.
+// v1.49-dev: KOMMUNEVARSELET INN I SAMMENDRAGET (Thomas 28.08: «varslingen forsvinner på steg 4,
+//            den burde ligge i oppsummeringen slik som flyplass»). Det var ankret til
+//            Leveringssted-feltet, som bare finnes på redigeringsskjemaet. councilNr og
+//            toOrganizationId finnes BARE der, så svaret regnes ut på steg 3 og BÆRES VIDERE i
+//            sessionStorage nøklet på pasientens postnummer — samme mønster som fly-flagget.
+//            Feiler forutsetningene (ikke GAB-validert, ingen id), slettes svaret i stedet for
+//            å bli stående som fasit for en reise det ikke lenger gjelder.
+// v1.48-dev: behandlingsstedet i varselet lenkes til NISSY-admin
+//            (/administrasjon/admin/treatmentCenter?id=<toOrganizationId>&action=edit — Thomas
+//            28.08). Samme id som skjemaet bærer. ⚠️ Krever admin-tilgang, så det er en lenke
+//            operatøren VELGER å følge — ikke et oppslag vi gjør i bakgrunnen og lar feile.
+// v1.47-dev: KOMMUNESJEKK på steg 3 — «primærhelsetjenesten er et kommunalt tilbud, så det
+//            skal være innenfor kommunen» (Thomas 27.08). ALT ligger i NISSYs eget skjema:
+//            fromAddress.councilNr / toAddress.councilNr gir kommunenummer for begge endepunkter,
+//            og toOrganizationId gir behandlingsstedets id → sektor fra registeret. Ingen
+//            utledning fra postnummer, ingen koordinatoppslag.
+//            ⚠️ Retningen snur hvem som er hvem — leses fra radioknappen, ikke antatt.
+//            ⚠️ Tier når councilNr er 0/tomt (adressen ikke validert mot GAB ennå) eller id-en
+//            mangler: en gjetning her ville vært en påstand om regelverk.
 // v1.46-dev: VARSEL NÅR REISEN BRUKER EN ANNEN FLYPLASS enn pasientens nærmeste (Thomas 27.08,
 //            testet med Gardermoen→Værnes for en pasient i Hadsel). Leser Reise-seksjonen i
 //            sammendraget og kjenner igjen flyplassene der. ⚠️ Sier fra, påstår ikke feil — en
@@ -109,7 +183,7 @@
 //   window.opener.__vkt_registerAgentTab() hvert poll-tick så Map i planlegger
 //   alltid har fersk window-referanse, uavhengig av F5 i planlegger.
 (function () {
-    const VERSJON = '1.46-dev';
+    const VERSJON = '1.58-dev';
     // Hardkodet — dette er dev-fila, så den re-injiserer alltid dev-versjoner
     const KILDE = 'dev';
     const NAVN = 'VKT-REKVISISJON-DEV';
@@ -664,6 +738,7 @@
             _flyCache[postnr] = {
                 poststed: pt.poststed || '', kommune: pt.kommune || '',
                 kontor: (kk && kk.ok) ? kk.kontor : null,
+                kontorId: (kk && kk.ok) ? kk.id : null,
                 flyplasser: naer,
             };
         } catch (_) { _flyCache[postnr] = null; }
@@ -789,7 +864,8 @@
 
         let boks = document.getElementById('vkt-fly-boks');
         // Reisen kan endres uten at postnummeret gjør det, og varselet henger på reisen.
-        const reiseNoekkel = flyReiseTekst().slice(0, 300);
+        const reiseNoekkel = flyReiseTekst().slice(0, 300)
+                           + '|' + JSON.stringify(kommVarsel(postnr) || 0);
         if (boks && boks.dataset.postnr === postnr && boks.dataset.fly === String(fly)
             && boks.dataset.reise === reiseNoekkel) return;
         if (!boks) {
@@ -815,7 +891,12 @@
         flySlaaOpp(postnr).then(d => {
             if (boks.dataset.postnr !== postnr) return;              // rekvisisjonen byttet under oss
             if (!d) { boks.innerHTML = 'Fant ikke postnummer ' + postnr + '.'; return; }
-            let h = '<div style="font-size:9px;color:#78716c;text-transform:uppercase;'
+            // Er det VÅRT eget kontor, er linjen støy: det er normaltilfellet, og operatøren
+            // trenger bare beskjed når turen hører hjemme et annet sted (Thomas 28.08).
+            const mitt = mittKontorId();
+            const vaart = mitt !== null && d.kontorId !== null && parseInt(d.kontorId, 10) === mitt;
+            let h = vaart ? '' :
+                    '<div style="font-size:9px;color:#78716c;text-transform:uppercase;'
                   + 'letter-spacing:.4px;">Kjørekontor</div>'
                   + '<div style="font-weight:700;">' + (d.kontor || 'ukjent for ' + postnr) + '</div>';
             if (fly) {
@@ -843,7 +924,234 @@
                        + Math.round(naermest.km) + ' km.</div>';
                 }
             }
+
+            // Gul boks tom = ingenting å si. Da skal den heller ikke stå der og se ut som noe.
+            boks.style.display = h ? '' : 'none';
             boks.innerHTML = h;
+
+            // ⚠️ EGEN BOKS. Kjørekontor og kommunesjekk har ingenting med hverandre å gjøre, men
+            //    delte ramme og så dermed ut som én sak (Thomas 28.08). Varselet er rødt og står
+            //    for seg selv, under.
+            const kv = kommVarsel(postnr);
+            let kboks = document.getElementById('vkt-komm-boks');
+            if (!kv) { if (kboks) trygtFjern(kboks); return; }
+            if (!kboks) {
+                kboks = document.createElement('div');
+                kboks.id = 'vkt-komm-boks';
+                kboks.style.cssText = 'margin:6px 0 4px 18px;padding:6px 8px;border:1px solid #dc2626;'
+                    + 'border-left:3px solid #dc2626;background:#fef2f2;border-radius:0 4px 4px 0;'
+                    + 'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;'
+                    + 'color:#991b1b;line-height:1.45;overflow-wrap:anywhere;';
+            }
+            if (boks.parentNode && kboks.previousElementSibling !== boks) {
+                boks.parentNode.insertBefore(kboks, boks.nextSibling);
+            }
+            // Lenken krever admin-tilgang — derfor noe operatøren VELGER å følge.
+            const kurl = location.origin + '/administrasjon/admin/treatmentCenter?id='
+                       + encodeURIComponent(kv.id) + '&action=edit';
+            // ⚠️ SKRIV FOR OPERATØREN, IKKE OM MEKANIKKEN (Thomas 28.08: «dette kommer til å
+            //    forvirre operatørene»). Første forsøk sa «kommunen utledet av postnummeret —
+            //    NISSY hadde den ikke», som forklarer VÅRT oppslag og ikke pasientens reise.
+            //    «basert på postnummeret» sier det samme forbeholdet på hennes språk: hun vet at
+            //    et postnummer er grovere enn en adresse, og kan vurdere det selv.
+            // BETA-merke: sjekken er ny og bygget på et register vi selv høster. Operatøren skal
+            // vite at den kan ta feil — og at hun skal si fra når den gjør det.
+            const beta = '<span style="background:#fbbf24;color:#451a03;font-size:9px;'
+                       + 'font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;'
+                       + 'letter-spacing:.5px;vertical-align:middle;">BETA</span>';
+            kboks.innerHTML = '<b>⚠ Ut av kommunen til primærhelsetjeneste.</b>' + beta + '<br>'
+                + '<a href="' + kurl + '" target="_blank" rel="noopener" style="color:#991b1b;">'
+                + statusEsc(kv.navn) + '</a> er ' + statusEsc(kv.sektor) + ' i '
+                + statusEsc(pentNavn(kv.stedKomm)) + ' kommune.<br>'
+                + 'Pasienten reiser ' + (kv.fraBehandling ? 'til' : 'fra') + ' <b>'
+                + statusEsc(pentNavn(kv.pasientKomm)) + ' kommune</b>'
+                + (kv.utledet ? ' basert på postnummeret' : '') + '.';
+        });
+    }
+
+    // ══ KOMMUNESJEKK: PRIMÆRHELSETJENESTE SKAL VÆRE I EGEN KOMMUNE ══════════════════════
+    // Thomas 27.08: «primærhelsetjenesten er et kommunalt tilbud, så det skal være innenfor
+    // kommunen». Registeret har nøyaktig tre sektorer — Primærhelsetjeneste (57k),
+    // Helseforetak (13k) og Avtalespesialist (4k) — og kommuneavvik-skanningen godkjenner
+    // allerede de to siste over kommunegrensen. Det som blir igjen er regelen her.
+    //
+    // ⚠️ ALT VI TRENGER LIGGER I NISSYS EGET SKJEMA (dumpen 28.08). Steg 3 har skjulte felt:
+    //      fromAddress.councilNr = 301   (OSLO)
+    //      toAddress.councilNr   = 3222  (LØRENSKOG)
+    //      toOrganizationId      = 37668 (behandlingsstedets id)
+    //    Vi skal altså verken utlede kommune fra postnummer eller slå opp koordinater — NISSY
+    //    har kommunenummeret for begge endepunkter, og id-en gir sektoren rett fra registeret.
+    //
+    // ⚠️ RETNINGEN SNUR HVEM SOM ER HVEM. «Til behandling» → pasienten er FRA, behandlingsstedet
+    //    er TIL. «Fra behandling» → omvendt. Leses fra radioknappen, ikke antatt.
+    const statusEsc = (t) => String(t == null ? '' : t)
+        .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    // ⚠️ SVARET MÅ BÆRES VIDERE. councilNr og toOrganizationId finnes BARE på
+    //    redigeringsskjemaet (steg 3). På steg 4 står det bare tekst i sammendraget, så et varsel
+    //    ankret til Leveringssted-feltet forsvinner der (Thomas 28.08). Vi regner det ut der
+    //    tallene finnes og husker resultatet, nøklet på pasientens POSTNUMMER — samme mønster som
+    //    fly-flagget, og et postnummer er ikke en pasient. Nøkkelen hindrer også at et gammelt
+    //    varsel henger igjen på neste rekvisisjon.
+    function kommVarsel(postnr, verdi) {
+        const n = 'vkt_komm_' + postnr;
+        try {
+            if (verdi === undefined) { const r = sessionStorage.getItem(n); return r ? JSON.parse(r) : null; }
+            if (verdi) sessionStorage.setItem(n, JSON.stringify(verdi)); else sessionStorage.removeItem(n);
+        } catch (_) {}
+        return verdi || null;
+    }
+
+    let _sisteKommSjekk = '';
+    const _kommSjekkCache = {};
+    // ⚠️ CACHE LØFTET, IKKE RESULTATET. Med en null-plassholder mens oppslaget er underveis
+    //    leser et parallelt kall plassholderen som et SVAR — og logger «fant ikke sted X i
+    //    registeret» om et sted som finnes. Første kall vinner, de andre får en løgn.
+    //    Med løftet i cachen deler alle samme forespørsel, og en feil sletter oppføringen så
+    //    neste forsøk faktisk prøver på nytt i stedet for å arve nullen for alltid.
+    function bhsSektor(id) {
+        if (_kommSjekkCache[id]) return _kommSjekkCache[id];
+        _kommSjekkCache[id] = fetch(`${SERVER}/behandlingssted.php?id=${encodeURIComponent(id)}`)
+            .then(r => r.json())
+            .then(j => (j && j.ok && j.sted) ? j.sted : null)
+            .catch(() => { delete _kommSjekkCache[id]; return null; });
+        return _kommSjekkCache[id];
+    }
+
+    // Samme for postnummer-oppslaget: uten cache traff vi Geonorge på hver observer-runde.
+    // ⚠️ SAMMENLIGN ID, IKKE NAVN. kjorekontor.php svarer med NISSY-høstede navn
+    //    («Pasientreiser Oslo og Akershus»), mens backend kjenner korte kontornavn — de ville
+    //    aldri matchet som tekst. Begge sider har derimot dispatch_center_id.
+    //    Tilgangen bor i planleggeren; rekvisisjonsvinduet er samme origin, så vi kan lese den
+    //    fra opener. Er den utilgjengelig, VISER vi kjørekontoret — heller en linje for mye enn
+    //    å skjule at turen hører hjemme et annet sted.
+    // NISSY og Geonorge skriver kommunenavn med STORE BOKSTAVER; i en setning leses det som
+    // roping. Bindestreksnavn må beholde stor forbokstav i begge ledd (Nord-Aurdal).
+    function pentNavn(n) {
+        const t = String(n || '').trim();
+        if (!t || t !== t.toUpperCase()) return t;          // allerede blandet — la stå
+        return t.toLowerCase().replace(/(^|[\s\-\/])([a-zà-ÿ])/g, (_, f, c) => f + c.toUpperCase());
+    }
+
+    function mittKontorId() {
+        try {
+            const t = window.opener && window.opener.__vkt_tilgang;
+            const id = t && parseInt(t.dispatch_center_id, 10);
+            return Number.isFinite(id) ? id : null;
+        } catch (_) { return null; }
+    }
+
+    const _kommPostCache = {};
+    function kommPostnrKommune(postnr) {
+        if (_kommPostCache[postnr]) return _kommPostCache[postnr];
+        _kommPostCache[postnr] = fetch(`${SERVER}/geokod_sok.php?postnr=${encodeURIComponent(postnr)}`)
+            .then(r => r.json())
+            .then(j => (j && j.ok && j.kommunenr) ? j : null)
+            .catch(() => { delete _kommPostCache[postnr]; return null; });
+        return _kommPostCache[postnr];
+    }
+
+    function dekorerKommunesjekk() {
+        const v = id => { const e = document.getElementById(id); return e ? (e.value || '').trim() : ''; };
+        const valgt = document.querySelector('input[name="direction"]:checked');
+        if (!valgt) return;                                   // ikke redigeringsskjemaet (lista)
+        const fraBehandling = valgt.value === '1';
+
+        const pasientNr   = fraBehandling ? v('toAddress.councilNr')   : v('fromAddress.councilNr');
+        const pasientNavn = fraBehandling ? v('toAddress.council')     : v('fromAddress.council');
+        const pasientPost = fraBehandling ? v('toAddress.postCode')    : v('fromAddress.postCode');
+        const stedNr      = fraBehandling ? v('fromAddress.councilNr') : v('toAddress.councilNr');
+        const stedNavn    = fraBehandling ? v('fromAddress.council')   : v('toAddress.council');
+        const stedId      = fraBehandling ? v('fromOrganizationId')    : v('toOrganizationId');
+        if (!pasientPost) return;
+
+        // councilNr er 0/tomt før NISSY har validert adressen mot GAB, og uten behandlingssted-id
+        // kjenner vi ikke sektoren. Da sletter vi et eventuelt tidligere svar i stedet for å la
+        // det bli stående som fasit for en reise det ikke lenger gjelder.
+        // ⚠️ FRAVÆR AV SKJEMA ER IKKE BEVIS FOR FRAVÆR AV VARSEL (Thomas 28.08: «to forskjellige
+        //    state»). Steg 3 har TO visninger: redigeringsskjemaet med feltene, og listevisningen
+        //    som bare er en tabellrad uten et eneste skjult felt. Slettet vi svaret hver gang
+        //    feltene manglet, ville varselet forsvinne i det operatøren gikk tilbake til lista.
+        //    Vi sletter derfor KUN når skjemaet er der og selv sier at grunnlaget er borte —
+        //    altså at adressefeltene finnes, men uten gyldig kommunenummer.
+        const skjemaFinnes = !!document.getElementById('toAddress.postCode');
+        // ⚠️ NISSY FYLLER IKKE ALLTID councilNr. På editTrip står pasientens `councilNr` som «0»
+        //    fordi adressen ikke er GAB-validert i den skjermbildetilstanden, mens behandlings-
+        //    stedets er komplett. Postnummeret er derimot alltid der — og Geonorge gir kommune-
+        //    nummeret for det. Vi utleder BARE når NISSY selv mangler tallet, aldri i stedet for.
+        //    Sammenligningen gjøres på nummer, ikke navn: Geonorge skriver «0301», NISSY «301».
+        const kommTall = t => String(t || '').replace(/^0+/, '');
+        // ⚠️ Observeren fyrer flere ganger i sekundet. Uten denne sperren regnet vi det samme om
+        //    igjen hver gang — med et nytt kall til Geonorge og til registeret for hver runde.
+        const sjekkNoekkel = [pasientPost, pasientNr, stedNr, stedId].join('|');
+        if (_sisteKommSjekk === sjekkNoekkel) return;
+        _sisteKommSjekk = sjekkNoekkel;
+
+        // ⚠️ ET LAGRET SVAR GJELDER ETT BESTEMT STED. Bytter operatøren leveringssted, er den nye
+        //    adressen ikke GAB-validert ennå (councilNr = 0), og sjekken hoppet ut uten å røre
+        //    det gamle svaret — så varselet ble stående og navnga et sted som ikke lenger var
+        //    valgt (Thomas 28.08: byttet til Ahus, som er Helseforetak, men varselet om fastlegen
+        //    hang igjen til han trykket OK). Regelen «ikke slett når data mangler» fra 1.50
+        //    beskytter listevisningen — den skal ikke beskytte en påstand om FEIL sted.
+        //    ID-EN ER PÅSTANDENS IDENTITET: er skjemaet der og id-en en annen, forkastes svaret
+        //    straks, uavhengig av om vi klarer å regne ut et nytt.
+        const lagretKv = kommVarsel(pasientPost);
+        if (skjemaFinnes && lagretKv && String(lagretKv.id) !== String(stedId || '')) {
+            console.log(`[${NAVN}] kommunesjekk: behandlingsstedet er byttet `
+                + `(${lagretKv.id} → ${stedId || '∅'}) — forkaster gammelt varsel`);
+            kommVarsel(pasientPost, null);
+            dekorerFlyreise();
+        }
+        if ((!pasientNr || pasientNr === '0') && pasientPost && stedId && stedNr && stedNr !== '0') {
+            kommPostnrKommune(pasientPost)
+                .then(j => {
+                    if (!j) return;
+                    console.log(`[${NAVN}] kommunesjekk: NISSY manglet pasientens kommune — `
+                        + `utledet ${j.kommune} (${j.kommunenr}) fra postnr ${pasientPost}`);
+                    kommSammenlign(kommTall(j.kommunenr), j.kommune, stedNr, stedNavn, stedId,
+                                   pasientPost, true, fraBehandling);
+                })
+                .catch(() => {});
+            return;
+        }
+        if (!stedId || !pasientNr || !stedNr || pasientNr === '0' || stedNr === '0') {
+            // Si HVORFOR. «Ingenting skjedde» er den dyreste feilmeldingen som finnes — vi har
+            // brukt flere runder på å lete etter en tegnefeil som egentlig var manglende data.
+            console.log(`[${NAVN}] kommunesjekk: gir opp — `
+                + `pasientNr=${pasientNr || '∅'} stedNr=${stedNr || '∅'} stedId=${stedId || '∅'}`
+                + ` (retning=${fraBehandling ? 'fra' : 'til'} behandling, skjema=${skjemaFinnes})`);
+            if (skjemaFinnes && (pasientNr === '0' || stedNr === '0')) kommVarsel(pasientPost, null);
+            return;
+        }
+
+        const foer = JSON.stringify(kommVarsel(pasientPost) || 0);
+        kommSammenlign(kommTall(pasientNr), pasientNavn, stedNr, stedNavn, stedId,
+                       pasientPost, false, fraBehandling);
+    }
+
+    // Én regel, uansett om pasientens kommune kom fra NISSY eller ble utledet av postnummeret.
+    function kommSammenlign(pasientNr, pasientNavn, stedNr, stedNavn, stedId, pasientPost, utledet, fraBehandling) {
+        const foer = JSON.stringify(kommVarsel(pasientPost) || 0);
+        console.log(`[${NAVN}] kommunesjekk: sted ${stedId} (${stedNavn} ${stedNr}) `
+            + `mot pasient i ${pasientNavn} ${pasientNr}${utledet ? ' (utledet)' : ''}`);
+        bhsSektor(stedId).then(sted => {
+            if (!sted) {
+                console.log(`[${NAVN}] kommunesjekk: fant ikke sted ${stedId} i registeret`);
+                return;
+            }
+            const varsle = /prim/i.test(sted.sektor || '')
+                && String(pasientNr) !== String(stedNr).replace(/^0+/, '');
+            kommVarsel(pasientPost, varsle ? {
+                id: sted.id, navn: sted.navn, sektor: sted.sektor,
+                stedKomm: stedNavn || stedNr, pasientKomm: pasientNavn || pasientNr,
+                utledet: !!utledet,
+                // Retningen avgjør preposisjonen i varselet: «reiser FRA Oslo kommune» til
+                // behandling, «reiser TIL Oslo kommune» hjem igjen. Den vet vi bare her, på
+                // skjemaet — sammendraget sier det ikke — så den må bæres med svaret.
+                fraBehandling: !!fraBehandling
+            } : null);
+            if (varsle) console.log(`[${NAVN}] kommunesjekk: ${sted.navn} (${sted.sektor}) i `
+                + `${stedNavn} vs pasient i ${pasientNavn} → VARSEL`);
+            if (foer !== JSON.stringify(kommVarsel(pasientPost) || 0)) dekorerFlyreise();
         });
     }
 
@@ -857,6 +1165,7 @@
             fargeLaasteBehov();
             lagKalender();
             dekorerFlyreise();
+            dekorerKommunesjekk();
         });
     }
     const datoObs = new MutationObserver(planleggDekorasjon);
@@ -867,6 +1176,7 @@
     fargeLaasteBehov();
     lagKalender();
     dekorerFlyreise();
+    dekorerKommunesjekk();
 
     poll();
     holdOpenerLevende();

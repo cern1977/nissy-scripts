@@ -39,10 +39,23 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS ovr_behandlingssted (
     parent_id INT DEFAULT NULL,
     utm_n INT DEFAULT NULL,
     utm_o INT DEFAULT NULL,
+    kommune VARCHAR(100) DEFAULT NULL,
+    profesjon VARCHAR(80) DEFAULT NULL,
     oppdatert DATETIME NOT NULL,
     av VARCHAR(80) DEFAULT NULL,
     INDEX (postnr), INDEX (parent_id), INDEX (navn), INDEX (orgnr)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// ⚠️ CREATE TABLE IF NOT EXISTS legger IKKE til kolonner i en tabell som allerede finnes.
+//    Registeret har 74k rader fra før, så nye felter må komme inn med ALTER. Idempotent:
+//    leser hvilke kolonner som faktisk står der, og legger bare til det som mangler.
+try {
+    $harKol = [];
+    foreach ($pdo->query("SHOW COLUMNS FROM ovr_behandlingssted") as $r) $harKol[] = $r['Field'];
+    foreach (['kommune' => 'VARCHAR(100) DEFAULT NULL', 'profesjon' => 'VARCHAR(80) DEFAULT NULL'] as $k => $def) {
+        if (!in_array($k, $harKol, true)) $pdo->exec("ALTER TABLE ovr_behandlingssted ADD COLUMN $k $def");
+    }
+} catch (Throwable $e) { /* migreringen er en bonus, ikke et krav for å lagre */ }
 
 // Ett sted kan ha flere numre (sentralbord, akutt, direkte). Nøkkelen er
 // (tlf_norm, bhs_id) så samme nummer kan peke på flere steder — det finnes,
@@ -81,8 +94,8 @@ foreach (['kortnavn' => 'VARCHAR(60)', 'alias' => 'VARCHAR(120)', 'e_rek' => 'VA
 // generasjoner av samme sted (Harbitzalleen Legesenter fantes i 6 utgaver).
 // Uten den måtte operatøren gjette hvilke av 14 «underavdelinger» som er ekte.
 $st = $pdo->prepare("REPLACE INTO ovr_behandlingssted
-    (id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, kortnavn, alias, e_rek, parent_id, utm_n, utm_o, oppdatert, av)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?)");
+    (id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, kortnavn, alias, e_rek, parent_id, utm_n, utm_o, kommune, profesjon, oppdatert, av)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?)");
 $slettTlf = $pdo->prepare("DELETE FROM ovr_behandlingssted_tlf WHERE bhs_id = ?");
 $settTlf  = $pdo->prepare("INSERT IGNORE INTO ovr_behandlingssted_tlf (tlf_norm, bhs_id) VALUES (?,?)");
 
@@ -124,6 +137,11 @@ foreach ($steder as $s) {
         })($s['e_rekvirering'] ?? ''),
         isset($s['parent_id']) && is_numeric($s['parent_id']) ? (int)$s['parent_id'] : null,
         $utmN, $utmO,
+        // Kommune er NISSYs EGEN — ikke utledet av postnummeret. Poststedet kan hete noe annet
+        // enn kommunen (1463 Fjellhamar ligger i Lørenskog), og et postnummer kan krysse
+        // kommunegrensen. Det er nettopp grensetilfellene primærhelse-regelen handler om.
+        substr(trim((string)($s['kommune'] ?? '')), 0, 100) ?: null,
+        substr(trim((string)($s['profesjon'] ?? '')), 0, 80) ?: null,
         $av,
     ]);
 

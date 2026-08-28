@@ -25,12 +25,19 @@ if (strlen($postnr) === 4) {
     curl_close($c);
     $a = ($sv === false) ? [] : (json_decode($sv, true)['adresser'] ?? []);
     if (!$a) { echo json_encode(['ok' => false, 'postnr' => $postnr, 'feil' => 'ukjent postnummer']); exit; }
+    // arsort FØR array_key_first: flertallet skal vinne, ikke den første i svaret.
+    // Kommunenummer per postnummer: et postnummer KAN krysse kommunegrensen, så vi teller
+    // og lar flertallet avgjøre — og sier hvor entydig det var, så kalleren kan vurdere selv.
+    $komm = [];
     $sumLat = 0.0; $sumLon = 0.0; $n = 0;
     foreach ($a as $rad) {
+        $kn = (string)($rad['kommunenummer'] ?? '');
+        if ($kn !== '') $komm[$kn] = ($komm[$kn] ?? 0) + 1;
         $pt = $rad['representasjonspunkt'] ?? null;
         if (!$pt || !isset($pt['lat'], $pt['lon'])) continue;
         $sumLat += (float)$pt['lat']; $sumLon += (float)$pt['lon']; $n++;
     }
+    arsort($komm);
     if ($n === 0) { echo json_encode(['ok' => false, 'postnr' => $postnr, 'feil' => 'ingen koordinater']); exit; }
     echo json_encode([
         'ok'        => true,
@@ -40,6 +47,8 @@ if (strlen($postnr) === 4) {
         'lat'       => round($sumLat / $n, 6),
         'lon'       => round($sumLon / $n, 6),
         'adresser'  => $n,          // hvor mange punkter snittet bygger på
+        'kommunenr' => $komm ? (string)array_key_first($komm) : null,
+        'kommune_andel' => $komm ? round(reset($komm) / max(1, array_sum($komm)), 3) : null,
     ]);
     exit;
 }

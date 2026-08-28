@@ -7,6 +7,7 @@
 //   ?id=37665      → ett sted + underenheter
 //   ?sok=skårer    → navnesøk (fallback når nummeret ikke gir treff)
 //   ?status        → antall rader + når registeret sist ble oppdatert
+//   ?sektorer      → hvilke sektor-/type-verdier som finnes, med antall
 //   ?adresse=…&postnr=…[&navn=…]  → hva ligger på adressen, og hvilken SEKTOR har det
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
@@ -18,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 require_once __DIR__ . '/../pasientreiser/ai_config.secret.php';
 $pdo = getDb();
 
-$FELT = "id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, parent_id, utm_n, utm_o, oppdatert";
+$FELT = "id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, parent_id, utm_n, utm_o, kommune, profesjon, oppdatert";
 
 try {
     // === ADRESSEOPPSLAG MED SEKTOR (14.08) ===
@@ -116,6 +117,21 @@ try {
             if ($r['parent_id'] !== null) $barn[(int)$r['parent_id']][] = (int)$r['id'];
         }
         echo json_encode(['ok' => true, 'antall' => count($alle), 'ider' => $alle, 'barn' => $barn]);
+        exit;
+    }
+
+    // ?sektorer → hvilke sektor- og type-verdier registeret faktisk inneholder, med antall.
+    // Trengs for kommune-regelen (Thomas 27.08: «primærhelsetjenesten er et kommunalt tilbud, så
+    // det skal være innenfor kommunen»): reglene må skrives mot verdiene som STÅR der, ikke mot
+    // en vokabular vi tror finnes. Feltet er fritekst høstet fra NISSY, ikke en kodeliste.
+    if (isset($_GET['sektorer'])) {
+        $sek = $pdo->query("SELECT COALESCE(sektor,'(tom)') AS v, COUNT(*) AS n
+                            FROM ovr_behandlingssted GROUP BY sektor ORDER BY n DESC")
+                   ->fetchAll(PDO::FETCH_ASSOC);
+        $typ = $pdo->query("SELECT COALESCE(type,'(tom)') AS v, COUNT(*) AS n
+                            FROM ovr_behandlingssted GROUP BY type ORDER BY n DESC LIMIT 40")
+                   ->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['ok' => true, 'sektor' => $sek, 'type' => $typ]);
         exit;
     }
 
