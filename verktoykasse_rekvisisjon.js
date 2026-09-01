@@ -1,4 +1,42 @@
 // === WESTBYS VERKTØYKASSE — REKVISISJONS-AGENT (DEV) v1.39-dev ===
+// v1.64-dev: «Feilmeld» også i diagnoseboksen (Thomas 31.08: «mangler mulighet for å gi
+//            tilbakemelding»). Lenken sto bare i det RØDE varselet, så operatøren kunne si fra
+//            når regelen ropte feil — men ikke når den TIDDE feil. En falsk stillhet er verre
+//            enn et falskt varsel: den oppdages ikke, og uten en vei å melde den ville vi trodd
+//            at ingen tilbakemelding betød at alt stemte.
+// v1.63-dev: KØ + FEILMELDING (Thomas 31.08). (1) Møter sjekken et behandlingssted som mangler
+//            i registeret, meldes id-en til vkt_meld.php. Bommene forteller nøyaktig hvilke
+//            steder som er i BRUK men utdatert hos oss — langt mer verdt enn å høste 74 000 rader
+//            på nytt, og køen sorteres på antall treff så de mest brukte kommer først.
+//            (2) «Feilmeld»-lenke i varselet: operatøren skriver f.eks. «dette er ikke
+//            primærhelsetjeneste» og det havner i samme logg. Det er den eneste måten vi får vite
+//            at regelen bommer i praksis — uten den er stillhet det samme som at alt er riktig.
+//            ⚠️ Ingen pasientopplysninger sendes; prompten sier eksplisitt fra om fritekstfeltet.
+// v1.62-dev: SLÅR OPP I ADMIN når stedet mangler i registeret (Thomas 31.08). Registeret er en
+//            CACHE høstet 14.08 — steder opprettet eller endret etter det manglet, og da tidde
+//            sjekken selv om NISSY visste svaret. adminTCDetails er samme origin, så oppslaget er
+//            gratis når operatøren er innlogget; svaret caches i økten.
+//            ⚠️ VI SKRIVER IKKE TILBAKE: behandlingssted_lagre.php bruker REPLACE INTO, så en
+//            delvis rad herfra ville slettet kortnavn, alias, parent_id og posisjon på en
+//            eksisterende rad. Ferskhet er høstingens jobb.
+//            ⚠️ Admin serveres som latin1 — uten TextDecoder blir «Primærhelsetjeneste» mojibake
+//            og sektortesten bommer på et sted vi faktisk fant.
+// v1.61-dev: DIAGNOSEBOKS I DEV (Thomas 31.08: «jeg får jo ikke en feilmelding — Finner ikke
+//            behandlingsstedet hadde vært fint, i hvert fall under testing»). Sjekken kan gi opp
+//            av fem grunner, og utenfra ser alle like ut: en tom side. Nå sier en dempet boks hva
+//            den konkluderte med — også når konklusjonen er «samme kommune, ingen merknad».
+//            Vises kun når KILDE === 'dev', altså forsvinner den av seg selv ved promotering.
+// v1.60-dev: varselet flyttet til Årsak-feltsettet på ensides (Thomas 31.08: «mye dødplass under
+//            trafikal og medisinsk»). To radioknapper og ellers tom høyrespalte — boksen får plass
+//            uten å skyve NISSYs innhold nedover, og står der øyet ikke allerede har lest forbi.
+//            Leveringssted beholdes som reserve hvis Årsak mangler i en variant vi ikke har sett.
+// v1.59-dev: ENSIDES REKVISISJON (Thomas 31.08) — tredje skjemavariant, samme data under andre
+//            navn: feltene er prefikset «trip.» (trip.toOrganizationId, trip.fromAddress.councilNr).
+//            Vi prøver begge navnene i ett oppslag i stedet for to sjekker som vil drive fra
+//            hverandre. ⚠️ Ensides er faktisk BEST stilt: patientAddress.councilNr gir pasientens
+//            egen kommune uavhengig av reiseretning OG av GAB-validering, så postnummer-fallbacken
+//            trengs ikke der. Den går først når den finnes. Siden har ingen .summary_container,
+//            så varselet festes til Leveringssted-feltsettet — der operatøren allerede ser.
 // v1.58-dev: BETA-merke i kommunevarselet (Thomas 28.08). Sjekken er ny og hviler på et register
 //            vi høster selv — operatøren skal vite at den kan ta feil, og at hun skal si fra.
 // v1.57-dev: STÅENDE VARSEL OM FEIL STED (Thomas 28.08: byttet leveringssted til Ahus —
@@ -183,7 +221,7 @@
 //   window.opener.__vkt_registerAgentTab() hvert poll-tick så Map i planlegger
 //   alltid har fersk window-referanse, uavhengig av F5 i planlegger.
 (function () {
-    const VERSJON = '1.58';
+    const VERSJON = '1.64';
     const KILDE = 'prod';
     const NAVN = 'VKT-REKVISISJON';
     const MODUL = 'rekvisisjon';
@@ -932,6 +970,10 @@
             // Gul boks tom = ingenting å si. Da skal den heller ikke stå der og se ut som noe.
             boks.style.display = h ? '' : 'none';
             boks.innerHTML = h;
+            if (kv) {
+                const kdel = boks.lastElementChild;      // varselblokken vi nettopp la til
+                if (kdel) kdel.appendChild(feilmeldLenke(kv));
+            }
 
             // ⚠️ EGEN BOKS. Kjørekontor og kommunesjekk har ingenting med hverandre å gjøre, men
             //    delte ramme og så dermed ut som én sak (Thomas 28.08). Varselet er rødt og står
@@ -1021,6 +1063,40 @@
         return _kommSjekkCache[id];
     }
 
+    // ⚠️ REGISTERET ER EN CACHE, IKKE FASIT (Thomas 31.08: «kan ikke 1.61 forsøke å slå opp i
+    //    admin?»). Det er høstet fra NISSY 14.08, så steder opprettet eller endret etter det
+    //    mangler — og da tier sjekken selv om NISSY vet svaret. Admin har fasit, og
+    //    rekvisisjonsvinduet er samme origin, så oppslaget er gratis når operatøren er innlogget.
+    //
+    // ⚠️ VI SKRIVER IKKE TILBAKE. behandlingssted_lagre.php bruker REPLACE INTO, så en delvis rad
+    //    herfra ville slettet kortnavn, alias, parent_id og posisjon på en eksisterende rad. Det
+    //    er verre enn en manglende rad. Ferskhet er høstingens jobb.
+    //
+    // ⚠️ Krever admin-innlogging. Uten den svarer NISSY 200 OK med login-siden — vi får ingen
+    //    sektor, og da tier vi som før i stedet for å gjette.
+    async function bhsSektorFraAdmin(id) {
+        try {
+            const r = await fetch(location.origin + '/administrasjon/admin/adminTCDetails?id='
+                + encodeURIComponent(id), { credentials: 'same-origin' });
+            if (!r.ok) return null;
+            // NISSY-admin serveres som latin1 — uten dette blir «Primærhelsetjeneste» mojibake
+            // og sektortesten bommer på et sted vi faktisk fant.
+            const html = new TextDecoder('windows-1252').decode(await r.arrayBuffer());
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const f = {};
+            for (const rad of doc.querySelectorAll('tr')) {
+                const c = rad.cells;
+                if (!c || c.length < 2) continue;
+                const n = (c[0].textContent || '').replace(/\s+/g, ' ').replace(/:\s*$/, '').trim().toLowerCase();
+                const v = (c[1].textContent || '').replace(/\s+/g, ' ').trim();
+                if (n && !(n in f)) f[n] = v;
+            }
+            if (!f['navn'] || !f['sektor']) return null;     // login-side eller ukjent id
+            return { id: id, navn: f['navn'], sektor: f['sektor'],
+                     type: f['type'] || '', profesjon: f['profesjon'] || '', fraAdmin: true };
+        } catch (_) { return null; }
+    }
+
     // Samme for postnummer-oppslaget: uten cache traff vi Geonorge på hver observer-runde.
     // ⚠️ SAMMENLIGN ID, IKKE NAVN. kjorekontor.php svarer med NISSY-høstede navn
     //    («Pasientreiser Oslo og Akershus»), mens backend kjenner korte kontornavn — de ville
@@ -1054,15 +1130,161 @@
         return _kommPostCache[postnr];
     }
 
+    // Ensides-skjemaet har ingen .summary_container — boksen må festes til noe annet.
+    // Leveringssted-feltsettet er der operatøren allerede ser når hun velger behandlingssted.
+    // ⚠️ «INGENTING SKJEDDE» ER EN DÅRLIG FEILMELDING (Thomas 31.08). Sjekken kan gi opp av fem
+    //    ulike grunner, og utenfra ser alle likt ut: en tom side. Under testing må man kunne se
+    //    HVA den konkluderte med — også når konklusjonen er «alt i orden».
+    //    Vises kun i dev: KILDE er allerede 'dev'/'prod' og settes ved promotering, så boksen
+    //    forsvinner av seg selv i prod uten at noen må huske å skru den av.
+    const VIS_DIAGNOSE = KILDE === 'dev';
+
+    // Der boksene skal stå — sammendraget når det finnes, ellers Årsak/Leveringssted-feltsettet.
+    function kommAnker() {
+        const sum = document.querySelector('.summary_container td.summary_middle');
+        if (sum) return { mor: sum, etter: null };
+        const finn = (m) => [...document.querySelectorAll('legend')]
+            .find(l => m.test((l.textContent || '').trim()));
+        const legend = finn(/^Årsak$/i) || finn(/^Leveringssted$/i);
+        const fs = legend && legend.closest('fieldset');
+        return fs ? { mor: fs.parentNode, etter: fs } : null;
+    }
+
+    // ── KØ OG FEILMELDING ──────────────────────────────────────────────────────────────
+    // Thomas 31.08: bommene forteller nøyaktig hvilke behandlingssteder som er i BRUK men
+    // utdatert hos oss — langt mer verdt enn å høste 74 000 rader på nytt. Og operatøren må
+    // kunne si fra at et varsel er feil uten å måtte finne noen å ringe; det er den eneste
+    // måten vi får vite at en regel bommer i praksis.
+    //
+    // ⚠️ INGEN PASIENTOPPLYSNINGER. Vi sender behandlingssted-id, navn og kommunenumre.
+    //    Fritekstfeltet er operatørens eget, så prompten sier eksplisitt fra.
+    function nissyBruker() {
+        const el = document.getElementById('userName');
+        if (el && el.value) return el.value.trim();
+        const m = (document.body.textContent || '').match(/Innlogget bruker:\s*(\S+)/);
+        return m ? m[1] : '';
+    }
+    const _meldt = new Set();
+    function meldTilKo(type, nokkel, navn, detaljer) {
+        const n = type + '|' + nokkel;
+        if (type === 'mangler') { if (_meldt.has(n)) return; _meldt.add(n); }
+        const q = new URLSearchParams({
+            meld: type, nokkel: String(nokkel), navn: navn || '',
+            detaljer: detaljer || '', av: nissyBruker()
+        });
+        fetch(`${SERVER}/vkt_meld.php?${q}`).catch(() => {});
+    }
+
+    // «Feilmeld» — én lenke, samme oppførsel uansett hvilken boks den står i.
+    function feilmeldLenke(kv) {
+        const a = document.createElement('a');
+        a.textContent = 'Feilmeld';
+        a.href = 'javascript:void(0)';
+        a.style.cssText = 'margin-left:8px;font-size:11px;text-decoration:underline;color:inherit;'
+                        + 'opacity:.85;';
+        a.onclick = () => {
+            const t = prompt('Hva er feil med denne merknaden?\n\n'
+                + 'F.eks. «Dette er ikke primærhelsetjeneste».\n'
+                + 'Ikke skriv pasientopplysninger.', '');
+            if (t === null) return;
+            const tekst = t.trim();
+            if (!tekst) return;
+            meldTilKo('feil', kv.id, kv.navn,
+                `${kv.sektor} i ${kv.stedKomm}, pasient i ${kv.pasientKomm}${kv.utledet ? ' (utledet)' : ''} — ${tekst}`);
+            a.textContent = 'Meldt ✓';
+            a.style.opacity = '1';
+            a.onclick = null;
+        };
+        return a;
+    }
+
+    // ⚠️ EN FALSK STILLHET ER VERRE ENN ET FALSKT VARSEL (Thomas 31.08). «Feilmeld» sto bare i
+    //    det røde varselet, så operatøren kunne si fra når regelen ropte feil — men ikke når den
+    //    TIDDE feil. Det er den vanskeligste feilen å oppdage, og den eneste vi ikke ville hørt om.
+    function tegnKommDiag(tekst, kv) {
+        if (!VIS_DIAGNOSE) return;
+        let d = document.getElementById('vkt-komm-diag');
+        if (!tekst) { if (d) trygtFjern(d); return; }
+        if (d && d.dataset.tekst === tekst) return;
+        const a = kommAnker();
+        if (!a) return;
+        if (!d) {
+            d = document.createElement('div');
+            d.id = 'vkt-komm-diag';
+            d.style.cssText = 'margin:6px 0 4px 18px;padding:5px 8px;border:1px dashed #94a3b8;'
+                + 'border-radius:4px;background:#f8fafc;color:#475569;font-size:11px;'
+                + 'font-family:-apple-system,BlinkMacSystemFont,sans-serif;line-height:1.4;';
+        }
+        if (d.parentNode !== a.mor) {
+            if (a.etter) a.mor.insertBefore(d, a.etter.nextSibling); else a.mor.appendChild(d);
+        }
+        d.dataset.tekst = tekst;
+        d.innerHTML = '<b style="color:#64748b;">Kommunesjekk (dev)</b> · ' + statusEsc(tekst);
+        if (kv && kv.id) d.appendChild(feilmeldLenke(kv));
+    }
+
+    function tegnKommEnsides(kv) {
+        if (document.querySelector('.summary_container')) return;      // sammendraget tar den
+        let boks = document.getElementById('vkt-komm-boks');
+        if (!kv) { if (boks) trygtFjern(boks); return; }
+        // ⚠️ PLASSERING PÅ ENSIDES (Thomas 31.08: «mye dødplass under trafikal og medisinsk der»).
+        //    Årsak-feltsettet har to radioknapper og ellers tom høyrespalte — varselet får plass
+        //    uten å skyve noe av NISSYs innhold nedover, og står i et område øyet ikke allerede
+        //    har lest forbi. Leveringssted beholdes som reserve: er Årsak borte i en variant vi
+        //    ikke har sett, skal varselet fortsatt havne et sted som gir mening.
+        const finnLegend = (m) => [...document.querySelectorAll('legend')]
+            .find(l => m.test((l.textContent || '').trim()));
+        const legend = finnLegend(/^Årsak$/i) || finnLegend(/^Leveringssted$/i);
+        const fs = legend && legend.closest('fieldset');
+        if (!fs) return;
+        if (!boks) {
+            boks = document.createElement('div');
+            boks.id = 'vkt-komm-boks';
+            boks.style.cssText = 'margin:6px 0;padding:7px 10px;border:1px solid #dc2626;'
+                + 'border-left:3px solid #dc2626;background:#fef2f2;border-radius:0 4px 4px 0;'
+                + 'font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;'
+                + 'color:#991b1b;line-height:1.45;';
+        }
+        if (boks.previousElementSibling !== fs) fs.parentNode.insertBefore(boks, fs.nextSibling);
+        const url = location.origin + '/administrasjon/admin/treatmentCenter?id='
+                  + encodeURIComponent(kv.id) + '&action=edit';
+        const beta = '<span style="background:#fbbf24;color:#451a03;font-size:9px;font-weight:700;'
+                   + 'padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:.5px;">BETA</span>';
+        boks.innerHTML = '<b>⚠ Ut av kommunen til primærhelsetjeneste.</b>' + beta + '<br>'
+            + '<a href="' + url + '" target="_blank" rel="noopener" style="color:#991b1b;">'
+            + statusEsc(kv.navn) + '</a> er ' + statusEsc(kv.sektor) + ' i '
+            + statusEsc(pentNavn(kv.stedKomm)) + ' kommune.<br>'
+            + 'Pasienten reiser ' + (kv.fraBehandling ? 'til' : 'fra') + ' <b>'
+            + statusEsc(pentNavn(kv.pasientKomm)) + ' kommune</b>'
+            + (kv.utledet ? ' basert på postnummeret' : '') + '.';
+        kboks.appendChild(feilmeldLenke(kv));
+    }
+
     function dekorerKommunesjekk() {
-        const v = id => { const e = document.getElementById(id); return e ? (e.value || '').trim() : ''; };
+        // ⚠️ TRE SKJEMAVARIANTER, SAMME DATA UNDER ANDRE NAVN (ensides dumpet 31.08):
+        //      4-stegs:  fromAddress.councilNr   ·  toOrganizationId
+        //      ensides:  trip.fromAddress.councilNr  ·  trip.toOrganizationId
+        //    Vi prøver begge navnene i stedet for å skrive to sjekker som vil drive fra hverandre.
+        const v = navn => {
+            for (const id of [navn, 'trip.' + navn]) {
+                const e = document.getElementById(id);
+                if (e && (e.value || '').trim()) return e.value.trim();
+            }
+            return '';
+        };
         const valgt = document.querySelector('input[name="direction"]:checked');
         if (!valgt) return;                                   // ikke redigeringsskjemaet (lista)
         const fraBehandling = valgt.value === '1';
 
-        const pasientNr   = fraBehandling ? v('toAddress.councilNr')   : v('fromAddress.councilNr');
-        const pasientNavn = fraBehandling ? v('toAddress.council')     : v('fromAddress.council');
-        const pasientPost = fraBehandling ? v('toAddress.postCode')    : v('fromAddress.postCode');
+        // ⚠️ ENSIDES HAR PASIENTENS EGEN KOMMUNE I SKJEMAET (patientAddress.councilNr), uavhengig
+        //    av reiseretning OG av om reiseadressen er GAB-validert. Den er en bedre kilde enn å
+        //    utlede fra fra/til-adressen, så den går først når den finnes.
+        const pasientNr   = v('patientAddress.councilNr')
+                            || (fraBehandling ? v('toAddress.councilNr') : v('fromAddress.councilNr'));
+        const pasientNavn = v('patientAddress.council')
+                            || (fraBehandling ? v('toAddress.council') : v('fromAddress.council'));
+        const pasientPost = v('patientAddress.postCode')
+                            || (fraBehandling ? v('toAddress.postCode') : v('fromAddress.postCode'));
         const stedNr      = fraBehandling ? v('fromAddress.councilNr') : v('toAddress.councilNr');
         const stedNavn    = fraBehandling ? v('fromAddress.council')   : v('toAddress.council');
         const stedId      = fraBehandling ? v('fromOrganizationId')    : v('toOrganizationId');
@@ -1077,7 +1299,8 @@
         //    feltene manglet, ville varselet forsvinne i det operatøren gikk tilbake til lista.
         //    Vi sletter derfor KUN når skjemaet er der og selv sier at grunnlaget er borte —
         //    altså at adressefeltene finnes, men uten gyldig kommunenummer.
-        const skjemaFinnes = !!document.getElementById('toAddress.postCode');
+        const skjemaFinnes = !!(document.getElementById('toAddress.postCode')
+                              || document.getElementById('trip.toAddress.postCode'));
         // ⚠️ NISSY FYLLER IKKE ALLTID councilNr. På editTrip står pasientens `councilNr` som «0»
         //    fordi adressen ikke er GAB-validert i den skjermbildetilstanden, mens behandlings-
         //    stedets er komplett. Postnummeret er derimot alltid der — og Geonorge gir kommune-
@@ -1120,6 +1343,10 @@
         if (!stedId || !pasientNr || !stedNr || pasientNr === '0' || stedNr === '0') {
             // Si HVORFOR. «Ingenting skjedde» er den dyreste feilmeldingen som finnes — vi har
             // brukt flere runder på å lete etter en tegnefeil som egentlig var manglende data.
+            tegnKommDiag(!stedId
+                ? 'fant ikke behandlingsstedet — adressen er trolig skrevet inn manuelt i stedet '
+                  + 'for valgt fra registeret, og da kjenner vi ikke sektoren'
+                : 'NISSY har ikke kommunenummer for adressen ennå (ikke validert mot GAB)');
             console.log(`[${NAVN}] kommunesjekk: gir opp — `
                 + `pasientNr=${pasientNr || '∅'} stedNr=${stedNr || '∅'} stedId=${stedId || '∅'}`
                 + ` (retning=${fraBehandling ? 'fra' : 'til'} behandling, skjema=${skjemaFinnes})`);
@@ -1137,10 +1364,25 @@
         const foer = JSON.stringify(kommVarsel(pasientPost) || 0);
         console.log(`[${NAVN}] kommunesjekk: sted ${stedId} (${stedNavn} ${stedNr}) `
             + `mot pasient i ${pasientNavn} ${pasientNr}${utledet ? ' (utledet)' : ''}`);
-        bhsSektor(stedId).then(sted => {
+        bhsSektor(stedId).then(async (sted) => {
             if (!sted) {
-                console.log(`[${NAVN}] kommunesjekk: fant ikke sted ${stedId} i registeret`);
-                return;
+                // Meld til køen FØR admin-oppslaget: at stedet mangler hos oss er sant
+                // uansett om admin redder situasjonen for akkurat denne operatøren.
+                meldTilKo('mangler', stedId, v('toName') || v('fromName'),
+                    'postnr ' + (v('toAddress.postCode') || '?'));
+                tegnKommDiag('slår opp ' + stedId + ' i NISSY-admin — mangler i vårt register…');
+                sted = await bhsSektorFraAdmin(stedId);
+                if (!sted) {
+                    tegnKommDiag('behandlingssted ' + stedId + ' finnes verken i vårt register '
+                        + 'eller i admin — er du innlogget i NISSY-admin?',
+                        { id: stedId, navn: v('toName') || '', sektor: 'ukjent',
+                          stedKomm: stedNavn, pasientKomm: pasientNavn });
+                    console.log(`[${NAVN}] kommunesjekk: fant ikke sted ${stedId} noe sted`);
+                    return;
+                }
+                _kommSjekkCache[stedId] = Promise.resolve(sted);   // gjenbruk i økten
+                console.log(`[${NAVN}] kommunesjekk: ${stedId} hentet fra ADMIN `
+                    + `(${sted.navn}, ${sted.sektor}) — mangler i registeret`);
             }
             const varsle = /prim/i.test(sted.sektor || '')
                 && String(pasientNr) !== String(stedNr).replace(/^0+/, '');
@@ -1153,9 +1395,17 @@
                 // skjemaet — sammendraget sier det ikke — så den må bæres med svaret.
                 fraBehandling: !!fraBehandling
             } : null);
+            tegnKommDiag(varsle ? null
+                : sted.navn + ' — ' + sted.sektor + ' i ' + pentNavn(stedNavn)
+                  + ', pasienten i ' + pentNavn(pasientNavn)
+                  + (/prim/i.test(sted.sektor || '') ? ' · samme kommune, ingen merknad'
+                                                     : ' · ikke primærhelsetjeneste, regelen gjelder ikke'),
+                { id: sted.id, navn: sted.navn, sektor: sted.sektor,
+                  stedKomm: stedNavn, pasientKomm: pasientNavn, utledet: !!utledet });
             if (varsle) console.log(`[${NAVN}] kommunesjekk: ${sted.navn} (${sted.sektor}) i `
                 + `${stedNavn} vs pasient i ${pasientNavn} → VARSEL`);
             if (foer !== JSON.stringify(kommVarsel(pasientPost) || 0)) dekorerFlyreise();
+            tegnKommEnsides(kommVarsel(pasientPost));
         });
     }
 
