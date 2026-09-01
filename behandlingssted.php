@@ -19,7 +19,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 require_once __DIR__ . '/../pasientreiser/ai_config.secret.php';
 $pdo = getDb();
 
-$FELT = "id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, parent_id, utm_n, utm_o, kommune, profesjon, oppdatert";
+// e_rek = NISSYs «E.rekvirering». Tomt felt = pensjonert enhet som ikke vises i
+// NISSYs eget søk. Returneres så rangeringen kan gi POENGTREKK i stedet for å
+// gjette på HER-id (Thomas 31.08). Fylles ved neste høsting.
+$FELT = "id, navn, type, sektor, adresse, postnr, poststed, telefon, orgnr, her_id, e_rek, parent_id, utm_n, utm_o, kommune, profesjon, oppdatert";
 
 try {
     // === ADRESSEOPPSLAG MED SEKTOR (14.08) ===
@@ -132,6 +135,24 @@ try {
                             FROM ovr_behandlingssted GROUP BY type ORDER BY n DESC LIMIT 40")
                    ->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode(['ok' => true, 'sektor' => $sek, 'type' => $typ]);
+        exit;
+    }
+
+    // ?ider — hele id-lista fra vårt eget register, som frø til høstingen.
+    // Tre-vandringen når bare 22 309 av 74 720: ni foreldre har 500+ barn, og NISSY
+    // bygger ikke barnelista da (organization.childrenCount < 500 i adminTCForm).
+    // Alt bak den veggen er usynlig fra roten — men vi har id-ene fra tidligere sveip.
+    // &eldre_enn=YYYY-MM-DD gir bare de som ikke er oppdatert siden da.
+    if (isset($_GET['ider'])) {
+        $eldre = trim((string)($_GET['eldre_enn'] ?? ''));
+        if ($eldre !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $eldre)) {
+            $s = $pdo->prepare("SELECT id FROM ovr_behandlingssted WHERE oppdatert < ? ORDER BY id");
+            $s->execute([$eldre]);
+        } else {
+            $s = $pdo->query("SELECT id FROM ovr_behandlingssted ORDER BY id");
+        }
+        $ider = array_map('intval', $s->fetchAll(PDO::FETCH_COLUMN));
+        echo json_encode(['ok' => true, 'antall' => count($ider), 'ider' => $ider]);
         exit;
     }
 

@@ -435,7 +435,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.214-dev';   // KOMMUNE OG PROFESJON HØSTES NÅ (28.08). Begge står i NISSYs søketreff og har vært parset i klienten hele tiden, men registeret hadde ingen kolonner for dem og lagre-skriptet kastet dem. Kommunen trengs til primærhelse-regelen — den skal IKKE utledes av postnummeret: poststedet kan hete noe annet enn kommunen (1463 Fjellhamar ligger i Lørenskog), og et postnummer kan krysse kommunegrensen, som er nettopp grensetilfellene regelen handler om. Detaljparseren fanger feltene hvis de finnes der; dev-konsollen dumper etikettene på detaljsiden én gang, så vi vet om de faktisk står der eller bare i søketreffet  // KEEPEREN BRUKTE ~30 SEKUNDER (Thomas 27.08). Klokka var problemet, ikke sveipen: keeperen bodde i en setInterval i PLANLEGGERVINDUET, som ligger bak mens operatøren jobber i rekvisisjons-popupen, og Chrome budsjett-struper timere i vinduer den regner som skjulte. Symptomet stemte — agenten kom tilbake i det man byttet til planleggeren. Taktgiveren er nå en Worker (1s): den lever i egen tråd og meldingene kjører i siden selv om vinduet er skjult. Sveipen er uendret, og setInterval-et beholdes som reserve. Innskytingen gjøres DIREKTE per tikk i stedet for via en intern 300 ms-løkke — den løkka var også en timer i det samme skjulte vinduet og arvet samme struping; å fikse klokka uten løkka hadde vært halve jobben  // DIAGNOSE __vkt_keeperStatus() (Thomas 27.08: «bytter jeg steg i rekvisisjonsmodulen blir skriptet borte, og kommer ikke tilbake før jeg bytter til planlegging og tilbake»). Keeperens Map er en lukket variabel, så spørsmålet var ikke mulig å svare på fra konsollen. Skiller de tre kandidatene: fanen står ikke i Map (ble aldri fanget), timeren strupes fordi planleggervinduet er skjult, eller innskytingen kjører men slår feil. Viser også document.visibilityState  // ULIK KNAPPEHØYDE I FOOTEREN (Thomas 27.08: «størrelsesforskjell på høyden enda»). Knappene bygges i TO filer og hadde drevet fra hverandre — 3px/12px uten line-height i verktoykasse, 3px/10px med line-height:1 i basic_tools. Uten line-height er det skriften og EMOJIENE som bestemmer linjeboksen, og de er ikke like høye: 🔧 og 🕘 og ⚙️ gir hver sin. Alle seks har nå samme låste boks (inline-flex, height:22px, line-height:1), så innholdet ikke kan dytte høyden  // FOOTER-PYNT (Thomas 27.08): verktøy-ikonet 🧰 → 🔧, og søkelogg-telleren fra opphøyd tall til «(3)». vertical-align:super løfter tallet over grunnlinja og linjeboksen vokser med det, så Logg-knappen sto et par piksler høyere enn naboene i rekka. Parentesene ligger utenfor tallspennet, slik at begge stedene som oppdaterer telleren fortsatt kan skrive ren textContent  // PASSERTE REKVISISJONER TELLES IKKE (Thomas 26.08: «den har vært»). Badgen sa «3 rekv» mens lista viste 2 — differansen var en retur fra 14.08 som fortsatt sto «Ny». Tallet var riktig, men svarte på et annet spørsmål enn operatøren stiller. Samme målestokk som pnr-vakten; passerte flyttes til tooltipen, ikke bort   // attest-prikken sto grå selv om agenten meldte seg: fargen hvilte på `.closed` mot et KRYSS-ORIGIN vindu, inne i en try med tom catch — feilet det, ble prikken grå uten et pip. Måler nå tid siden siste heartbeat (10 s vindu), som også fanger en fane som henger uten å være lukket   // «attest-agent klar» ble logget hvert 3. sekund — meldingen er en HEARTBEAT, ikke en hendelse. Logger nå kun tilstandsendring (grå → grønn) og ny versjon   // attest-prikken ble grønn først ved neste status-poll: vkt_attest_klar satte flaggene, men fargen settes i tegnAdminStatus. Males nå med én gang agenten melder seg   // kryss-opprinnelse er en FORVENTET tilstand i attest-flyten (pastrans → attest-ui), ikke en feil. Ga SecurityError hvert 300. ms og fylte konsollen med «feil» mens alt virket. Logges nå én gang per fane, og timeout-varselet er stille når årsaken er kjent   // Rekvisisjon/Admin/Attest som EGNE footer-knapper med hver sin statusprikk (Thomas 26.08) — slipper å åpne menyen for et nytt rekvisisjonsbilde. Delt konfig VKT_SNARVEIER brukes av både menyen og footeren, så de kan ikke divergere. Fast rekkefølge via insertBefore søkelogg-cellen   // footer-prikkene sto grå: tegnAdminStatus() maler alle [data-status-for], men hadde kjørt før knappen fantes og kjører først igjen ved statusENDRING. Kaller den nå når knappen bygges   // påloggingsstatus (admin/rekvisisjon/attest) som prikker på «🧰 Verktøy»-knappen, med skille foran. Kobler seg gratis på eksisterende oppdatering — den treffer [data-status-for] hvor som helst, så prikkene kan aldri komme i utakt med menyens   // tlf-toasten vokser nedover etter at den er plassert (innholdet fylles asynkront), så treff falt ut av vinduet når operatøren hadde dratt den ned. ResizeObserver holder den innenfor viewporten — når nedre kant treffer bunnen, flyttes top opp, altså bygger den oppover. Rører den ikke så lenge den får plass   // NISSY admin-KAPABILITETER (Thomas 26.08: «ikke alle har like mye tilgang»). «admin=true» var bare en sesjonssjekk og sa ingenting om hvilke menypunkter brukeren når — et oppslag mot noe man mangler gir innloggingsside, tom parse og «fant ingen data» i stedet for «du mangler tilgang». Leser nå admin-menyen én gang → window.__vkt_nissyAdmin.har()/mangler()   // «🧰 Verktøy»-knapp i footeren åpner samme meny som skjoldet, og skjoldet kan skjules (vkt_vis_skjold, default PÅ) fra Innstillinger. Menyen forankres nedenfra mot knappen; stopPropagation er påkrevd, ellers lukker skjoldets egen document-lytter menyen i samme klikk
+    const VERSJON = '2.219-dev';   // SPESIELL OPPFØLGING PÅ PASIENTKORTET (Thomas 01.09). «Må ha alenebil» må operatøren vite FØR hun bestiller, ikke etterpå. Feltene ligger på samme admin-side som folkeregister-adressen, så ingen ny kilde. ⚠️ TO KRAV, begge må holde: haken må være aktiv OG datoen må ikke ha utløpt — en utløpt oppfølging vist som gjeldende er verre enn ingen, den får operatøren til å bestille alenebil for en pasient som ikke lenger trenger det. ⚠️ HTML-en er ØDELAGT: checkbox-taggen lukkes aldri (checked etterfulgt av </td>), så en DOM-parser sluker resten av cellen — leses rått i et avgrenset vindu etter id-en. Kategorien vises som TEKST, ikke kode  // HØSTINGEN NÅDDE BARE 22 309 AV 74 720 og meldte likevel FERDIG (Thomas 01.09). Ni foreldre har 500+ barn — de fem RHF-ene og de tre «privat»-bøttene — og NISSY bygger ikke barnelista når childrenCount >= 500. Vandringen kommer til noden, ser tom liste og går videre; 52 411 noder ligger bak den veggen og var bare i registeret fordi tidligere sveip fant dem via andre innganger. host('alle') henter nå id-lista fra vårt EGET register og går gjennom hver node direkte — vi har jo id-ene. Vandringen beholdes for å oppdage nye. host('mangler') tar bare de som ikke er oppdatert i dag   // HØSTINGEN SENDTE ALDRI e_rekvirering/kommune/profesjon: parseren leste dem, men samlet.push() i tre-vandringen utelot dem, så en full sveip lot kolonnene stå tomme for alle 74 720 (Thomas 01.09). e_rekvirering er NISSYs eget synlighetsfilter — testet 01.09: oppføringer uten den vises ikke i NISSY-søket, uansett hvor i treet de henger   // PRIKKENE BLE ALDRI GRØNNE (Thomas 01.09: «etter at rek og admin er logget inn blir de ikke automatisk grønne, men det blir attest»). Attest er PUSH — agenten melder seg hvert 3. sekund — mens admin og rekvisisjon er PULL, og pullen skjedde BARE ved oppstart. Logget operatøren inn etterpå, fikk verktøykassen aldri vite det: prikken sto grå til hele verktøykassen ble lastet på nytt. Sjekken kjører nå ved FOKUS på planleggervinduet, som er det naturlige signalet — flyten er «logg inn der borte, kom tilbake hit» — pluss et 60 s-intervall som sikkerhetsnett. 8 s demping så to signaler i samme øyeblikk ikke gir to oppslag  // TLF-FALLBACKEN VAR ALDRI FESTET (Thomas 31.08: 973 00 204 ga «ingen pasienter», mens nummeret sto i «Tlf/mobilnr fra EPJ: 97300204»). Retrykallet satte `_raa`, men koden som bygger søkenummeret leser `raaFormat` — flagget ble aldri lest, så gjenforsøket bygde +47 på nytt og sendte NØYAKTIG samme søk. Nettet har sett ut som et sikkerhetsnett siden det ble skrevet og alltid gitt de samme null treffene. NISSY matcher EPJ-feltet litterært, så +47-formen finner aldri et nummer som er lagret uten landkode. Retryen sender nå RENSEDE sifre — Zisson leverer «973 00 204» med mellomrom, som ville bommet av en helt annen grunn. +47 er fortsatt førstevalget: det er eneste som virker for 47-serien (v2.176)  // KOMMUNE OG PROFESJON HØSTES NÅ (28.08). Begge står i NISSYs søketreff og har vært parset i klienten hele tiden, men registeret hadde ingen kolonner for dem og lagre-skriptet kastet dem. Kommunen trengs til primærhelse-regelen — den skal IKKE utledes av postnummeret: poststedet kan hete noe annet enn kommunen (1463 Fjellhamar ligger i Lørenskog), og et postnummer kan krysse kommunegrensen, som er nettopp grensetilfellene regelen handler om. Detaljparseren fanger feltene hvis de finnes der; dev-konsollen dumper etikettene på detaljsiden én gang, så vi vet om de faktisk står der eller bare i søketreffet  // KEEPEREN BRUKTE ~30 SEKUNDER (Thomas 27.08). Klokka var problemet, ikke sveipen: keeperen bodde i en setInterval i PLANLEGGERVINDUET, som ligger bak mens operatøren jobber i rekvisisjons-popupen, og Chrome budsjett-struper timere i vinduer den regner som skjulte. Symptomet stemte — agenten kom tilbake i det man byttet til planleggeren. Taktgiveren er nå en Worker (1s): den lever i egen tråd og meldingene kjører i siden selv om vinduet er skjult. Sveipen er uendret, og setInterval-et beholdes som reserve. Innskytingen gjøres DIREKTE per tikk i stedet for via en intern 300 ms-løkke — den løkka var også en timer i det samme skjulte vinduet og arvet samme struping; å fikse klokka uten løkka hadde vært halve jobben  // DIAGNOSE __vkt_keeperStatus() (Thomas 27.08: «bytter jeg steg i rekvisisjonsmodulen blir skriptet borte, og kommer ikke tilbake før jeg bytter til planlegging og tilbake»). Keeperens Map er en lukket variabel, så spørsmålet var ikke mulig å svare på fra konsollen. Skiller de tre kandidatene: fanen står ikke i Map (ble aldri fanget), timeren strupes fordi planleggervinduet er skjult, eller innskytingen kjører men slår feil. Viser også document.visibilityState  // ULIK KNAPPEHØYDE I FOOTEREN (Thomas 27.08: «størrelsesforskjell på høyden enda»). Knappene bygges i TO filer og hadde drevet fra hverandre — 3px/12px uten line-height i verktoykasse, 3px/10px med line-height:1 i basic_tools. Uten line-height er det skriften og EMOJIENE som bestemmer linjeboksen, og de er ikke like høye: 🔧 og 🕘 og ⚙️ gir hver sin. Alle seks har nå samme låste boks (inline-flex, height:22px, line-height:1), så innholdet ikke kan dytte høyden  // FOOTER-PYNT (Thomas 27.08): verktøy-ikonet 🧰 → 🔧, og søkelogg-telleren fra opphøyd tall til «(3)». vertical-align:super løfter tallet over grunnlinja og linjeboksen vokser med det, så Logg-knappen sto et par piksler høyere enn naboene i rekka. Parentesene ligger utenfor tallspennet, slik at begge stedene som oppdaterer telleren fortsatt kan skrive ren textContent  // PASSERTE REKVISISJONER TELLES IKKE (Thomas 26.08: «den har vært»). Badgen sa «3 rekv» mens lista viste 2 — differansen var en retur fra 14.08 som fortsatt sto «Ny». Tallet var riktig, men svarte på et annet spørsmål enn operatøren stiller. Samme målestokk som pnr-vakten; passerte flyttes til tooltipen, ikke bort   // attest-prikken sto grå selv om agenten meldte seg: fargen hvilte på `.closed` mot et KRYSS-ORIGIN vindu, inne i en try med tom catch — feilet det, ble prikken grå uten et pip. Måler nå tid siden siste heartbeat (10 s vindu), som også fanger en fane som henger uten å være lukket   // «attest-agent klar» ble logget hvert 3. sekund — meldingen er en HEARTBEAT, ikke en hendelse. Logger nå kun tilstandsendring (grå → grønn) og ny versjon   // attest-prikken ble grønn først ved neste status-poll: vkt_attest_klar satte flaggene, men fargen settes i tegnAdminStatus. Males nå med én gang agenten melder seg   // kryss-opprinnelse er en FORVENTET tilstand i attest-flyten (pastrans → attest-ui), ikke en feil. Ga SecurityError hvert 300. ms og fylte konsollen med «feil» mens alt virket. Logges nå én gang per fane, og timeout-varselet er stille når årsaken er kjent   // Rekvisisjon/Admin/Attest som EGNE footer-knapper med hver sin statusprikk (Thomas 26.08) — slipper å åpne menyen for et nytt rekvisisjonsbilde. Delt konfig VKT_SNARVEIER brukes av både menyen og footeren, så de kan ikke divergere. Fast rekkefølge via insertBefore søkelogg-cellen   // footer-prikkene sto grå: tegnAdminStatus() maler alle [data-status-for], men hadde kjørt før knappen fantes og kjører først igjen ved statusENDRING. Kaller den nå når knappen bygges   // påloggingsstatus (admin/rekvisisjon/attest) som prikker på «🧰 Verktøy»-knappen, med skille foran. Kobler seg gratis på eksisterende oppdatering — den treffer [data-status-for] hvor som helst, så prikkene kan aldri komme i utakt med menyens   // tlf-toasten vokser nedover etter at den er plassert (innholdet fylles asynkront), så treff falt ut av vinduet når operatøren hadde dratt den ned. ResizeObserver holder den innenfor viewporten — når nedre kant treffer bunnen, flyttes top opp, altså bygger den oppover. Rører den ikke så lenge den får plass   // NISSY admin-KAPABILITETER (Thomas 26.08: «ikke alle har like mye tilgang»). «admin=true» var bare en sesjonssjekk og sa ingenting om hvilke menypunkter brukeren når — et oppslag mot noe man mangler gir innloggingsside, tom parse og «fant ingen data» i stedet for «du mangler tilgang». Leser nå admin-menyen én gang → window.__vkt_nissyAdmin.har()/mangler()   // «🧰 Verktøy»-knapp i footeren åpner samme meny som skjoldet, og skjoldet kan skjules (vkt_vis_skjold, default PÅ) fra Innstillinger. Menyen forankres nedenfra mot knappen; stopPropagation er påkrevd, ellers lukker skjoldets egen document-lytter menyen i samme klikk
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1588,8 +1588,32 @@
     // RHF-ene under). Første kjøring sådde vi midt i treet og lot vandringen finne roten
     // selv; nå starter vi der den er. Raskere og garantert komplett.
     const HOST_FROE = [1];
+    // host()            — vandrer treet fra roten. Oppdager NYE noder, men når bare
+    //                     22 309 av 74 720: ni foreldre har 500+ barn, og NISSY bygger
+    //                     ikke barnelista da. Alt bak den veggen er usynlig fra roten.
+    // host('alle')      — henter id-lista fra vårt eget register og går gjennom HVER
+    //                     node direkte. Komplett, men tar ~20–25 min. Vandringen er
+    //                     fortsatt med, så nye noder oppdages underveis.
+    // host('mangler')   — bare de som ikke er oppdatert i dag. Til å ta resten etter
+    //                     en vanlig sveip.
     async function hostBehandlingssteder(froe) {
-        const ko = (froe && froe.length ? froe : HOST_FROE).map(n => String(n));
+        let startKo = null;
+        if (froe === 'alle' || froe === 'mangler') {
+            const url = 'https://thomaswestby.no/skript/behandlingssted.php?ider=1'
+                      + (froe === 'mangler' ? '&eldre_enn=' + new Date().toISOString().slice(0, 10) : '');
+            console.log('[VERKTØYKASSE] høsting: henter id-liste fra registeret …');
+            try {
+                const d = await fetch(url).then(x => x.json());
+                if (!d || !d.ok || !Array.isArray(d.ider) || !d.ider.length) {
+                    console.warn('[VERKTØYKASSE] høsting: fikk ingen id-liste — avbryter'); return null;
+                }
+                startKo = d.ider;
+                console.log('[VERKTØYKASSE] høsting: ' + d.antall + ' id-er i kø (' + froe + ')');
+            } catch (e) {
+                console.warn('[VERKTØYKASSE] høsting: klarte ikke hente id-liste —', e.message); return null;
+            }
+        }
+        const ko = (startKo || (froe && froe.length ? froe : HOST_FROE)).map(n => String(n));
         const sett = new Set(ko);
         const samlet = [];
         let sendt = 0, feilet = 0;
@@ -1634,6 +1658,10 @@
                     adresse: b.adresse, postnr_sted: b.postnr_sted, telefon: b.telefon,
                     orgnr: b.orgnr, her_id: b.her_id, posisjon: b.posisjon,
                     kortnavn: b.kortnavn, alias: b.alias,
+                    // Parseren har lest disse hele tiden, men tre-vandringen sendte dem
+                    // aldri videre — så kolonnene sto tomme etter en full sveip
+                    // (Thomas 01.09). e_rekvirering er NISSYs eget synlighetsfilter.
+                    e_rekvirering: b.e_rekvirering, kommune: b.kommune, profesjon: b.profesjon,
                     parent_id: b.foreldre ? b.foreldre.id : null
                 });
                 // Både opp og ned — slik finner vi roten selv om vi starter midt i treet.
@@ -2475,10 +2503,19 @@
             // samme login-heuristikk som sjekkAdminLogin().
             // Belte og seler: gir +47-formen 0 treff, prøv rått én gang. Koster kun et
             // ekstra kall i de tilfellene der vi uansett ikke fant noe.
-            if (!pasienter.length && sokeNr !== tlf && !opts.utenFallback) {
-                const raatt = await sokTlfINissy(tlf, { ...opts, utenFallback: true, _raa: true });
+            // ⚠️ DETTE NETTET VAR ALDRI FESTET. Retrykallet satte `_raa`, mens koden som bygger
+            //    søkenummeret leser `raaFormat` — flagget ble aldri lest, så gjenforsøket bygde
+            //    «+47» på nytt og sendte NØYAKTIG samme søk. Det har sett ut som et sikkerhetsnett
+            //    i koden og gitt de samme null treffene siden det ble skrevet.
+            //    Funnet 31.08: 97300204 ligger bare i «Tlf/mobilnr fra EPJ», uten landkode, og
+            //    NISSY matcher det feltet LITTERALT. +47-formen finner det aldri.
+            //    Vi sender også RENSEDE sifre — Zisson leverer «973 00 204» med mellomrom, og
+            //    et rått søk på den strengen ville bommet av en helt annen grunn.
+            if (!pasienter.length && sokeNr !== rentNr && rentNr.length === 8 && !opts.utenFallback) {
+                const raatt = await sokTlfINissy(rentNr, { ...opts, utenFallback: true, raaFormat: true });
                 if (raatt && !raatt.feil && raatt.pasienter && raatt.pasienter.length) {
-                    console.log(`[VERKTØYKASSE] tlf ${tlf}: +47-søk ga 0, rått søk ga ${raatt.pasienter.length}`);
+                    console.log(`[VERKTØYKASSE] tlf ${tlf}: +47-søk ga 0, rått søk «${rentNr}» ga `
+                        + `${raatt.pasienter.length} — nummeret ligger trolig i EPJ-feltet uten landkode`);
                     clearTimeout(timer);
                     return raatt;
                 }
@@ -3483,6 +3520,62 @@
     // Adresseradene ligger som <tr> med radio name="default": td[1]=adresse,
     // td[2]=kilde «(Folkeregister)». Folkeregister-raden har radio value="ssn"
     // (id=ssnradio) og er standardvalget. Prioritet: Folkeregister → ssn-radio → første.
+    // ══ SPESIELL OPPFØLGING ═══════════════════════════════════════════════════════════
+    // Thomas 01.09: står det «Må ha alenebil» på pasienten, må operatøren vite det FØR hun
+    // bestiller — ikke etterpå. Feltene ligger på samme admin-side som folkeregister-adressen
+    // (editPatient), så det er ingen ny kilde å lære seg.
+    //
+    // ⚠️ TO KRAV, BEGGE MÅ HOLDE (Thomas): haken må være aktiv OG datoen må ikke ha utløpt.
+    //    En utløpt oppfølging som vises som gjeldende er verre enn ingen: den får operatøren
+    //    til å bestille alenebil for en pasient som ikke lenger trenger det.
+    //
+    // ⚠️ HTML-EN ER ØDELAGT. Checkbox-taggen lukkes aldri:
+    //      <input type="checkbox" id="attentionRequired_activated" ... checked="checked"  </td>
+    //    En DOM-parser sluker da resten av cellen og «checked» kan havne hvor som helst.
+    //    Derfor leses den rått, i et avgrenset vindu etter id-en.
+    const _oppfolgingCache = new Map();   // rediger_url → {kategori, tilDato}|null
+    function _harChecked(html, id) {
+        const i = html.indexOf(id);
+        if (i < 0) return false;
+        return /checked/i.test(html.slice(i, i + 200));
+    }
+    function _norskDatoUtloept(d) {
+        const m = String(d || '').match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+        if (!m) return false;                       // ingen dato = ingen utløp
+        const til = new Date(+m[3], +m[2] - 1, +m[1]);
+        const idag = new Date(); idag.setHours(0, 0, 0, 0);
+        return til < idag;
+    }
+    async function hentSpesiellOppfolging(redigerUrl) {
+        try {
+            if (!redigerUrl) return null;
+            if (_oppfolgingCache.has(redigerUrl)) return _oppfolgingCache.get(redigerUrl);
+            const r = await fetch(redigerUrl, { credentials: 'same-origin' });
+            if (!r.ok) { _oppfolgingCache.set(redigerUrl, null); return null; }
+            const html = await r.text();
+
+            let ut = null;
+            if (_harChecked(html, 'attentionRequired_activated')) {
+                const tilM = html.match(/attentionRequired_validTo[^>]*value="([^"]*)"/i);
+                const tilDato = tilM ? tilM[1].trim() : '';
+                if (!_norskDatoUtloept(tilDato)) {
+                    // Kategorien er den VALGTE optionen — teksten, ikke koden: «p_2511» sier
+                    // ingenting til et menneske.
+                    const selI = html.indexOf('attentionRequired_category');
+                    const blokk = selI >= 0 ? html.slice(selI, html.indexOf('</select>', selI)) : '';
+                    const valgt = blokk.match(/<option[^>]*\bselected\b[^>]*>\s*([^<]+)/i);
+                    const kategori = valgt ? valgt[1].replace(/\s+/g, ' ').trim() : '';
+                    if (kategori) ut = { kategori, tilDato };
+                }
+            }
+            _oppfolgingCache.set(redigerUrl, ut);
+            return ut;
+        } catch (e) {
+            console.warn('[VERKTØYKASSE] spesiell oppfølging:', e.message);
+            return null;
+        }
+    }
+
     const _folkeregCache = new Map();  // rediger_url → adresse|null (per session)
     async function hentFolkeregisterAdresse(redigerUrl) {
         try {
@@ -3917,6 +4010,20 @@
                 // Primært fra rekvisisjonen (pasient_adresse m/ postnr). Mangler den
                 // (pasient uten rekv, f.eks. ringer for å bestille) → fall tilbake til
                 // FOLKEREGISTER-adressen fra admin editPatient (pas.rediger_url).
+                // Spesiell oppfølging over adressen: den endrer HVA som skal bestilles,
+                // ikke bare hvor bilen skal.
+                hentSpesiellOppfolging(pas.rediger_url).then(o => {
+                    if (!o) return;
+                    const vert = resultatEl.querySelector(`[data-vkt-adr="${i}"]`);
+                    if (!vert || !vert.isConnected) return;
+                    vert.insertAdjacentHTML('beforebegin',
+                        '<div style="margin:2px 0 3px;padding:2px 7px;background:#7f1d1d;color:#fecaca;'
+                        + 'border-radius:3px;font-size:11px;font-weight:600;display:inline-block;">'
+                        + '\u26a0 ' + escHtml(o.kategori)
+                        + (o.tilDato ? ' <span style="font-weight:400;opacity:.85;">til '
+                            + escHtml(o.tilDato) + '</span>' : '') + '</div>');
+                }).catch(() => {});
+
                 const adrEl = resultatEl.querySelector(`[data-vkt-adr="${i}"]`);
                 if (adrEl) {
                     let adr = (res.turer || []).map(t => t && t.pasient_adresse).find(a => a && hentPostnr(a)) || '';
@@ -5367,6 +5474,33 @@ document.addEventListener("visibilitychange",inj);
         tegnAdminStatus();                 // Vis "sjekker"-status umiddelbart
         await oppdaterAdminStatus();       // Første admin-sjekk
         await oppdaterRekvisisjonStatus(); // Første rekvisisjon-sjekk
+
+        // ⚠️ SPØRSMÅLET BLE STILT ÉN GANG (Thomas 01.09: «etter at rek og admin er logget inn
+        //    blir de ikke automatisk grønne, men det blir attest»). Attest er PUSH — agenten
+        //    melder seg hvert 3. sekund — mens disse to er PULL, og pullen skjedde bare ved
+        //    oppstart. Logget operatøren inn etterpå, fikk verktøykassen aldri vite det, og
+        //    prikken ble stående grå til hele verktøykassen ble lastet på nytt.
+        //
+        //    Den typiske flyten er «logg inn der borte, kom tilbake hit», så FOKUS er det beste
+        //    signalet: da spør vi i det øyeblikket svaret kan ha endret seg. Intervallet er bare
+        //    et sikkerhetsnett for den som lar planleggeren ligge fremme.
+        let _statusSjekkTs = 0;
+        async function oppdaterInnloggingsstatus(grunn) {
+            if (Date.now() - _statusSjekkTs < 8000) return;   // to kall i samme øyeblikk = ett
+            _statusSjekkTs = Date.now();
+            const foer = adminStatus + '|' + rekStatus;
+            await oppdaterAdminStatus();
+            await oppdaterRekvisisjonStatus();
+            if (foer !== adminStatus + '|' + rekStatus) {
+                console.log(`[VERKTØYKASSE] innloggingsstatus endret (${grunn}): `
+                    + `admin=${adminStatus} rek=${rekStatus}`);
+            }
+        }
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) oppdaterInnloggingsstatus('vindu i fokus');
+        });
+        window.addEventListener('focus', () => oppdaterInnloggingsstatus('fokus'));
+        setInterval(() => oppdaterInnloggingsstatus('intervall'), 60000);
         initNissyAdmin();                  // hvilke admin-seksjoner har DENNE brukeren?
         lastBasicTools(t);                 // Last inline-handlinger (endre tid, etc)
         lastFremmestatus();                // SUTI-seksjon i ressurs-popupen (egen fil, passiv)
