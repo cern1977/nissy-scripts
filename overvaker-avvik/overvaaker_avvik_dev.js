@@ -13,7 +13,7 @@
     //   [ ] Adresse:  Logg kommunenavn i grunn ved manuell godkjenning av kommuneavvik
     //   [ ] Kommune:  Auto-godkjenn ved alternativ adresse match (venter på reelle eksempler)
     //
-    const VERSION = '38.4.75-dev';  // SØKEORD (Thomas 01.09: «rekvirentene er kreative, så vi må sjekke MTP, MTT og kommentarfeltet på henting og levering»). Alle fire feltene var allerede parset — meldPasReise, meldTransport, fraKommentar, tilKommentar — så dette er kun søket, ingen nye oppslag. Ordene vedlikeholdes server-side i ovr_avvik_sokeord.php og redigeres uten utvikler; første ord er «smitte». Treffet vises GULT og sier HVOR ordet sto (MTP/MTT/Hentested/Levering), for uten det må operatøren lete gjennom fire felt selv. ⚠️ Et treff er et SIGNAL, ikke en diagnose: at ordet står der betyr at noen skrev det, ikke at reisen er smitteførende — vi løfter det fram for et menneske og avgjør ingenting. ⚠️ Teksten treffet ble funnet i sendes aldri noe sted; den kan inneholde helseopplysninger  // HOTFIX TDZ: nissySokFra ble brukt fem linjer FØR sin egen const-deklarasjon (innført i 38.4.73). hentDispatchData kastet ved første kall og hele skanningen stoppet — ikke bare dublettsjekken. Meldt av Gunn-Heidi 26.08  //  // FILTERET SATT FAST LIKEVEL: kolonneryddingen (38.4.63) kjører rfilter=<hvert filter> ETTER hentDispatchDatas gjenoppretting, så sesjonen endte på siste skannefilter — min egen fiks fra 38.4.62 ble opphevet av min egen kolonnerydding. Gjenoppretting er nå en gjenbrukbar funksjon som kalles etter ALLE rfilter-serier  // ANTALL LEDSAGERE fra admin (samme kall). Regex kopiert fra omraade_assistent — NB: L-kolonnen i planleggeren er pr RESSURS/samkjørt bil, IKKE pr pasient, så den duger ikke som pasientens ledsagerantall. Tre-tilstand null/0/N  // Behov-badges dempet: ingen rød variant og ingen «Spesialbil/tilgangskrav»-advarsel. Behovene er kontekst, ikke varsel — kortet er allerede rødt fordi det er et avvik  // «Ingen behov» vises nå EKSPLISITT på kortet. Før ga tomt felt ingen linje i det hele tatt, og da kunne «ingen behov» ikke skilles fra «ikke sjekket» — nøyaktig tvetydigheten designet skulle unngå  // FIKS: VIS_VEDTAK_KOLONNE leste CONFIG før den var deklarert (temporal dead zone) → «Cannot access CONFIG before initialization», skriptet startet ikke. Flyttet ned til de andre CONFIG-avledede flaggene  // «Godkjent via vedtak»-kolonnen er default AV (var på i alle dev-bygg). Godkjente saker er ferdig vurdert og skal ikke opp; telleren i statuslinjen står igjen  // KOMMUNEKORTET manglet behov-visningen fra 38.4.66 — behovene var parset og lå i f.adminData, men ble aldri rendret der. Nå badges i header + egen linje, som på adresse- og dublettkortet  // SPESIELLE BEHOV hentes i SAMME admin-kall (ingen ny fetch) + admin-cache per skanning så samme rekvisisjon ikke hentes to ganger. Behov vises som badges på adresse- og dublettkort, og dublettkortet varsler ved ULIKE behov (typisk ombestilling). Tre-tilstand null/tom/koder — «ingen badge» må aldri leses som «ingen behov». BEHOV_PAAVIRKER_ADRESSE er bak flagg, default AV  // RETNING PÅ VENTENDE UTEN ADMIN: hentetiden heter REISETID på ventende (ikke START), så erTur ble null for hele fanen. Nå utledes tur/retur rett fra tabellen — «Hent < Opp ⇒ tur»  // BLIKSUND IKKE LENGER PÅKREVD (operatørtilbakemelding). Feltet står, «Ferdig» er aktiv uten det, og nummeret tas med i NISSY-merknaden når det fylles ut — «Skrevet avvik: 12345.» ellers «Skrevet avvik.». Merk: betingelsen krevde bliksund, så merknaden ville forsvunnet helt for tomme felt  // RYDDER BORT KOLONNENE Avvik aktiverte når skanningen er ferdig (kun de vi selv la til) + Behadr leses ikke lenger, den var ubrukt  // FILTERET LÅSTE SEG: gjenoppretting kjørte kun `if (nissyFilterFra)`, og cookie-regexen (\d+) ga null når operatøren sto på «- Velg filter -». Da ble Avviks siste skannefilter stående i NISSY-sesjonen og festet seg på nytt hver skanning. Nå leses selecten (fasit), tom verdi er gyldig, og gjenoppretting skjer i finally — også ved avbrutt skanning  // VENTENDE FALT UT AV ADRESSESJEKKEN: ventende oppdrag har ÉN kolonne «FraTil» (fra<br>til), ikke to — harFullInfo krevde begge og hoppet over hele fanen. Returer ligger på ventende til de tildeles, så turen dit ble flagget mens returen ikke ble sjekket i det hele tatt. Samme rotårsak som dublett-saken 21.08  // KM-HØSTING: hvert ORS-beregnet par spørres også mot NISSYs manualtrip i bakgrunnen (fire-and-forget, feiler stille, rører ikke Avviks logikk). Bygger ORS-mot-NISSY-grunnlag fra EKTE avvikssaker. Adresser lagres aldri — kun SHA-256 av paret  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
+    const VERSION = '38.4.77-dev';  // SØKET SKJER NÅ ÉN GANG, IKKE TRE (Thomas 01.09). Adresse- og kommunesjekken henter allerede admin-data for hver kandidat, så søket er gratis der — det er hektet på hentAdminData, det ene punktet alle seksjoner går gjennom. Treffene samles på tvers og rapporteres som EGEN linje etter skanningen, ikke blandet inn i funnene: et søkeord er en annen sak enn adressen operatøren søkte på. ⚠️ Kun reqId og hvilke ord/felt som traff lagres — aldri teksten. + «blind» og «dement» satt inaktive: ledelsen har bedt om «smitte» i første omgang  // SØKEORD SOM EGEN SEKSJON (Thomas 01.09: «ser ikke seksjon søkeord her»). Han ba om en seksjon; jeg bygde bare et merke på kortene. Forskjellen er reell: et merke ser du kun på saker som allerede er flagget av en annen grunn, mens seksjonen finner turene der ordet er den ENESTE grunnen til å se nærmere. Krever admin-oppslag per rekvisisjon — de fire tekstfeltene finnes ikke i planleggertabellen — så samme mønster som adressesjekken, med status underveis. Feiler admin, hopper vi over raden i stedet for å påstå at den er ren  // SØKEORD (Thomas 01.09: «rekvirentene er kreative, så vi må sjekke MTP, MTT og kommentarfeltet på henting og levering»). Alle fire feltene var allerede parset — meldPasReise, meldTransport, fraKommentar, tilKommentar — så dette er kun søket, ingen nye oppslag. Ordene vedlikeholdes server-side i ovr_avvik_sokeord.php og redigeres uten utvikler; første ord er «smitte». Treffet vises GULT og sier HVOR ordet sto (MTP/MTT/Hentested/Levering), for uten det må operatøren lete gjennom fire felt selv. ⚠️ Et treff er et SIGNAL, ikke en diagnose: at ordet står der betyr at noen skrev det, ikke at reisen er smitteførende — vi løfter det fram for et menneske og avgjør ingenting. ⚠️ Teksten treffet ble funnet i sendes aldri noe sted; den kan inneholde helseopplysninger  // HOTFIX TDZ: nissySokFra ble brukt fem linjer FØR sin egen const-deklarasjon (innført i 38.4.73). hentDispatchData kastet ved første kall og hele skanningen stoppet — ikke bare dublettsjekken. Meldt av Gunn-Heidi 26.08  //  // FILTERET SATT FAST LIKEVEL: kolonneryddingen (38.4.63) kjører rfilter=<hvert filter> ETTER hentDispatchDatas gjenoppretting, så sesjonen endte på siste skannefilter — min egen fiks fra 38.4.62 ble opphevet av min egen kolonnerydding. Gjenoppretting er nå en gjenbrukbar funksjon som kalles etter ALLE rfilter-serier  // ANTALL LEDSAGERE fra admin (samme kall). Regex kopiert fra omraade_assistent — NB: L-kolonnen i planleggeren er pr RESSURS/samkjørt bil, IKKE pr pasient, så den duger ikke som pasientens ledsagerantall. Tre-tilstand null/0/N  // Behov-badges dempet: ingen rød variant og ingen «Spesialbil/tilgangskrav»-advarsel. Behovene er kontekst, ikke varsel — kortet er allerede rødt fordi det er et avvik  // «Ingen behov» vises nå EKSPLISITT på kortet. Før ga tomt felt ingen linje i det hele tatt, og da kunne «ingen behov» ikke skilles fra «ikke sjekket» — nøyaktig tvetydigheten designet skulle unngå  // FIKS: VIS_VEDTAK_KOLONNE leste CONFIG før den var deklarert (temporal dead zone) → «Cannot access CONFIG before initialization», skriptet startet ikke. Flyttet ned til de andre CONFIG-avledede flaggene  // «Godkjent via vedtak»-kolonnen er default AV (var på i alle dev-bygg). Godkjente saker er ferdig vurdert og skal ikke opp; telleren i statuslinjen står igjen  // KOMMUNEKORTET manglet behov-visningen fra 38.4.66 — behovene var parset og lå i f.adminData, men ble aldri rendret der. Nå badges i header + egen linje, som på adresse- og dublettkortet  // SPESIELLE BEHOV hentes i SAMME admin-kall (ingen ny fetch) + admin-cache per skanning så samme rekvisisjon ikke hentes to ganger. Behov vises som badges på adresse- og dublettkort, og dublettkortet varsler ved ULIKE behov (typisk ombestilling). Tre-tilstand null/tom/koder — «ingen badge» må aldri leses som «ingen behov». BEHOV_PAAVIRKER_ADRESSE er bak flagg, default AV  // RETNING PÅ VENTENDE UTEN ADMIN: hentetiden heter REISETID på ventende (ikke START), så erTur ble null for hele fanen. Nå utledes tur/retur rett fra tabellen — «Hent < Opp ⇒ tur»  // BLIKSUND IKKE LENGER PÅKREVD (operatørtilbakemelding). Feltet står, «Ferdig» er aktiv uten det, og nummeret tas med i NISSY-merknaden når det fylles ut — «Skrevet avvik: 12345.» ellers «Skrevet avvik.». Merk: betingelsen krevde bliksund, så merknaden ville forsvunnet helt for tomme felt  // RYDDER BORT KOLONNENE Avvik aktiverte når skanningen er ferdig (kun de vi selv la til) + Behadr leses ikke lenger, den var ubrukt  // FILTERET LÅSTE SEG: gjenoppretting kjørte kun `if (nissyFilterFra)`, og cookie-regexen (\d+) ga null når operatøren sto på «- Velg filter -». Da ble Avviks siste skannefilter stående i NISSY-sesjonen og festet seg på nytt hver skanning. Nå leses selecten (fasit), tom verdi er gyldig, og gjenoppretting skjer i finally — også ved avbrutt skanning  // VENTENDE FALT UT AV ADRESSESJEKKEN: ventende oppdrag har ÉN kolonne «FraTil» (fra<br>til), ikke to — harFullInfo krevde begge og hoppet over hele fanen. Returer ligger på ventende til de tildeles, så turen dit ble flagget mens returen ikke ble sjekket i det hele tatt. Samme rotårsak som dublett-saken 21.08  // KM-HØSTING: hvert ORS-beregnet par spørres også mot NISSYs manualtrip i bakgrunnen (fire-and-forget, feiler stille, rører ikke Avviks logikk). Bygger ORS-mot-NISSY-grunnlag fra EKTE avvikssaker. Adresser lagres aldri — kun SHA-256 av paret  // ADRESSER: fire felt (navn, gate, postnr, poststed) i stedet for ett — navnet kunne ikke settes manuelt før, så «Romerike Fengsel, avd. Ullersmo» måtte finnes opp igjen etterpå. `adresse` settes fortsatt sammen som «gate, postnr poststed», for matchingen kjører på den  // DUBLETT: velg HVILKEN reise avviket gjelder (radio Reise 1/2); viser 12-sifret REK.NR (ikke turid) i valget — skriver NISSY-merknad kun på valgt resId, godkjenner begge så paret ikke re-flagges
     const TITTEL = 'Overvåker Avvik v' + VERSION;
 
     const CONFIG = {
@@ -221,6 +221,8 @@
     // ⚠️ Vi sender ALDRI teksten treffet ble funnet i noe sted. Den kommer fra en merknad og
     //    kan inneholde helseopplysninger; den vises kun i operatørens eget skjermbilde.
     let _sokeord = [];
+    const _sokeordUnderveis = new Map();   // reqId → treff, samlet på tvers av seksjoner
+
     async function lastSokeord() {
         try {
             const url = `${SERVER_BASE}/ovr_avvik_sokeord.php?action=aktive`
@@ -1166,6 +1168,15 @@
             // Cachen deler ÉN instans mellom k.adminData (Stage 2) og f.adminData (kommune).
             // Frys så en fremtidig .push() ikke lekker mellom kort.
             Object.freeze(resultat.behovKoder); Object.freeze(resultat.behovUkjent); Object.freeze(resultat);
+            // ⚠️ LET ÉN GANG, IKKE TRE (Thomas 01.09: «lurt at vi ser etter det ordet allerede når
+            //    vi skanner adresse og kommune, så vi ikke må lete 3 ganger»). Adresse- og
+            //    kommunesjekken henter allerede admin-data for hver kandidat — da er søket
+            //    gratis her, i det ene punktet ALLE seksjoner går gjennom.
+            //    ⚠️ Vi lagrer bare reqId og hvilke ord/felt som traff. Aldri teksten.
+            try {
+                const t = finnSokeord(resultat);
+                if (t.length) _sokeordUnderveis.set(String(reqId), t);
+            } catch (_) {}
             _adminCache.set(_cacheNokkel, resultat);
             return resultat;
         } catch (e) {
@@ -2893,6 +2904,37 @@
     // ==================================================================
     //    SJEKK: KOMMUNEGRENSE                                          
     // ==================================================================
+    // ══ SØKEORD — egen seksjon ════════════════════════════════════════════════════════
+    // Thomas 01.09 ba om en SEKSJON, ikke bare et merke på kortene. Forskjellen er reell:
+    // et merke ser du bare på saker som allerede er flagget av en annen grunn, mens en
+    // seksjon finner turene der ordet er den ENESTE grunnen til å se nærmere.
+    //
+    // ⚠️ Krever admin-oppslag per rekvisisjon — de fire tekstfeltene finnes ikke i
+    //    planleggertabellen. Derfor samme mønster som adressesjekken: hentAdminData med
+    //    egen cache, og status underveis så operatøren ser at det går fremover.
+    async function sjekkSokeord(rader, statusFn) {
+        const funn = [];
+        if (!_sokeord.length) {
+            console.warn('[SØKEORD] ingen aktive ord — seksjonen har ingenting å lete etter');
+            return funn;
+        }
+        const kandidater = rader.filter(r => r.reqId
+            && !godkjentIMinne.has(r.rekNr) && !godkjentIMinne.has(r.turid));
+        for (let i = 0; i < kandidater.length; i++) {
+            const k = kandidater[i];
+            if (statusFn) statusFn(`Leter etter søkeord... (${i + 1}/${kandidater.length})`);
+            // Er raden allerede sett i en tidligere skanning, ligger admin-dataene i cachen —
+            // hentAdminData svarer da uten nettverk, og treffet er allerede registrert.
+            const admin = k.adminData || await hentAdminData(k.reqId, k.resId);
+            if (!admin) continue;                   // admin nede — vi PÅSTÅR ikke at det er rent
+            k.adminData = admin;
+            const treff = finnSokeord(admin);
+            if (treff.length) funn.push({ ...k, adminData: admin, sokeordTreff: treff });
+        }
+        console.log(`[SØKEORD] ${funn.length} treff av ${kandidater.length} sjekket`);
+        return funn;
+    }
+
     async function sjekkKommune(rader, statusFn) {
         const funn = [];
         const kandidater = rader.filter(r => r.harFullInfo && !godkjentIMinne.has(r.rekNr) && !godkjentIMinne.has(r.turid) && !(r.rmate && ['RFLY', 'HLSX', 'RP'].includes(r.rmate.toUpperCase())));
@@ -3252,11 +3294,26 @@
                 visLasteStatus('Sjekker kommunegrense...');
                 funn = await sjekkKommune(rader, statusFn);
                 break;
+            case 'sokeord':
+                visLasteStatus('Leter etter søkeord...');
+                funn = await sjekkSokeord(rader, statusFn);
+                break;
             default:
                 funn = [];
         }
 
         console.log(`[SKANN] Ferdig: ${sjekkType} -- ${funn.length} funn av ${totalt} rader`);
+        // Søkeord-treff plukket opp underveis i ANDRE seksjoner. Vises som en egen linje, ikke
+        // blandet inn i funnene: de er en annen sak enn adressen eller kommunen operatøren søkte på.
+        if (sjekkType !== 'sokeord' && _sokeordUnderveis.size) {
+            const ord = [...new Set([..._sokeordUnderveis.values()].flat().map(t => t.ord))];
+            console.log(`[SØKEORD] ${_sokeordUnderveis.size} turer med søkeord (${ord.join(', ')}) `
+                + `sett underveis i «${sjekkType}» — kjør Søkeord-seksjonen for å se dem`);
+            loggHandling('SOKEORD_UNDERVEIS', {
+                seksjon: sjekkType,
+                detaljer: JSON.stringify({ turer: _sokeordUnderveis.size, ord })
+            });
+        }
         // Logg skann-snapshot til sentral logg
         const antallAvvik = funn.filter(f => !f.kanskjePostnr).length;
         const antallKanskje = funn.filter(f => f.kanskjePostnr).length;
@@ -4333,6 +4390,11 @@
                         <div class="valg-ikon">&#9888;&#65039;</div>
                         <div class="valg-tittel">Mangler PNR</div>
                         <div class="valg-beskrivelse">Reiser uten personnummer.<br>Krever: PNR-kolonne</div>
+                    </div>
+                    <div class="valg-boks" style="border-color:#ca8a04;" onclick="window._avvikCh.postMessage({type:'SKANN', sjekk:'sokeord'})">
+                        <div class="valg-ikon">&#128269;</div>
+                        <div class="valg-tittel">Søkeord</div>
+                        <div class="valg-beskrivelse">Ord i MTP, MTT og kommentarer.<br>Krever: admin-oppslag</div>
                     </div>
                     <div class="valg-boks kommune" onclick="window._avvikCh.postMessage({type:'SKANN', sjekk:'kommune'})">
                         <div class="valg-ikon">&#128506;&#65039;</div>
