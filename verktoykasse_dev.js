@@ -435,7 +435,7 @@
     // v2.108-dev: FIX «nummer låser seg» (Jan-Tore) — sokTlfINissy/findPatient manglet timeout;
     //             hengende kall låste «Søker...»-knappen permanent (kun F5 frigjorde). AbortController
     //             15 s → feiler tydelig → knapp re-aktiveres, retry uten F5.
-    const VERSJON = '2.220-dev';   // FIX gjentatt «Spesiell oppfølging» (Thomas 01.09: «når man trykker oppdater, gjentar den seg»). insertAdjacentHTML LEGGER TIL, den erstatter ikke — og pasientlista tegnes ikke alltid helt på nytt ved oppdatering, så samme merkelapp hopet seg opp: tre trykk ga tre «Må ha alenebil». Merkelappen har nå en nøkkel per pasient og fjernes før den settes inn på nytt  // SPESIELL OPPFØLGING PÅ PASIENTKORTET (Thomas 01.09). «Må ha alenebil» må operatøren vite FØR hun bestiller, ikke etterpå. Feltene ligger på samme admin-side som folkeregister-adressen, så ingen ny kilde. ⚠️ TO KRAV, begge må holde: haken må være aktiv OG datoen må ikke ha utløpt — en utløpt oppfølging vist som gjeldende er verre enn ingen, den får operatøren til å bestille alenebil for en pasient som ikke lenger trenger det. ⚠️ HTML-en er ØDELAGT: checkbox-taggen lukkes aldri (checked etterfulgt av </td>), så en DOM-parser sluker resten av cellen — leses rått i et avgrenset vindu etter id-en. Kategorien vises som TEKST, ikke kode  // HØSTINGEN NÅDDE BARE 22 309 AV 74 720 og meldte likevel FERDIG (Thomas 01.09). Ni foreldre har 500+ barn — de fem RHF-ene og de tre «privat»-bøttene — og NISSY bygger ikke barnelista når childrenCount >= 500. Vandringen kommer til noden, ser tom liste og går videre; 52 411 noder ligger bak den veggen og var bare i registeret fordi tidligere sveip fant dem via andre innganger. host('alle') henter nå id-lista fra vårt EGET register og går gjennom hver node direkte — vi har jo id-ene. Vandringen beholdes for å oppdage nye. host('mangler') tar bare de som ikke er oppdatert i dag   // HØSTINGEN SENDTE ALDRI e_rekvirering/kommune/profesjon: parseren leste dem, men samlet.push() i tre-vandringen utelot dem, så en full sveip lot kolonnene stå tomme for alle 74 720 (Thomas 01.09). e_rekvirering er NISSYs eget synlighetsfilter — testet 01.09: oppføringer uten den vises ikke i NISSY-søket, uansett hvor i treet de henger   // PRIKKENE BLE ALDRI GRØNNE (Thomas 01.09: «etter at rek og admin er logget inn blir de ikke automatisk grønne, men det blir attest»). Attest er PUSH — agenten melder seg hvert 3. sekund — mens admin og rekvisisjon er PULL, og pullen skjedde BARE ved oppstart. Logget operatøren inn etterpå, fikk verktøykassen aldri vite det: prikken sto grå til hele verktøykassen ble lastet på nytt. Sjekken kjører nå ved FOKUS på planleggervinduet, som er det naturlige signalet — flyten er «logg inn der borte, kom tilbake hit» — pluss et 60 s-intervall som sikkerhetsnett. 8 s demping så to signaler i samme øyeblikk ikke gir to oppslag  // TLF-FALLBACKEN VAR ALDRI FESTET (Thomas 31.08: 973 00 204 ga «ingen pasienter», mens nummeret sto i «Tlf/mobilnr fra EPJ: 97300204»). Retrykallet satte `_raa`, men koden som bygger søkenummeret leser `raaFormat` — flagget ble aldri lest, så gjenforsøket bygde +47 på nytt og sendte NØYAKTIG samme søk. Nettet har sett ut som et sikkerhetsnett siden det ble skrevet og alltid gitt de samme null treffene. NISSY matcher EPJ-feltet litterært, så +47-formen finner aldri et nummer som er lagret uten landkode. Retryen sender nå RENSEDE sifre — Zisson leverer «973 00 204» med mellomrom, som ville bommet av en helt annen grunn. +47 er fortsatt førstevalget: det er eneste som virker for 47-serien (v2.176)  // KOMMUNE OG PROFESJON HØSTES NÅ (28.08). Begge står i NISSYs søketreff og har vært parset i klienten hele tiden, men registeret hadde ingen kolonner for dem og lagre-skriptet kastet dem. Kommunen trengs til primærhelse-regelen — den skal IKKE utledes av postnummeret: poststedet kan hete noe annet enn kommunen (1463 Fjellhamar ligger i Lørenskog), og et postnummer kan krysse kommunegrensen, som er nettopp grensetilfellene regelen handler om. Detaljparseren fanger feltene hvis de finnes der; dev-konsollen dumper etikettene på detaljsiden én gang, så vi vet om de faktisk står der eller bare i søketreffet  // KEEPEREN BRUKTE ~30 SEKUNDER (Thomas 27.08). Klokka var problemet, ikke sveipen: keeperen bodde i en setInterval i PLANLEGGERVINDUET, som ligger bak mens operatøren jobber i rekvisisjons-popupen, og Chrome budsjett-struper timere i vinduer den regner som skjulte. Symptomet stemte — agenten kom tilbake i det man byttet til planleggeren. Taktgiveren er nå en Worker (1s): den lever i egen tråd og meldingene kjører i siden selv om vinduet er skjult. Sveipen er uendret, og setInterval-et beholdes som reserve. Innskytingen gjøres DIREKTE per tikk i stedet for via en intern 300 ms-løkke — den løkka var også en timer i det samme skjulte vinduet og arvet samme struping; å fikse klokka uten løkka hadde vært halve jobben  // DIAGNOSE __vkt_keeperStatus() (Thomas 27.08: «bytter jeg steg i rekvisisjonsmodulen blir skriptet borte, og kommer ikke tilbake før jeg bytter til planlegging og tilbake»). Keeperens Map er en lukket variabel, så spørsmålet var ikke mulig å svare på fra konsollen. Skiller de tre kandidatene: fanen står ikke i Map (ble aldri fanget), timeren strupes fordi planleggervinduet er skjult, eller innskytingen kjører men slår feil. Viser også document.visibilityState  // ULIK KNAPPEHØYDE I FOOTEREN (Thomas 27.08: «størrelsesforskjell på høyden enda»). Knappene bygges i TO filer og hadde drevet fra hverandre — 3px/12px uten line-height i verktoykasse, 3px/10px med line-height:1 i basic_tools. Uten line-height er det skriften og EMOJIENE som bestemmer linjeboksen, og de er ikke like høye: 🔧 og 🕘 og ⚙️ gir hver sin. Alle seks har nå samme låste boks (inline-flex, height:22px, line-height:1), så innholdet ikke kan dytte høyden  // FOOTER-PYNT (Thomas 27.08): verktøy-ikonet 🧰 → 🔧, og søkelogg-telleren fra opphøyd tall til «(3)». vertical-align:super løfter tallet over grunnlinja og linjeboksen vokser med det, så Logg-knappen sto et par piksler høyere enn naboene i rekka. Parentesene ligger utenfor tallspennet, slik at begge stedene som oppdaterer telleren fortsatt kan skrive ren textContent  // PASSERTE REKVISISJONER TELLES IKKE (Thomas 26.08: «den har vært»). Badgen sa «3 rekv» mens lista viste 2 — differansen var en retur fra 14.08 som fortsatt sto «Ny». Tallet var riktig, men svarte på et annet spørsmål enn operatøren stiller. Samme målestokk som pnr-vakten; passerte flyttes til tooltipen, ikke bort   // attest-prikken sto grå selv om agenten meldte seg: fargen hvilte på `.closed` mot et KRYSS-ORIGIN vindu, inne i en try med tom catch — feilet det, ble prikken grå uten et pip. Måler nå tid siden siste heartbeat (10 s vindu), som også fanger en fane som henger uten å være lukket   // «attest-agent klar» ble logget hvert 3. sekund — meldingen er en HEARTBEAT, ikke en hendelse. Logger nå kun tilstandsendring (grå → grønn) og ny versjon   // attest-prikken ble grønn først ved neste status-poll: vkt_attest_klar satte flaggene, men fargen settes i tegnAdminStatus. Males nå med én gang agenten melder seg   // kryss-opprinnelse er en FORVENTET tilstand i attest-flyten (pastrans → attest-ui), ikke en feil. Ga SecurityError hvert 300. ms og fylte konsollen med «feil» mens alt virket. Logges nå én gang per fane, og timeout-varselet er stille når årsaken er kjent   // Rekvisisjon/Admin/Attest som EGNE footer-knapper med hver sin statusprikk (Thomas 26.08) — slipper å åpne menyen for et nytt rekvisisjonsbilde. Delt konfig VKT_SNARVEIER brukes av både menyen og footeren, så de kan ikke divergere. Fast rekkefølge via insertBefore søkelogg-cellen   // footer-prikkene sto grå: tegnAdminStatus() maler alle [data-status-for], men hadde kjørt før knappen fantes og kjører først igjen ved statusENDRING. Kaller den nå når knappen bygges   // påloggingsstatus (admin/rekvisisjon/attest) som prikker på «🧰 Verktøy»-knappen, med skille foran. Kobler seg gratis på eksisterende oppdatering — den treffer [data-status-for] hvor som helst, så prikkene kan aldri komme i utakt med menyens   // tlf-toasten vokser nedover etter at den er plassert (innholdet fylles asynkront), så treff falt ut av vinduet når operatøren hadde dratt den ned. ResizeObserver holder den innenfor viewporten — når nedre kant treffer bunnen, flyttes top opp, altså bygger den oppover. Rører den ikke så lenge den får plass   // NISSY admin-KAPABILITETER (Thomas 26.08: «ikke alle har like mye tilgang»). «admin=true» var bare en sesjonssjekk og sa ingenting om hvilke menypunkter brukeren når — et oppslag mot noe man mangler gir innloggingsside, tom parse og «fant ingen data» i stedet for «du mangler tilgang». Leser nå admin-menyen én gang → window.__vkt_nissyAdmin.har()/mangler()   // «🧰 Verktøy»-knapp i footeren åpner samme meny som skjoldet, og skjoldet kan skjules (vkt_vis_skjold, default PÅ) fra Innstillinger. Menyen forankres nedenfra mot knappen; stopPropagation er påkrevd, ellers lukker skjoldets egen document-lytter menyen i samme klikk
+    const VERSJON = '2.221-dev';   // MEST AKTUELLE TUR MERKES I TLF-TOASTEN (Thomas 02.09: «den mest aktuelle turen er den hun venter på nå — bil på vei, men hun er ikke hentet enda»). Lista sto sortert på klokke, og i eksempelet var utreisen ferdig mens returen — den hun faktisk ventet på — falt gjennom til den GRÅ fallback-teksten «Akseptert». Den ene raden operatøren skulle landet på var altså den blekeste i lista, blekere enn den som var unnagjort. Nå rangeres hvert BEN på tilstand: bil fremme (3) > bil på vei/akseptert uten henting (2) > i bilen (1); ferdig, bomtur og alt som ikke er i dag faller ut. Det høyest rangerte benet på tvers av alle behandlingene får ▸ og dempes aldri. ⚠️ Rangen hviler IKKE på SUTI 3003 alene — ikke alle transportører melder den, og da ville den viktigste raden mistet merket uten at noe var galt; Status-kolonnen er fasit for at en bil har forpliktet seg, 3003 legger bare klokkeslettet på. Parseren fanger nå 3003 (verifisert i fremmestatus.js): kommer den ETTER 1709 er bilen byttet, og forrige bils fremme-tid forkastes  // FIX gjentatt «Spesiell oppfølging» (Thomas 01.09: «når man trykker oppdater, gjentar den seg»). insertAdjacentHTML LEGGER TIL, den erstatter ikke — og pasientlista tegnes ikke alltid helt på nytt ved oppdatering, så samme merkelapp hopet seg opp: tre trykk ga tre «Må ha alenebil». Merkelappen har nå en nøkkel per pasient og fjernes før den settes inn på nytt  // SPESIELL OPPFØLGING PÅ PASIENTKORTET (Thomas 01.09). «Må ha alenebil» må operatøren vite FØR hun bestiller, ikke etterpå. Feltene ligger på samme admin-side som folkeregister-adressen, så ingen ny kilde. ⚠️ TO KRAV, begge må holde: haken må være aktiv OG datoen må ikke ha utløpt — en utløpt oppfølging vist som gjeldende er verre enn ingen, den får operatøren til å bestille alenebil for en pasient som ikke lenger trenger det. ⚠️ HTML-en er ØDELAGT: checkbox-taggen lukkes aldri (checked etterfulgt av </td>), så en DOM-parser sluker resten av cellen — leses rått i et avgrenset vindu etter id-en. Kategorien vises som TEKST, ikke kode  // HØSTINGEN NÅDDE BARE 22 309 AV 74 720 og meldte likevel FERDIG (Thomas 01.09). Ni foreldre har 500+ barn — de fem RHF-ene og de tre «privat»-bøttene — og NISSY bygger ikke barnelista når childrenCount >= 500. Vandringen kommer til noden, ser tom liste og går videre; 52 411 noder ligger bak den veggen og var bare i registeret fordi tidligere sveip fant dem via andre innganger. host('alle') henter nå id-lista fra vårt EGET register og går gjennom hver node direkte — vi har jo id-ene. Vandringen beholdes for å oppdage nye. host('mangler') tar bare de som ikke er oppdatert i dag   // HØSTINGEN SENDTE ALDRI e_rekvirering/kommune/profesjon: parseren leste dem, men samlet.push() i tre-vandringen utelot dem, så en full sveip lot kolonnene stå tomme for alle 74 720 (Thomas 01.09). e_rekvirering er NISSYs eget synlighetsfilter — testet 01.09: oppføringer uten den vises ikke i NISSY-søket, uansett hvor i treet de henger   // PRIKKENE BLE ALDRI GRØNNE (Thomas 01.09: «etter at rek og admin er logget inn blir de ikke automatisk grønne, men det blir attest»). Attest er PUSH — agenten melder seg hvert 3. sekund — mens admin og rekvisisjon er PULL, og pullen skjedde BARE ved oppstart. Logget operatøren inn etterpå, fikk verktøykassen aldri vite det: prikken sto grå til hele verktøykassen ble lastet på nytt. Sjekken kjører nå ved FOKUS på planleggervinduet, som er det naturlige signalet — flyten er «logg inn der borte, kom tilbake hit» — pluss et 60 s-intervall som sikkerhetsnett. 8 s demping så to signaler i samme øyeblikk ikke gir to oppslag  // TLF-FALLBACKEN VAR ALDRI FESTET (Thomas 31.08: 973 00 204 ga «ingen pasienter», mens nummeret sto i «Tlf/mobilnr fra EPJ: 97300204»). Retrykallet satte `_raa`, men koden som bygger søkenummeret leser `raaFormat` — flagget ble aldri lest, så gjenforsøket bygde +47 på nytt og sendte NØYAKTIG samme søk. Nettet har sett ut som et sikkerhetsnett siden det ble skrevet og alltid gitt de samme null treffene. NISSY matcher EPJ-feltet litterært, så +47-formen finner aldri et nummer som er lagret uten landkode. Retryen sender nå RENSEDE sifre — Zisson leverer «973 00 204» med mellomrom, som ville bommet av en helt annen grunn. +47 er fortsatt førstevalget: det er eneste som virker for 47-serien (v2.176)  // KOMMUNE OG PROFESJON HØSTES NÅ (28.08). Begge står i NISSYs søketreff og har vært parset i klienten hele tiden, men registeret hadde ingen kolonner for dem og lagre-skriptet kastet dem. Kommunen trengs til primærhelse-regelen — den skal IKKE utledes av postnummeret: poststedet kan hete noe annet enn kommunen (1463 Fjellhamar ligger i Lørenskog), og et postnummer kan krysse kommunegrensen, som er nettopp grensetilfellene regelen handler om. Detaljparseren fanger feltene hvis de finnes der; dev-konsollen dumper etikettene på detaljsiden én gang, så vi vet om de faktisk står der eller bare i søketreffet  // KEEPEREN BRUKTE ~30 SEKUNDER (Thomas 27.08). Klokka var problemet, ikke sveipen: keeperen bodde i en setInterval i PLANLEGGERVINDUET, som ligger bak mens operatøren jobber i rekvisisjons-popupen, og Chrome budsjett-struper timere i vinduer den regner som skjulte. Symptomet stemte — agenten kom tilbake i det man byttet til planleggeren. Taktgiveren er nå en Worker (1s): den lever i egen tråd og meldingene kjører i siden selv om vinduet er skjult. Sveipen er uendret, og setInterval-et beholdes som reserve. Innskytingen gjøres DIREKTE per tikk i stedet for via en intern 300 ms-løkke — den løkka var også en timer i det samme skjulte vinduet og arvet samme struping; å fikse klokka uten løkka hadde vært halve jobben  // DIAGNOSE __vkt_keeperStatus() (Thomas 27.08: «bytter jeg steg i rekvisisjonsmodulen blir skriptet borte, og kommer ikke tilbake før jeg bytter til planlegging og tilbake»). Keeperens Map er en lukket variabel, så spørsmålet var ikke mulig å svare på fra konsollen. Skiller de tre kandidatene: fanen står ikke i Map (ble aldri fanget), timeren strupes fordi planleggervinduet er skjult, eller innskytingen kjører men slår feil. Viser også document.visibilityState  // ULIK KNAPPEHØYDE I FOOTEREN (Thomas 27.08: «størrelsesforskjell på høyden enda»). Knappene bygges i TO filer og hadde drevet fra hverandre — 3px/12px uten line-height i verktoykasse, 3px/10px med line-height:1 i basic_tools. Uten line-height er det skriften og EMOJIENE som bestemmer linjeboksen, og de er ikke like høye: 🔧 og 🕘 og ⚙️ gir hver sin. Alle seks har nå samme låste boks (inline-flex, height:22px, line-height:1), så innholdet ikke kan dytte høyden  // FOOTER-PYNT (Thomas 27.08): verktøy-ikonet 🧰 → 🔧, og søkelogg-telleren fra opphøyd tall til «(3)». vertical-align:super løfter tallet over grunnlinja og linjeboksen vokser med det, så Logg-knappen sto et par piksler høyere enn naboene i rekka. Parentesene ligger utenfor tallspennet, slik at begge stedene som oppdaterer telleren fortsatt kan skrive ren textContent  // PASSERTE REKVISISJONER TELLES IKKE (Thomas 26.08: «den har vært»). Badgen sa «3 rekv» mens lista viste 2 — differansen var en retur fra 14.08 som fortsatt sto «Ny». Tallet var riktig, men svarte på et annet spørsmål enn operatøren stiller. Samme målestokk som pnr-vakten; passerte flyttes til tooltipen, ikke bort   // attest-prikken sto grå selv om agenten meldte seg: fargen hvilte på `.closed` mot et KRYSS-ORIGIN vindu, inne i en try med tom catch — feilet det, ble prikken grå uten et pip. Måler nå tid siden siste heartbeat (10 s vindu), som også fanger en fane som henger uten å være lukket   // «attest-agent klar» ble logget hvert 3. sekund — meldingen er en HEARTBEAT, ikke en hendelse. Logger nå kun tilstandsendring (grå → grønn) og ny versjon   // attest-prikken ble grønn først ved neste status-poll: vkt_attest_klar satte flaggene, men fargen settes i tegnAdminStatus. Males nå med én gang agenten melder seg   // kryss-opprinnelse er en FORVENTET tilstand i attest-flyten (pastrans → attest-ui), ikke en feil. Ga SecurityError hvert 300. ms og fylte konsollen med «feil» mens alt virket. Logges nå én gang per fane, og timeout-varselet er stille når årsaken er kjent   // Rekvisisjon/Admin/Attest som EGNE footer-knapper med hver sin statusprikk (Thomas 26.08) — slipper å åpne menyen for et nytt rekvisisjonsbilde. Delt konfig VKT_SNARVEIER brukes av både menyen og footeren, så de kan ikke divergere. Fast rekkefølge via insertBefore søkelogg-cellen   // footer-prikkene sto grå: tegnAdminStatus() maler alle [data-status-for], men hadde kjørt før knappen fantes og kjører først igjen ved statusENDRING. Kaller den nå når knappen bygges   // påloggingsstatus (admin/rekvisisjon/attest) som prikker på «🧰 Verktøy»-knappen, med skille foran. Kobler seg gratis på eksisterende oppdatering — den treffer [data-status-for] hvor som helst, så prikkene kan aldri komme i utakt med menyens   // tlf-toasten vokser nedover etter at den er plassert (innholdet fylles asynkront), så treff falt ut av vinduet når operatøren hadde dratt den ned. ResizeObserver holder den innenfor viewporten — når nedre kant treffer bunnen, flyttes top opp, altså bygger den oppover. Rører den ikke så lenge den får plass   // NISSY admin-KAPABILITETER (Thomas 26.08: «ikke alle har like mye tilgang»). «admin=true» var bare en sesjonssjekk og sa ingenting om hvilke menypunkter brukeren når — et oppslag mot noe man mangler gir innloggingsside, tom parse og «fant ingen data» i stedet for «du mangler tilgang». Leser nå admin-menyen én gang → window.__vkt_nissyAdmin.har()/mangler()   // «🧰 Verktøy»-knapp i footeren åpner samme meny som skjoldet, og skjoldet kan skjules (vkt_vis_skjold, default PÅ) fra Innstillinger. Menyen forankres nedenfra mot knappen; stopPropagation er påkrevd, ellers lukker skjoldets egen document-lytter menyen i samme klikk
     // Hardkodet ER_DEV — fila brukes kun for dev-keeper-popup, ikke som prod
     const ER_DEV = true;
     const FLAG = ER_DEV ? '__westbyVerktoykasse_dev' : '__westbyVerktoykasse';
@@ -1356,7 +1356,7 @@
                     });
                 }
                 rader.sort((a, b) => a.ms - b.ms);
-                const suti = { bilFremme: '', hentet: '', levert: '', bomtur: false };
+                const suti = { bilFremme: '', hentet: '', levert: '', paaVei: '', bomtur: false };
                 for (const { rad, kl } of rader) {
                     // Bomtur nullstiller: bilen kom aldri, og en ny bil starter på nytt.
                     if (/>\s*1703\b/.test(rad) || /Bomtur/.test(rad)) {
@@ -1365,11 +1365,19 @@
                     }
                     // Kun BEKREFTEDE hendelser teller — samme vakt som Live har.
                     if (!/Bekreftet/.test(rad)) continue;
+                    // v2.221: 3003 = bil tildelt / PÅ VEI. Verifisert i fremmestatus.js.
+                    // ⚠️ 3003 gjelder HELE BILEN, ikke én passasjer — den sier at et løyve er
+                    // tildelt, ikke at akkurat denne pasienten er på tur. Kommer den ETTER 1709,
+                    // er bilen BYTTET, og forrige bils fremme-tid er ikke lenger gyldig.
+                    if (/>\s*3003\b/.test(rad)) {
+                        suti.paaVei = kl;
+                        if (suti.bilFremme && !suti.hentet) suti.bilFremme = '';
+                    }
                     if (/>\s*1709\b/.test(rad)) { suti.bilFremme = kl; suti.bomtur = false; }
                     if (/>\s*1701\b/.test(rad)) { suti.hentet = kl; suti.bomtur = false; }
                     if (/>\s*1702\b/.test(rad)) { suti.levert = kl; }
                 }
-                if (suti.bilFremme || suti.hentet || suti.levert || suti.bomtur) data.suti = suti;
+                if (suti.bilFremme || suti.hentet || suti.levert || suti.paaVei || suti.bomtur) data.suti = suti;
             }
         } catch (_) { /* SUTI er tilleggsinfo — oppslaget skal virke uten */ }
 
@@ -3749,6 +3757,49 @@
                       .slice(0, maks)
                       .map(b => ({ ...b, passert: b.dato < naa }));
         }
+        // === HVILKEN TUR ER MEST AKTUELL? (v2.221, Thomas 02.09) ===
+        // «Den mest aktuelle turen er den hun venter på nå. Det er bil på vei, men hun er
+        // ikke hentet enda.»
+        //
+        // ⚠️ NÆRMEST I TID ER FEIL KRITERIUM. I eksempelet Thomas viste var utreisen kl. 13:30
+        //    ferdig og returen kl. 15:00 den hun ventet på — men returen sto som «Akseptert»,
+        //    som falt gjennom til den GRÅ fallback-teksten. Den ene raden operatøren skulle
+        //    landet på var altså den blekeste i lista, blekere enn den som var unnagjort.
+        //    Tilstand avgjør, ikke klokka: bil forpliktet + pasient ikke hentet.
+        //
+        // Rangen er også en hastegrad, og rekkefølgen er ikke tilfeldig:
+        //   3  bilen STÅR der og venter på henne (1709)   — hvert minutt koster
+        //   2  bil på vei / akseptert, ikke hentet        — det hun ringer om
+        //   1  hun sitter i bilen (1701 / «Startet»)      — pågår, men hun venter ikke
+        //   0  ferdig, bomtur, eller ikke i dag           — ikke en kandidat
+        function benRang(st, suti, erIDag) {
+            if (!erIDag) return 0;
+            if (suti && suti.bomtur) return 0;
+            if (/^ferdig/i.test(st || '')) return 0;
+            if ((suti && suti.hentet) || /^startet/i.test(st || '')) return 1;
+            if (suti && suti.bilFremme) return 3;
+            // ⚠️ Rangen skal IKKE hvile på 3003 alene. Ikke alle transportører melder den, og
+            //    da ville den viktigste raden mistet merket sitt uten at noe var galt.
+            //    Status-kolonnen er fasit for at en bil har forpliktet seg; 3003 legger bare
+            //    et klokkeslett på det.
+            if ((suti && suti.paaVei) || /akseptert|bekreftet|tildelt|sendt/i.test(st || '')) return 2;
+            return 0;
+        }
+        // Ett ben på tvers av alle behandlingene — ikke ett per rad. Er det uavgjort, vinner
+        // det som kommer først (valgt er sortert stigende, og turen leses før returen).
+        function finnAktuelt(valgt) {
+            let best = null;
+            for (const b of valgt) {
+                const erIDag = fmtDag(b.dato) === 'i dag';
+                const kand = [['tur', b.turStatus, b.turSuti]];
+                if (b.harRetur) kand.push(['retur', b.returStatus, b.returSuti]);
+                for (const [ben, st, su] of kand) {
+                    const r = benRang(st, su, erIDag);
+                    if (r > 0 && (!best || r > best.rang)) best = { beh: b, ben, rang: r };
+                }
+            }
+            return best;
+        }
         function tegnBehandlinger(el, turer) {
             const alle = grupperBehandlinger(turer);
             const valgt = velgNaermeste(alle, 5);
@@ -3791,7 +3842,12 @@
                 const b = [til, tilAdr].filter(Boolean).join(', ');
                 return (a || b) ? ` title="${escHtml((a || '?') + '  →  ' + (b || '?'))}"` : '';
             };
+            // v2.221: én rad peker seg ut — se finnAktuelt(). Merket er bevisst lite: står
+            // det på to rader, er det ikke lenger et svar på «hvilken skal jeg se på?».
+            const aktuelt = finnAktuelt(valgt);
+            const MERKE = '<span title="Turen pasienten venter på nå" style="color:#fbbf24;font-weight:700;">\u25b8</span> ';
             const celler = valgt.map(b => {
+                const erAktuell = (ben) => !!aktuelt && aktuelt.beh === b && aktuelt.ben === ben;
                 const dempet = b.passert;
                 const tipTekst = (b.tid ? 'Oppmøte ' + b.tid : '') + (b.hent ? (b.tid ? ' · ' : '') + 'Hentes ' + b.hent : '')
                     + (b.rekNr ? ' · Rekvisisjon ' + b.rekNr : '');
@@ -3823,8 +3879,11 @@
                 const erStartet = (st) => /^startet/i.test(st || '');
                 const returAktiv = erStartet(b.returStatus);
                 // Turen dempes når den er ferdig, ELLER når returen har tatt over.
-                const demTur   = dempet || erFerdig(b.turStatus) || returAktiv;
-                const demRetur = dempet || erFerdig(b.returStatus);
+                // v2.221: det aktuelle benet dempes ALDRI. Uten dette ville en tur som er
+                // passert i klokka — bilen er forsinket, pasienten står fortsatt og venter —
+                // blitt halvgjennomsiktig nettopp mens den var mest påtrengende.
+                const demTur   = !erAktuell('tur')   && (dempet || erFerdig(b.turStatus) || returAktiv);
+                const demRetur = !erAktuell('retur') && (dempet || erFerdig(b.returStatus));
                 const dimTur   = demTur   ? 'opacity:0.45;' : '';
                 const dimRetur = demRetur ? 'opacity:0.45;' : '';
                 // v2.167: SUTI-hendelsene er mye mer presise enn Status-kolonnen — de sier
@@ -3836,7 +3895,7 @@
                 // «i bilen fra 08:48» lenge etter at pasienten var levert — mens hun i
                 // virkeligheten satt i returbilen (Thomas 21.08). Har returen startet, kan
                 // turen per definisjon ikke være pågående.
-                const statusHtml = (st, uBestilt, suti) => {
+                const statusHtml = (st, uBestilt, suti, aktuell) => {
                     const dmp = (t) => ` <span style="color:#64748b;">· ${t}</span>`;
                     if (suti && suti.bomtur) return ` <span style="color:#f87171;font-weight:600;">· ⚠ bomtur</span>`;
                     // v2.174 (Thomas 21.08): «ikke bestilt» lå i rute-kolonnen, men den har
@@ -3849,21 +3908,27 @@
                     // Ikke startet ennå, men bilen står og venter — det haster for operatøren.
                     if (erIDag && suti && suti.bilFremme && !suti.hentet)
                         return ` <span style="color:#fbbf24;font-weight:600;">· bil fremme ${escHtml(suti.bilFremme)}</span>`;
+                    // v2.221: bilen er tildelt og underveis. Sto som naken «Akseptert» i grått —
+                    // det ordet sier at NOEN har sagt ja, ikke at pasienten venter akkurat nå.
+                    if (erIDag && suti && suti.paaVei && !suti.hentet)
+                        return ` <span style="color:#fbbf24;font-weight:600;">· bil på vei ${escHtml(suti.paaVei)}</span>`;
+                    // Er dette benet det aktuelle, skal statusen leses — ikke dempes bort.
+                    if (aktuell && st) return ` <span style="color:#e2e8f0;font-weight:600;">· ${escHtml(st)}</span>`;
                     return st ? dmp(escHtml(st)) : '';
                 };
                 const turRad =
-                       `<span${tip} style="${dimTur}color:${demTur ? '#94a3b8' : '#38bdf8'};font-weight:600;white-space:nowrap;">${escHtml(fmtDag(b.dato))}${b.tid ? ' ' + escHtml(b.tid) : ''}</span>`
+                       `<span${tip} style="${dimTur}color:${demTur ? '#94a3b8' : '#38bdf8'};font-weight:600;white-space:nowrap;">${erAktuell('tur') ? MERKE : ''}${escHtml(fmtDag(b.dato))}${b.tid ? ' ' + escHtml(b.tid) : ''}</span>`
                      + `<span${ruteTip(b.turFra, b.turTil, b.turFraAdr, b.turTilAdr)} style="${dimTur}color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ruteHtml(b.turFra, b.turTil, b.turFraAdr, b.turTilAdr, b.sted)}</span>`
-                     + `<span${tip} style="${dimTur}color:#94a3b8;white-space:nowrap;">${b.hent ? '🚕 hent ' + escHtml(b.hent) : ''}${statusHtml(b.turStatus, b.uTur, b.turSuti)}</span>`;
+                     + `<span${tip} style="${dimTur}color:#94a3b8;white-space:nowrap;">${b.hent ? '🚕 hent ' + escHtml(b.hent) : ''}${statusHtml(b.turStatus, b.uTur, b.turSuti, erAktuell('tur'))}</span>`;
                 if (!b.harRetur) return turRad;
                 // v2.136-lærdommen står: detaljsiden gir ofte SAMME «Pasient klar fra» for
                 // begge ben. Er tiden lik turens, er den ikke en returtid — da viser vi at
                 // returen finnes, uten å pynte på en tid vi ikke har.
                 const returTid = (b.returHent && b.returHent !== b.hent) ? b.returHent : '';
                 return turRad
-                     + `<span></span>`
-                     + `<span${ruteTip(b.returFra, b.returTil, b.returFraAdr, b.returTilAdr)} style="${dimRetur}color:${returAktiv ? '#f8fafc' : '#cbd5e1'};font-weight:${returAktiv ? '600' : '400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ruteHtml(b.returFra, b.returTil, b.returFraAdr, b.returTilAdr, '')}</span>`
-                     + `<span style="${dimRetur}color:#94a3b8;white-space:nowrap;">${returTid ? '🚕 hent ' + escHtml(returTid) : '<span style=\"color:#64748b;\">tid ikke oppgitt</span>'}${statusHtml(b.returStatus, b.uRetur, b.returSuti)}</span>`;
+                     + `<span style="text-align:right;">${erAktuell('retur') ? MERKE : ''}</span>`
+                     + `<span${ruteTip(b.returFra, b.returTil, b.returFraAdr, b.returTilAdr)} style="${dimRetur}color:${(returAktiv || erAktuell('retur')) ? '#f8fafc' : '#cbd5e1'};font-weight:${(returAktiv || erAktuell('retur')) ? '600' : '400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ruteHtml(b.returFra, b.returTil, b.returFraAdr, b.returTilAdr, '')}</span>`
+                     + `<span style="${dimRetur}color:#94a3b8;white-space:nowrap;">${returTid ? '🚕 hent ' + escHtml(returTid) : '<span style=\"color:#64748b;\">tid ikke oppgitt</span>'}${statusHtml(b.returStatus, b.uRetur, b.returSuti, erAktuell('retur'))}</span>`;
             }).join('');
             el.innerHTML = `<div style="margin-top:5px;padding-left:7px;border-left:2px solid #334155;">
                 <div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:0.3px;margin-bottom:2px;">NÆRMESTE BEHANDLINGER</div>
