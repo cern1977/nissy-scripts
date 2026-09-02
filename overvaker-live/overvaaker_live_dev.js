@@ -17,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.31-dev';
+    const VERSJON_FULL = '6.2.32-dev';
     // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
     //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
     //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
@@ -1521,8 +1521,10 @@ function kjorOvrvaker() {
                 <div class="header">
                     <div style="display:flex; align-items:center; gap:10px;">
                         <h2 style="margin:0;">${TITTEL}</h2>
-                        <!-- Skjult verktøy-seksjon (filter + søk) — kan enkelt aktiveres senere -->
-                        <div id="skjult-verktoy" style="display:none; align-items:center; gap:10px;">
+                        <!-- Filter + søk (Thomas 02.09: «mulighet for å skifte filter er bare skjult»).
+                             Alt bak denne diven har vært intakt hele tiden — velger, BYTT_FILTER-handler
+                             og localStorage-huskingen. Det eneste som manglet var display. -->
+                        <div id="skjult-verktoy" style="display:flex; align-items:center; gap:10px;">
                             <select id="rfilter-valg" onchange="window._popupChannel.postMessage({type:'BYTT_FILTER', filter:+this.value})" style="padding:4px 8px; border:1px solid var(--border-input); border-radius:5px; font-size:13px; background:var(--bg-input); color:white; cursor:pointer; outline:none;">
                                 ${RFILTER_VALG.map(f => `<option value="${f.id}"${f.id === aktivtRfilter ? ' selected' : ''}>${f.navn}</option>`).join('')}
                             </select>
