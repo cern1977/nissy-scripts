@@ -17,7 +17,7 @@ function kjorOvrvaker() {
     // \u2551  - RETUR (fra behandling): >45 min forsinkelse                     \u2551
     // \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d
     
-    const VERSJON_FULL = '6.2.32-dev';
+    const VERSJON_FULL = '6.2.33-dev';
     // v6.2.24-dev: skjul turer fra andre områder — vis kun når HENTEadressen er
     //              innenfor OUS (CONFIG.SKJUL_ANNET_OMRADE). Eks: Drammen→Oslo skjules,
     //              Oslo→Kongsberg vises. KUN Oslo-operatører (gate på kjorekontor).
@@ -1528,11 +1528,16 @@ function kjorOvrvaker() {
                             <select id="rfilter-valg" onchange="window._popupChannel.postMessage({type:'BYTT_FILTER', filter:+this.value})" style="padding:4px 8px; border:1px solid var(--border-input); border-radius:5px; font-size:13px; background:var(--bg-input); color:white; cursor:pointer; outline:none;">
                                 ${RFILTER_VALG.map(f => `<option value="${f.id}"${f.id === aktivtRfilter ? ' selected' : ''}>${f.navn}</option>`).join('')}
                             </select>
+                            <!-- ⚠️ SØKET ER IKKE EN DEL AV FILTERVELGEREN (Thomas 02.09). De lå i
+                                 samme skjulte boks, så begge kom fram da display ble åpnet. Søket
+                                 har sin egen wrapper nå og kan slås på uavhengig. -->
+                            <span id="turid-sok-boks" style="display:none; align-items:center; gap:10px;">
                             <input id="turid-sok" type="text" placeholder="TurID / REK / PNR..."
                                    style="width:140px; padding:5px 8px; border:1px solid var(--border-input); border-radius:5px; font-size:13px; background:var(--bg-input); color:white; outline:none;"
                                    onfocus="this.style.borderColor='#8b5cf6'" onblur="this.style.borderColor='#475569'"
                                    onkeydown="if(event.key==='Enter') window._popupChannel.postMessage({type:'SOK_TURID', turId:this.value.trim()})">
                             <button onclick="var v=document.getElementById('turid-sok').value.trim(); if(v) window._popupChannel.postMessage({type:'SOK_TURID', turId:v})" class="btn" style="background:#8b5cf6;">\ud83d\udd0d</button>
+                            </span>
                         </div>
                         <div id="spinner" class="spinner hidden"></div>
                         <canvas id="ekg-monitor" width="120" height="28" style="margin-left:4px;"></canvas>
